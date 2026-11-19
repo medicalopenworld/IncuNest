@@ -19,6 +19,7 @@
 #include "modules/control/photo_override.h"
 #include "system/power_rails.h"
 #include "modules/control/heater_supply_limit.h"
+#include "modules/control/charge_policy.h"
 #include "SPO2.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/system_clock.h"
@@ -524,6 +525,11 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     (int)g_bq_status.ichg_ma, (unsigned)g_bq_status.idchg_ma,
     (int)g_bq_status.ibus_ma);
 #if (HW_NUM >= 19)
+  {
+    extern volatile uint8_t g_charge_policy_applied;
+    J(",\"chg_policy\":\"%s\"",
+      charge_policy_name((ChargePolicyMode)g_charge_policy_applied));
+  }
   {
     // Fuente y tope del calefactor con el mismo criterio que PID.cpp.
     const bool vbusFresh = g_bq_status_valid &&

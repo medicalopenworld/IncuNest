@@ -36,12 +36,20 @@ static bool     _initialized = false;
 
 // ─── Helpers I2C de bajo nivel ────────────────────────────────────────────────
 
+// millis() de la ultima escritura (intentada) al chip. El detector de red deja
+// de mirar CHRG_OK un rato despues (mains_pin_usable()): el pin baja ~750 ms
+// al escribir la tension de carga aunque la entrada siga presente.
+volatile uint32_t g_bq_last_write_ms = 0;
+
 static bool write_reg16(uint8_t reg, uint16_t value) {
+    g_bq_last_write_ms = millis();
     _i2c->beginTransmission(BQ25730_ADDR);
     _i2c->write(reg);
     _i2c->write((uint8_t)(value & 0xFF));        // Byte bajo (dirección base)
     _i2c->write((uint8_t)((value >> 8) & 0xFF)); // Byte alto (dirección base+1)
-    return (_i2c->endTransmission() == 0);
+    const bool ok = (_i2c->endTransmission() == 0);
+    g_bq_last_write_ms = millis();  // la ventana cuenta desde el final
+    return ok;
 }
 
 static bool read_reg16(uint8_t reg, uint16_t *out) {
@@ -420,6 +428,24 @@ bool charge_status(BQ25730_Status *status) {
                                  * BQ25730_RSNS_NOMINAL_MOHM / BQ25730_RSNS_ACTUAL_MOHM);
 
     return true;
+}
+
+// ─── set_charge_inhibit() / set_charge_current() ─────────────────────────────
+bool set_charge_inhibit(bool inhibit) {
+    if (!_initialized) return false;
+    uint16_t opt0 = 0;
+    if (!read_reg16(BQ25730_REG_CHARGE_OPTION0, &opt0)) return false;
+    const uint16_t want = inhibit ? (uint16_t)(opt0 | BQ25730_OPT0_CHRG_INHIBIT)
+                                  : (uint16_t)(opt0 & ~BQ25730_OPT0_CHRG_INHIBIT);
+    if (want != opt0 && !write_reg16(BQ25730_REG_CHARGE_OPTION0, want)) return false;
+    uint16_t rb = 0;
+    if (!read_reg16(BQ25730_REG_CHARGE_OPTION0, &rb)) return false;
+    return ((rb & BQ25730_OPT0_CHRG_INHIBIT) != 0) == inhibit;
+}
+
+bool set_charge_current(uint16_t current_ma) {
+    if (!_initialized) return false;
+    return write_reg16(BQ25730_REG_CHARGE_CURRENT, calc_charge_current_reg(current_ma));
 }
 
 // ─── set_charge_voltage() ─────────────────────────────────────────────────────

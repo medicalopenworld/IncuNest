@@ -4,7 +4,8 @@
 // hardware.
 //
 // La entrada es "hay red / no hay red" segun el cargador BQ25730 (bit AC_STAT
-// de su registro de estado), leida cada 200 ms por sensors_Task. La salida es la
+// de su registro de estado y, en la V19, su pin CHRG_OK: ver
+// mains_reading_combine()), leida cada 200 ms por sensors_Task. La salida es la
 // condicion que se le da a alarm_machine_condition(). Nada de Arduino aqui: lo
 // ejercitan los tests de host (motherBoard/test/test_mains_detector).
 //
@@ -111,6 +112,37 @@ void mains_detector_init_hold(MainsDetector *d, uint32_t hold_ms);
 // Una lectura del cargador. `reading_valid` es el resultado de charge_status().
 void mains_detector_sample(MainsDetector *d, bool reading_valid, bool ac_present,
                            uint32_t now_ms);
+
+// Una lectura de "hay red" a partir de las fuentes disponibles.
+typedef struct {
+  bool valid;    // alguna fuente ha respondido
+  bool present;  // todas las que han respondido dicen que hay red
+} MainsReading;
+
+// Combina el bit AC_STAT del BQ25730 (registro, por I2C) con el pin CHRG_OK
+// (IO42, solo V19; pin_available = false en placas sin el). Regla:
+//  - valida si responde el registro O hay pin: con el bus I2C colgado, el pin
+//    sigue vigilando la red;
+//  - presente solo si TODAS las fuentes validas dicen que hay red (AND). El
+//    fallo que importa es no avisar de un corte real (201.12.3.103), y una
+//    fuente atascada en "presente" lo taparia; una atascada en "ausente" da la
+//    alarma, que es el lado seguro.
+// Banco V19.A (19/11/2026): al desenchufar, AC_STAT seguia a 1 varios segundos
+// con VBUS ya en 3,4 V, y CHRG_OK estaba ya a 0.
+MainsReading mains_reading_combine(bool reg_valid, bool reg_present,
+                                   bool pin_available, bool pin_present);
+
+// El pin CHRG_OK no es de fiar justo despues de que el firmware escriba en el
+// cargador: banco V19.A (19/11/2026), al escribir la tension de flotacion
+// CHRG_OK bajo 750 ms con los 24 V presentes (AC_STAT no se movio) y daba un
+// falso corte de red. Durante esta ventana tras CUALQUIER escritura al BQ25730
+// el pin no cuenta y decide solo AC_STAT. El doble de lo medido.
+#define MAINS_PIN_BLANK_AFTER_CHARGER_WRITE_MS 1500u
+
+// true si el pin CHRG_OK puede entrar en mains_reading_combine() en `now_ms`.
+// `last_write_ms`: millis() de la ultima escritura al cargador.
+bool mains_pin_usable(bool pin_available, uint32_t now_ms,
+                      uint32_t last_write_ms);
 
 // true si la condicion ALARM_MAINS_INTERRUPTION esta presente en `now_ms`.
 bool mains_detector_condition(const MainsDetector *d, uint32_t now_ms);

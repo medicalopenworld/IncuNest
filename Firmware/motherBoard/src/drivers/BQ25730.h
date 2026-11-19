@@ -175,7 +175,15 @@
 // entrada. Para fuente 24V + batería 12V se deja con holgura (≈12V): así no
 // recorta corriente salvo que la fuente realmente colapse.
 // (12000-3200)/64 = 137 → reg = 137<<6 = 0x2240
+#if (HW_NUM >= 19)
+// V19 (CHANGELOG, firmware 5): con entrada de coche, no tirar de la bateria del
+// coche cuando cae por debajo de ~12,5 V (motor parado). 12544 = 3200 + 146 x 64
+// mV, el primer paso del registro que no queda por debajo de 12,5 V. Con el
+// adaptador de 24 V no influye.
+#define BQ25730_VINDPM_MV 12544
+#else
 #define BQ25730_VINDPM_MV 12000
+#endif
 
 // ─── Estado de carga
 // ──────────────────────────────────────────────────────────
@@ -230,3 +238,10 @@ bool charge_status(BQ25730_Status *status);
 // Solo el bit AC_STAT (una lectura I2C). false si el chip no contesta.
 bool charge_ac_present(bool *present);
 bool set_charge_voltage(uint16_t voltage_mv);
+// CHRG_INHIBIT (bit 0 de ChargeOption0) por lectura-modificacion-escritura y
+// relectura: no toca el resto de la configuracion (PWM_FREQ, EN_LWPWR...).
+bool set_charge_inhibit(bool inhibit);
+// millis() de la ultima escritura al chip (ver mains_pin_usable()).
+extern volatile uint32_t g_bq_last_write_ms;
+// ChargeCurrent (0x02) en mA reales (pasos de 128 mA con 5 mOhm).
+bool set_charge_current(uint16_t current_ma);

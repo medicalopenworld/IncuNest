@@ -389,6 +389,106 @@ void test_mains_seen_then_lost_declares(void) {
   TEST_ASSERT_TRUE(mains_detector_condition(&f, 35000));
 }
 
+// --- combinacion de fuentes: AC_STAT (I2C) y pin CHRG_OK (V19) ---
+// Red presente solo si TODAS las fuentes que responden lo dicen; lectura
+// valida si responde el registro O hay pin. Banco V19.A (19/11/2026): al
+// desenchufar, AC_STAT seguia a 1 varios segundos con VBUS ya en 3,4 V y el pin
+// CHRG_OK ya a 0.
+
+void test_combine_pin_absent_wins_over_stale_register(void) {
+  MainsReading r = mains_reading_combine(true, true, true, false);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_FALSE(r.present);
+}
+
+void test_combine_register_absent_wins_over_pin(void) {
+  MainsReading r = mains_reading_combine(true, false, true, true);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_FALSE(r.present);
+}
+
+void test_combine_both_present(void) {
+  MainsReading r = mains_reading_combine(true, true, true, true);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_TRUE(r.present);
+}
+
+void test_combine_pin_keeps_detector_alive_with_i2c_down(void) {
+  MainsReading r = mains_reading_combine(false, false, true, false);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_FALSE(r.present);
+  r = mains_reading_combine(false, true, true, true);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_TRUE(r.present);
+}
+
+void test_combine_without_pin_is_the_register(void) {
+  MainsReading r = mains_reading_combine(true, true, false, false);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_TRUE(r.present);
+  r = mains_reading_combine(true, false, false, true);
+  TEST_ASSERT_TRUE(r.valid);
+  TEST_ASSERT_FALSE(r.present);
+}
+
+void test_combine_nothing_responds_is_invalid(void) {
+  MainsReading r = mains_reading_combine(false, true, false, true);
+  TEST_ASSERT_FALSE(r.valid);
+  TEST_ASSERT_FALSE(r.present);
+}
+
+// De punta a punta: con el pin, el corte se declara en dos lecturas aunque el
+// registro siga diciendo que hay red.
+void test_pin_declares_cut_while_register_is_stale(void) {
+  uint32_t t = feedN(5, true, 1000);
+  for (int i = 1; i <= 2; ++i) {
+    MainsReading r = mains_reading_combine(true, true, true, false);
+    feed(r.valid, r.present, t + (uint32_t)i * PERIOD_MS);
+  }
+  TEST_ASSERT_TRUE(cond(t + 2 * PERIOD_MS));
+}
+
+// --- el pin CHRG_OK no cuenta justo despues de escribir en el cargador ---
+// Banco V19.A (19/11/2026): al escribir la tension de flotacion, CHRG_OK bajo
+// 750 ms con los 24 V presentes (AC_STAT no se movio) y daba un falso corte.
+
+void test_pin_ignored_right_after_charger_write(void) {
+  TEST_ASSERT_FALSE(mains_pin_usable(true, 10000, 10000));
+  TEST_ASSERT_FALSE(mains_pin_usable(true, 10000 + MAINS_PIN_BLANK_AFTER_CHARGER_WRITE_MS - 1, 10000));
+}
+
+void test_pin_usable_after_blank_window(void) {
+  TEST_ASSERT_TRUE(mains_pin_usable(true, 10000 + MAINS_PIN_BLANK_AFTER_CHARGER_WRITE_MS, 10000));
+}
+
+void test_pin_never_usable_without_pin(void) {
+  TEST_ASSERT_FALSE(mains_pin_usable(false, 50000, 0));
+}
+
+void test_blank_window_survives_millis_wraparound(void) {
+  const uint32_t write = 0xFFFFFF00u;
+  TEST_ASSERT_FALSE(mains_pin_usable(true, write + 200u, write));
+  TEST_ASSERT_TRUE(mains_pin_usable(true, write + MAINS_PIN_BLANK_AFTER_CHARGER_WRITE_MS + 1u, write));
+}
+
+void test_blank_window_covers_measured_glitch(void) {
+  TEST_ASSERT_TRUE(MAINS_PIN_BLANK_AFTER_CHARGER_WRITE_MS >= 2u * 750u);
+}
+
+// De punta a punta: pulso de 750 ms tras una escritura, con AC_STAT a 1: no
+// declara.
+void test_write_glitch_does_not_declare(void) {
+  uint32_t t = feedN(5, true, 1000);
+  const uint32_t write = t + 10;
+  for (int i = 1; i <= 4; ++i) {  // 4 lecturas = 800 ms de pin en bajo
+    const uint32_t now = t + (uint32_t)i * PERIOD_MS;
+    const bool usable = mains_pin_usable(true, now, write);
+    MainsReading r = mains_reading_combine(true, true, usable, false);
+    feed(r.valid, r.present, now);
+    TEST_ASSERT_FALSE(cond(now));
+  }
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_without_condition);
@@ -427,5 +527,18 @@ int main(int, char **) {
   RUN_TEST(test_boot_on_battery_never_declares);
   RUN_TEST(test_single_present_reading_does_not_arm);
   RUN_TEST(test_mains_seen_then_lost_declares);
+  RUN_TEST(test_combine_pin_absent_wins_over_stale_register);
+  RUN_TEST(test_combine_register_absent_wins_over_pin);
+  RUN_TEST(test_combine_both_present);
+  RUN_TEST(test_combine_pin_keeps_detector_alive_with_i2c_down);
+  RUN_TEST(test_combine_without_pin_is_the_register);
+  RUN_TEST(test_combine_nothing_responds_is_invalid);
+  RUN_TEST(test_pin_declares_cut_while_register_is_stale);
+  RUN_TEST(test_pin_ignored_right_after_charger_write);
+  RUN_TEST(test_pin_usable_after_blank_window);
+  RUN_TEST(test_pin_never_usable_without_pin);
+  RUN_TEST(test_blank_window_survives_millis_wraparound);
+  RUN_TEST(test_blank_window_covers_measured_glitch);
+  RUN_TEST(test_write_glitch_does_not_declare);
   return UNITY_END();
 }
