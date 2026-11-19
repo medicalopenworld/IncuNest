@@ -1222,7 +1222,7 @@ static void checkMainsInterruption()
   // El test de fabrica maneja la alimentacion y el cargador a su manera: no
   // declara una alarma real durante la bateria.
   const bool present =
-      !g_factoryTestActive && mains_detector_condition(&g_mains_detector, millis());
+      !ftestSuppressesAlarms() && mains_detector_condition(&g_mains_detector, millis());
   alarm_machine_condition(ALARM_MAINS_INTERRUPTION, present, millis());
 }
 
@@ -1234,7 +1234,7 @@ static void checkBatteryLow()
   extern volatile uint32_t g_batt_report;
   // Nunca con PROTO_BATT_ENABLED = 0 (ver protocol.h): hay equipos con un
   // adaptador de 12 V en los bornes de la bateria, y la daria en falso.
-  const bool present = PROTO_BATT_ENABLED && !g_factoryTestActive &&
+  const bool present = PROTO_BATT_ENABLED && !ftestSuppressesAlarms() &&
                        battery_gauge_report_low(g_batt_report);
   alarm_machine_condition(ALARM_BATTERY_LOW, present, millis());
 }
@@ -1254,8 +1254,8 @@ static void checkNoise()
                            ~alarm_machine_silenced_bitmask() &
                            ~(1u << ALARM_NOISE_HIGH);
   // El test de fabrica hace sonar el zumbador a proposito.
-  g_noise_samples_suppressed = (audible != 0) || g_factoryTestActive;
-  const bool present = !g_factoryTestActive &&
+  g_noise_samples_suppressed = (audible != 0) || ftestSuppressesAlarms();
+  const bool present = !ftestSuppressesAlarms() &&
                        noise_detector_condition(&g_noise_detector, millis());
   alarm_machine_condition(ALARM_NOISE_HIGH, present, millis());
 }

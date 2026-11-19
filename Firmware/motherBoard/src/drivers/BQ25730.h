@@ -159,7 +159,15 @@
 // banco con el ADC y con el balance de potencia de la entrada).
 #define BQ25730_ICHG_MA 1920                // Corriente de carga real [mA]
 #define BQ25730_ICHG_TERM_MA 320            // Umbral fin absorción [mA]
+#if (HW_NUM >= 19)
+// V19 (CHANGELOG, firmware 5): 8 A con el adaptador de 24 V; ILIM_HIZ (R69 =
+// 294k, cambio #5) limita tambien a 8 A por hardware. Con entrada de coche
+// (VBUS < 16 V) el tope es el mismo; el calefactor se limita aparte segun la
+// fuente (heater_supply_limit).
+#define BQ25730_IIN_LIMIT_MA 8000           // Límite entrada máximo [mA real]
+#else
 #define BQ25730_IIN_LIMIT_MA 6400           // Límite entrada máximo [mA real]
+#endif
 // VSYS_MIN: 100 mV/bit + 1000 mV offset → 11000 mV
 #define BQ25730_VSYS_MIN_MV 11000 // 100 × 100 mV + 1000 = 11000 mV
 // VINDPM: 64 mV/bit + 3200 mV offset.

@@ -42,6 +42,15 @@
 #ifdef FTEST_BENCH_DEBUG
 #include "esp_heap_caps.h"
 #include "modules/factory_test/factory_test_api.h"
+#include "driver/gpio.h"
+#include "soc/soc.h"
+#include "soc/gpio_struct.h"
+#include "soc/io_mux_reg.h"
+#include "usb/usb_host.h"
+#include "modules/control/heater_supply_limit.h"
+// HPRT del USB OTG del S3 (TRM: USB OTG en 0x6008_0000, HPRT en +0x440). La
+// cabecera usb_reg.h de este IDF usa SOC_DPORT_USB_BASE sin definirla.
+#define BENCH_USB_OTG_HPRT_REG (0x60080000u + 0x440u)
 #endif
 #include "DriveUpload.h"
 #include "CrashReporter.h"
@@ -542,6 +551,15 @@ void sensors_Task(void *pvParameters) {
                              g_bq_status.vbat_mv, dischg, ichg, charger_dt_ms);
         g_batt_report = battery_gauge_pack(&g_batt_gauge);
         batt_gauge_persist();
+#if (HW_NUM >= 19)
+        // V19: el canal 3 de U8 esta a GND (CHANGELOG #26); la bateria se
+        // mide con el ADC del BQ25730. Corriente con signo: + carga, - descarga
+        // (la misma descarga que usa el indicador de bateria de arriba).
+        if (g_bq_status_valid) {
+          in3.BATTERY_voltage = g_bq_status.vbat_mv / 1000.0;
+          in3.BATTERY_current = ((double)ichg - (double)dischg) / 1000.0;
+        }
+#endif
       }
       // Fallo tecnico del cargador visible: log al cambiar (no en cada pasada)
       // y bandera para telemetria. Con la alarma de red ya declarada y el
@@ -605,6 +623,92 @@ void sensors_Task(void *pvParameters) {
 // logI no se imprime nunca y la consola parece muerta aunque funcione.
 static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
 
+#ifdef FTEST_BENCH_DEBUG
+// ---------------------------------------------------------------------------
+// Prueba de carga de banco ("LOAD,<pct>,<s>"): calefactor en lazo abierto con
+// el ventilador SIEMPRE encendido, para medir carga/descarga de la bateria y
+// el reparto adaptador/bateria del BQ25730. El duty pedido se recorta CADA
+// SEGUNDO con el tope por fuente (heater_supply_limit, el mismo que aplica el
+// PID), asi que desenchufar el adaptador a mitad prueba el tope en vivo.
+// Paradas: aire > 37 C o sin lectura, ventilador < FAN_MIN_RPM tras el
+// arranque, calefactor > 12 A, alarma critica, control encendido, FTEST, tope
+// de tiempo (600 s) o "LOAD,STOP". Al parar: calefactor a 0 y ventilador 10 s
+// mas para enfriar. Usa g_factoryTestActive para que PIDHandler()/turnFans()
+// no pisen los PWM mientras dura, y g_benchLoadActive para que eso NO calle las
+// alarmas de red, bateria baja y ruido (ver hw_selftest.h).
+// ---------------------------------------------------------------------------
+#define BENCH_LOAD_MAX_S 600
+#define BENCH_LOAD_AIR_MAX_C 37.0
+#define BENCH_LOAD_HEATER_MAX_A 12.0
+#define BENCH_LOAD_FAN_SPINUP_MS 8000
+static volatile bool s_loadRunning = false;
+static volatile bool s_loadStop = false;
+static int s_loadPct = 0;
+static int s_loadSecs = 0;
+
+static void benchLoadTask(void *) {
+  extern long lastSuccesfullSensorUpdate[SENSOR_TEMP_QTY];
+  const char *why = "fin de tiempo";
+  // Primero g_benchLoadActive: asi no hay ningun instante con
+  // g_factoryTestActive a true que calle las alarmas (ftestSuppressesAlarms()).
+  g_benchLoadActive = true;
+  g_factoryTestActive = true;
+  ledcWrite(HEATER_PWM_CHANNEL, 0);
+  digitalWrite(ACTUATORS_EN, HIGH);
+  ledcWrite(FAN_PWM_CHANNEL, 0); // Q4 (ventilador antiguo de J3) sin uso
+  ledcWrite(FAN_CTL_PWM_CHANNEL, PWM_MAX_VALUE); // ventilador al 100 %
+  const uint32_t t0 = millis();
+  ESP_LOGW("LOAD", "inicio: %d %% durante %d s (ventilador al 100 %%)", s_loadPct,
+           s_loadSecs);
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    const uint32_t el = millis() - t0;
+    const bool spunUp = el >= BENCH_LOAD_FAN_SPINUP_MS;
+    const bool airFresh =
+        millis() - (uint32_t)lastSuccesfullSensorUpdate[ROOM_DIGITAL_TEMP_SENSOR] < 5000;
+    const double air = in3.temperature[ROOM_DIGITAL_TEMP_SENSOR];
+    if (s_loadStop) { why = "LOAD,STOP"; break; }
+    if (el >= (uint32_t)s_loadSecs * 1000u) { why = "fin de tiempo"; break; }
+    if (!airFresh) { why = "sin lectura de aire"; break; }
+    if (air > BENCH_LOAD_AIR_MAX_C) { why = "aire > 37 C"; break; }
+    if (spunUp && in3.fan_rpm < FAN_MIN_RPM) { why = "ventilador bajo"; break; }
+    if (in3.heater_current > BENCH_LOAD_HEATER_MAX_A) { why = "calefactor > 12 A"; break; }
+    if (ongoingCriticalAlarm()) { why = "alarma critica"; break; }
+    if (in3.actuation != ACTUATION_OFF || in3.phototherapy) { why = "control encendido"; break; }
+    if (factoryTestRunning()) { why = "FTEST"; break; }
+
+    const bool vbusFresh = g_bq_status_valid &&
+                           (millis() - g_bq_status_ms) < HEATER_SUPPLY_VBUS_MAX_AGE_MS;
+    const HeaterSupply sup =
+        heater_supply_classify(mainsPresentPin(), vbusFresh, g_bq_status.vbus_mv);
+    const uint32_t want = (uint32_t)(PWM_MAX_VALUE * s_loadPct / 100);
+    const uint32_t cap = heater_supply_max_pwm(sup, (uint16_t)PWM_MAX_VALUE);
+    // El calefactor espera a que el ventilador haya arrancado.
+    const uint32_t duty = spunUp ? (want < cap ? want : cap) : 0;
+    ledcWrite(HEATER_PWM_CHANNEL, duty);
+    ESP_LOGW("LOAD",
+             "t=%lus duty=%lu/%lu src=%s heat=%.2fA sys=%.2fA sysV=%.2f | "
+             "vbus=%u ibus=%d ichg=%d idchg=%u vbat=%u | rpm=%.0f aire=%.2fC",
+             (unsigned long)(el / 1000), (unsigned long)duty, (unsigned long)cap,
+             heater_supply_name(sup), in3.heater_current, in3.system_current,
+             in3.system_voltage, g_bq_status.vbus_mv, g_bq_status.ibus_ma,
+             g_bq_status.ichg_ma, g_bq_status.idchg_ma, g_bq_status.vbat_mv,
+             in3.fan_rpm, air);
+  }
+  ledcWrite(HEATER_PWM_CHANNEL, 0);
+  ESP_LOGW("LOAD", "parada: %s. Calefactor a 0; ventilador 10 s mas", why);
+  for (int i = 0; i < 10 && !s_loadStop; i++) vTaskDelay(pdMS_TO_TICKS(1000));
+  ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+  ledcWrite(HEATER_PWM_CHANNEL, 0);
+  digitalWrite(ACTUATORS_EN, LOW);
+  g_factoryTestActive = false;
+  g_benchLoadActive = false;
+  ESP_LOGW("LOAD", "terminado");
+  s_loadRunning = false;
+  vTaskDelete(NULL);
+}
+#endif
+
 static void debugConsoleHandle(const char *line) {
 #ifdef FTEST_BENCH_DEBUG
   // Solo en builds de banco (-DFTEST_BENCH_DEBUG): lanza SIM ACT aislado, el
@@ -635,6 +739,261 @@ static void debugConsoleHandle(const char *line) {
       ESP_LOGW(DBGCON_TAG, "MEM: tarea %-13s pila sin usar nunca=%u B", name,
                (unsigned)uxTaskGetStackHighWaterMark(h));
     }
+    return;
+  }
+  // "FTEST"      bateria completa (= HMI,FTEST,START del display).
+  // "FTEST,<id>" un solo test de motherBoard (= HMI,FTEST,RUN,<id>).
+  // "FTEST,ABORT" corta la bateria en curso.
+  // Mismas precondiciones que desde el display (factoryTestPrecheck). El
+  // display tiene que seguir enviando su trama (dead-man de 5 s).
+  // "USBST": registro HPRT del controlador USB OTG en modo host (puerto raiz).
+  // Distingue "no hay nada en el bus" (sin conexion, lineas a 0) de "hay un
+  // dispositivo que tira de D+/D- pero no enumera". bit0 PrtConnSts, bit2
+  // PrtEna, bits 10-11 PrtLnSts (bit10 = D+, bit11 = D-), bit12 PrtPwr.
+  if (strcmp(line, "USBST") == 0) {
+    const uint32_t hprt = REG_READ(BENCH_USB_OTG_HPRT_REG);
+    ESP_LOGW(DBGCON_TAG,
+             "USBST: HPRT=0x%08X conn=%u ena=%u D+=%u D-=%u pwr=%u speed=%u",
+             (unsigned)hprt, (unsigned)(hprt & 1), (unsigned)((hprt >> 2) & 1),
+             (unsigned)((hprt >> 10) & 1), (unsigned)((hprt >> 11) & 1),
+             (unsigned)((hprt >> 12) & 1), (unsigned)((hprt >> 17) & 3));
+    return;
+  }
+  // "FANOD,0|1": PWM del ventilador (FAN_CTL, IO11) en push-pull (0) o en
+  // drenador abierto (1), para la prueba A/B del ventilador de J5.
+  if (strcmp(line, "FANOD,0") == 0 || strcmp(line, "FANOD,1") == 0) {
+    const bool od = line[6] == '1';
+    // pad_driver y no gpio_set_direction(): esta desconecta el LEDC del pin
+    // (ver initPWMGPIO()).
+    GPIO.pin[FAN_CTL].pad_driver = od ? 1 : 0;
+    ESP_LOGW(DBGCON_TAG, "FANOD: IO11 en %s", od ? "drenador abierto" : "push-pull");
+    return;
+  }
+  // "FANPROBE": con el ventilador alimentado (ACTUATORS_EN), mira IO11 suelto
+  // (alta impedancia: un ventilador de 4 hilos con el PWM al aire va al 100 %
+  // y su pull-up interno pone el pin en alto) y luego IO11 a 0. En cada fase:
+  // nivel de IO11 y de IO38, flancos del tacometro en 1 s y corriente por R13.
+  // Levanta g_factoryTestActive mientras dura para que turnFans() no pise los
+  // pines (el mismo mecanismo que el test de fabrica). Bloquea ~8 s.
+  if (strcmp(line, "FANPROBE") == 0) {
+    if (factoryTestRunning()) {
+      ESP_LOGW(DBGCON_TAG, "FANPROBE: hay un FTEST en marcha");
+      return;
+    }
+    extern IncuNest_parameters in3;
+    const bool prevActive = g_factoryTestActive;
+    g_factoryTestActive = true;
+    digitalWrite(ACTUATORS_EN, HIGH);
+    ledcWrite(FAN_PWM_CHANNEL, 0);
+    GPIO.pin[FAN_CTL].pad_driver = 1;            // OD, sin tocar la matriz
+    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[FAN_CTL]);  // para leer el pad
+    for (int phase = 0; phase < 2; phase++) {
+      // fase 0: duty 255 en OD = pin suelto; fase 1: duty 0 = pin a GND.
+      ledcWrite(FAN_CTL_PWM_CHANNEL, phase == 0 ? 255 : 0);
+      vTaskDelay(pdMS_TO_TICKS(3000));
+      const int io11 = gpio_get_level((gpio_num_t)FAN_CTL);
+      int edges = 0;
+      int last = gpio_get_level((gpio_num_t)FAN_SPEED_FEEDBACK);
+      const uint32_t t0 = millis();
+      while (millis() - t0 < 1000) {
+        const int v = gpio_get_level((gpio_num_t)FAN_SPEED_FEEDBACK);
+        if (v != last) {
+          edges++;
+          last = v;
+        }
+        delayMicroseconds(100);
+      }
+      ESP_LOGW(DBGCON_TAG,
+               "FANPROBE %s: IO11=%d IO38=%d flancos_tacometro_1s=%d "
+               "I_fan(R13)=%.3f A fan_rpm=%.0f",
+               phase == 0 ? "IO11 suelto" : "IO11 a GND", io11, last, edges,
+               in3.fan_current, in3.fan_rpm);
+    }
+    ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+    GPIO.pin[FAN_CTL].pad_driver = 1;
+    digitalWrite(ACTUATORS_EN, LOW);
+    g_factoryTestActive = prevActive;
+    return;
+  }
+  // "FANMAX": ventilador a tope 10 s solo por FAN_CTL. ACTUATORS_EN alto (FAN+
+  // a 12 V) e IO11 en push-pull al 100 % (PWM en alto fijo). FAN (IO12, Q4) se
+  // deja a 0. Cada 2 s: corriente por R13, flancos del tacometro y rpm.
+  if (strcmp(line, "FANMAX") == 0) {
+    if (factoryTestRunning()) {
+      ESP_LOGW(DBGCON_TAG, "FANMAX: hay un FTEST en marcha");
+      return;
+    }
+    extern IncuNest_parameters in3;
+    const bool prevActive = g_factoryTestActive;
+    g_factoryTestActive = true;
+    digitalWrite(ACTUATORS_EN, HIGH);
+    GPIO.pin[FAN_CTL].pad_driver = 0;            // push-pull, sin tocar la matriz
+    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[FAN_CTL]);
+    ledcWrite(FAN_CTL_PWM_CHANNEL, 255);
+    ledcWrite(FAN_PWM_CHANNEL, 0);
+    for (int i = 0; i < 5; i++) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      int edges = 0;
+      int last = gpio_get_level((gpio_num_t)FAN_SPEED_FEEDBACK);
+      const uint32_t t0 = millis();
+      while (millis() - t0 < 1000) {
+        const int v = gpio_get_level((gpio_num_t)FAN_SPEED_FEEDBACK);
+        if (v != last) {
+          edges++;
+          last = v;
+        }
+        delayMicroseconds(100);
+      }
+      ESP_LOGW(DBGCON_TAG,
+               "FANMAX t=%ds: IO11=%d IO38=%d flancos_tacometro_1s=%d "
+               "I_fan(R13)=%.3f A fan_rpm=%.0f",
+               (i + 1) * 2, gpio_get_level((gpio_num_t)FAN_CTL), last, edges,
+               in3.fan_current, in3.fan_rpm);
+    }
+    ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+    ledcWrite(FAN_PWM_CHANNEL, 0);
+    GPIO.pin[FAN_CTL].pad_driver = 1;
+    digitalWrite(ACTUATORS_EN, LOW);
+    g_factoryTestActive = prevActive;
+    return;
+  }
+  // "IO11TEST": nivel real del pad de IO11 (FAN_CTL) como GPIO normal, sin
+  // LEDC: salida alta, salida baja, entrada con pull-up y con pull-down, con
+  // FAN+ apagado y encendido. Distingue un pad atado a GND (lee 0 incluso con
+  // salida alta) de un problema de enrutado del LEDC.
+  if (strcmp(line, "IO11TEST") == 0) {
+    if (factoryTestRunning()) {
+      ESP_LOGW(DBGCON_TAG, "IO11TEST: hay un FTEST en marcha");
+      return;
+    }
+    const bool prevActive = g_factoryTestActive;
+    g_factoryTestActive = true;
+    ledcDetachPin(FAN_CTL);
+    for (int pwr = 0; pwr < 2; pwr++) {
+      digitalWrite(ACTUATORS_EN, pwr ? HIGH : LOW);
+      vTaskDelay(pdMS_TO_TICKS(500));
+      gpio_set_direction((gpio_num_t)FAN_CTL, GPIO_MODE_INPUT_OUTPUT);
+      gpio_set_level((gpio_num_t)FAN_CTL, 1);
+      vTaskDelay(pdMS_TO_TICKS(50));
+      const int outHigh = gpio_get_level((gpio_num_t)FAN_CTL);
+      gpio_set_level((gpio_num_t)FAN_CTL, 0);
+      vTaskDelay(pdMS_TO_TICKS(50));
+      const int outLow = gpio_get_level((gpio_num_t)FAN_CTL);
+      pinMode(FAN_CTL, INPUT_PULLUP);
+      vTaskDelay(pdMS_TO_TICKS(50));
+      const int inPu = gpio_get_level((gpio_num_t)FAN_CTL);
+      pinMode(FAN_CTL, INPUT_PULLDOWN);
+      vTaskDelay(pdMS_TO_TICKS(50));
+      const int inPd = gpio_get_level((gpio_num_t)FAN_CTL);
+      pinMode(FAN_CTL, INPUT);
+      vTaskDelay(pdMS_TO_TICKS(50));
+      const int inFloat = gpio_get_level((gpio_num_t)FAN_CTL);
+      ESP_LOGW(DBGCON_TAG,
+               "IO11TEST FAN+ %s: salida_alta=%d salida_baja=%d pullup=%d "
+               "pulldown=%d sin_pull=%d | IO38=%d",
+               pwr ? "ON " : "OFF", outHigh, outLow, inPu, inPd, inFloat,
+               gpio_get_level((gpio_num_t)FAN_SPEED_FEEDBACK));
+    }
+    digitalWrite(ACTUATORS_EN, LOW);
+    pinMode(FAN_CTL, OUTPUT);
+    ledcAttachPin(FAN_CTL, FAN_CTL_PWM_CHANNEL);
+    ledcWrite(FAN_CTL_PWM_CHANNEL, 0);
+    GPIO.pin[FAN_CTL].pad_driver = 1;
+    g_factoryTestActive = prevActive;
+    return;
+  }
+  // "USBLIST": dispositivos que el host USB tiene enumerados ahora mismo, con
+  // VID/PID, clase y numero de configuraciones. Registra un cliente propio
+  // (el aviso NEW_DEV solo llega a los clientes que ya existian al enumerar,
+  // asi que el log de sensorboard_comm puede no haberlo visto).
+  if (strcmp(line, "USBLIST") == 0) {
+    usb_host_client_handle_t cli = NULL;
+    const usb_host_client_config_t cfg = {
+        .is_synchronous = false,
+        .max_num_event_msg = 3,
+        .async = {.client_event_callback =
+                      [](const usb_host_client_event_msg_t *, void *) {},
+                  .callback_arg = NULL},
+    };
+    esp_err_t err = usb_host_client_register(&cfg, &cli);
+    if (err != ESP_OK) {
+      ESP_LOGW(DBGCON_TAG, "USBLIST: usb_host_client_register=%d (host sin instalar?)", err);
+      return;
+    }
+    uint8_t addrs[8];
+    int n = 0;
+    err = usb_host_device_addr_list_fill(sizeof(addrs), addrs, &n);
+    ESP_LOGW(DBGCON_TAG, "USBLIST: %d dispositivo(s) enumerado(s) (err=%d)", n, err);
+    for (int i = 0; i < n; i++) {
+      usb_device_handle_t dev = NULL;
+      if (usb_host_device_open(cli, addrs[i], &dev) != ESP_OK) {
+        ESP_LOGW(DBGCON_TAG, "USBLIST: addr %u no se pudo abrir", addrs[i]);
+        continue;
+      }
+      const usb_device_desc_t *d = NULL;
+      usb_host_get_device_descriptor(dev, &d);
+      if (d) {
+        ESP_LOGW(DBGCON_TAG,
+                 "USBLIST: addr %u VID 0x%04X PID 0x%04X clase 0x%02X bcdDevice 0x%04X "
+                 "configs %u",
+                 addrs[i], d->idVendor, d->idProduct, d->bDeviceClass, d->bcdDevice,
+                 d->bNumConfigurations);
+      }
+      usb_host_device_close(cli, dev);
+    }
+    usb_host_client_deregister(cli);
+    return;
+  }
+  // "LOAD,<pct>,<s>" / "LOAD,STOP": prueba de carga (ver benchLoadTask()).
+  if (strcmp(line, "LOAD,STOP") == 0) {
+    s_loadStop = true;
+    ESP_LOGW(DBGCON_TAG, "LOAD: parada pedida");
+    return;
+  }
+  if (strncmp(line, "LOAD,", 5) == 0) {
+    int pct = -1, secs = -1;
+    if (sscanf(line + 5, "%d,%d", &pct, &secs) != 2 || pct < 0 || pct > 100 ||
+        secs < 1 || secs > BENCH_LOAD_MAX_S) {
+      ESP_LOGW(DBGCON_TAG, "LOAD: uso LOAD,<0-100>,<1-%d>", BENCH_LOAD_MAX_S);
+      return;
+    }
+    if (s_loadRunning || factoryTestRunning() ||
+        in3.actuation != ACTUATION_OFF || in3.phototherapy) {
+      ESP_LOGW(DBGCON_TAG, "LOAD rechazado: ya en marcha, FTEST o control encendido");
+      return;
+    }
+    s_loadPct = pct;
+    s_loadSecs = secs;
+    s_loadStop = false;
+    s_loadRunning = true;
+    if (xTaskCreatePinnedToCore(benchLoadTask, "BENCH_LOAD", 4096, NULL, 2, NULL,
+                                CORE_ID_FREERTOS) != pdPASS) {
+      s_loadRunning = false;
+      ESP_LOGW(DBGCON_TAG, "LOAD: no se pudo crear la tarea");
+    }
+    return;
+  }
+  if (strcmp(line, "FTEST,ABORT") == 0) {
+    factoryTestAbort();
+    ESP_LOGW(DBGCON_TAG, "FTEST: abort pedido");
+    return;
+  }
+  if (strcmp(line, "FTEST") == 0 || strncmp(line, "FTEST,", 6) == 0) {
+    const bool single = line[5] == ',';
+    char *end = nullptr;
+    const long id = single ? strtol(line + 6, &end, 10) : -1;
+    if (single && (end == line + 6 || *end != ' ' || id < 0)) {
+      ESP_LOGW(DBGCON_TAG, "FTEST: id invalido");
+      return;
+    }
+    const int reject =
+        factoryTestPrecheck(single ? (unsigned)id : (unsigned)FTEST_ID_NONE);
+    if (reject >= 0) {
+      ESP_LOGW(DBGCON_TAG, "FTEST rechazado (reject=%d)", reject);
+      return;
+    }
+    const bool ok = single ? factoryTestRunSingle((unsigned)id) : factoryTestStart();
+    ESP_LOGW(DBGCON_TAG, "FTEST %s -> %d", single ? "RUN" : "START", (int)ok);
     return;
   }
   if (strcmp(line, "SIMACT") == 0) {
@@ -1125,6 +1484,11 @@ void setup() {
   // No-op en HW < 19.
   pwr5vSet(true);
 #if (HW_NUM >= 19)
+  // CHANGELOG V19, secuencia de arranque (paso 2): arranque suave de 1,5 ms del
+  // TPS563231 mas el LDO U15 (3v3_ANA). El ADS1110 de la temperatura de piel y
+  // el RX del AFE cuelgan de 3v3_ANA: sin esta espera, initHardware() los
+  // sondea con el raíl todavia subiendo.
+  delay(10);
   // El SIM800C arranca solo al aplicar VBAT (PWRKEY a GND). Se levanta aqui,
   // bastante antes de crear la tarea GPRS, para que cuando empiece a sondear AT
   // el modem lleve ya varios segundos arrancando.

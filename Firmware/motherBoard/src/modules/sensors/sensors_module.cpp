@@ -157,8 +157,12 @@ void currentMonitor() {
       }
 #endif
       in3.USB_current = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
+#if (HW_NUM < 19)
+      // V19: el canal 3 de U8 esta a GND (CHANGELOG #26). BATTERY_current y
+      // BATTERY_voltage salen del ADC del BQ25730 (sensors_Task, main.cpp).
       in3.BATTERY_current =
           measureMeanConsumption(SECUNDARY, BATTERY_SHUNT_CHANNEL);
+#endif
       heaterCurrentSampleSeq++;
     } else if (digitalCurrentSensorPresent[SECUNDARY]) {
       // Chip was found at boot but is not answering now. Leave
@@ -301,8 +305,10 @@ void voltageMonitor() {
     }
     if (digitalCurrentSensorPresent[SECUNDARY]) {
       in3.USB_voltage = measureMeanVoltage(SECUNDARY, USB_SHUNT_CHANNEL);
+#if (HW_NUM < 19) // V19: del BQ25730, ver arriba
       in3.BATTERY_voltage =
           measureMeanVoltage(SECUNDARY, BATTERY_SHUNT_CHANNEL);
+#endif
     }
     lastVoltageMeasurement = millis();
   }
@@ -427,7 +433,11 @@ static float resistanceToTempYSI400(float rntc) {
 // duplicar la fórmula del divisor en dos sitios es pedir que diverjan.
 float adcToResistance(float adcReading_mV) {
   const float rTop = 2260.0f; // Resistencia del divisor (Ω, 0.1%)
-#if (HW_NUM >= 17)
+#if (HW_NUM >= 19)
+  // V19 (CHANGELOG #20): U3 = LM4040AIM3X-2.5 (2,500 V, grado A, 0,1 %),
+  // alimentada desde IO18 a traves de R83 = 470 Ohm.
+  const float vExc = 2.500f;
+#elif (HW_NUM >= 17)
   const float vExc = 2.048f;  // Tensión de excitación (LM4040EIM7-2.0, 2.048 V)
 #else
   const float vExc = 3.3f;    // Tensión de excitación (GPIO, 3.3 V)

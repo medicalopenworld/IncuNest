@@ -209,10 +209,23 @@
 #define PHOTOTHERAPY_SHUNT 5   // miliohms
 #define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
 #define BATTERY_SHUNT 27000   // miliohms
+#elif (HW_NUM >= 19)
+// HW19 (Hardware/Electronics/Motherboard/CHANGELOG.md, V19.A):
+//   - R49 (shunt de V_SYS, canal 1 de U7) = 2 mOhm (C844294), cambio #36. En
+//     la V18 era de 5 mOhm: con 5 aqui el firmware leeria el 40 % de la
+//     corriente de sistema real y el limitador del calefactor
+//     (HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT) se quedaria corto.
+//   - R46 (calefactor, canal 1 de U8) = 2 mOhm con el Kelvin rehecho (#18):
+//     sin factor de correccion ni inversion de signo.
+//   - Canal 3 de U8 a GND (#26): BATTERY_SHUNT no se usa en la V19; la
+//     tension y la corriente de bateria salen del ADC del BQ25730.
+#define SYSTEM_SHUNT 2        // miliohms (R49)
+#define HEATER_SHUNT 2        // miliohms (R46)
+#define FAN_SHUNT 100         // miliohms (R13)
+#define PHOTOTHERAPY_SHUNT 5   // miliohms (R17)
+#define USB_SHUNT 100         // miliohms (R19, humidificador)
+#define BATTERY_SHUNT 27000   // miliohms (sin uso en V19: canal a GND)
 #elif (HW_NUM >= 18)
-// HW19 hereda las resistencias shunt de la V18 salvo que el hardware diga otra
-// cosa: el enunciado de la V19 no las cambia. Si el PcbDoc final las toca, se
-// separa aqui una rama `HW_NUM >= 19` propia.
 // HW18: VSYS_SHUNT+/heater shunt wiring fixed, no more MOSFET-switching-node
 // tap - HEATER_CURRENT_CORRECTION_FACTOR is a HW17-only workaround, not
 // needed here (see HW_NUM == 17 above and sensors_module.cpp's
