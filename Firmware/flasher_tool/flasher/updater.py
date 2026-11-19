@@ -20,6 +20,12 @@ _ASSET_MAP = {
     "motherboard_bootloader.bin":       "motherboard/bootloader.bin",
     "motherboard_partitions.bin":       "motherboard/partitions.bin",
     "motherboard_firmware.bin":         "motherboard/firmware.bin",
+    # motherBoard V19 (IncuNest_V19). La V18 conserva los nombres de siempre
+    # (motherboard_*) para que un flasher antiguo siga bajando la V18; uno
+    # antiguo ignora estos y nunca graba la V19.
+    "motherboard_hw19_bootloader.bin":  "motherboard_hw19/bootloader.bin",
+    "motherboard_hw19_partitions.bin":  "motherboard_hw19/partitions.bin",
+    "motherboard_hw19_firmware.bin":    "motherboard_hw19/firmware.bin",
     "display_hmi_bootloader.bin":       "display_hmi/bootloader.bin",
     "display_hmi_partitions.bin":       "display_hmi/partitions.bin",
     "display_hmi_firmware.bin":         "display_hmi/firmware.bin",
@@ -53,7 +59,7 @@ _ASSET_MAP = {
 # que build de PlatformIO salieron los binarios, para poder refrescarlos sin
 # volver al de distribucion por accidente.
 PIN_MARKER = "NO_SOBRESCRIBIR.txt"
-PIN_BOARD_FOLDERS = ("motherboard", "display_hmi", "sensorboard")
+PIN_BOARD_FOLDERS = ("motherboard", "motherboard_hw19", "display_hmi", "sensorboard")
 
 
 def read_pin(firmware_base: Path, board_folder: str) -> Optional[str]:

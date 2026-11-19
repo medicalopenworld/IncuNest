@@ -95,5 +95,43 @@ def test_el_manifiesto_no_miente_sobre_la_carpeta_anclada(firmware_base, fake_re
 
     assert written['release'] == 'v99.0'
     assert written['pinned'] == {'motherboard': 'IncuNest_V18_factory'}
-    assert not any(name.startswith('motherboard_') for name in written['files'])
+    # Se mira la carpeta de destino y no el prefijo del asset: motherboard_hw19_*
+    # tambien empieza por "motherboard_" y es otra carpeta, sin anclar.
+    assert not any(updater._ASSET_MAP[name].startswith('motherboard/')
+                   for name in written['files'] if name in updater._ASSET_MAP)
+    assert 'motherboard_hw19_firmware.bin' in written['files']
     assert 'display_hmi_firmware.bin' in written['files']
+
+
+# --- motherBoard V19 en la release --------------------------------------
+# release.yml publica la V18 como motherboard_* (los nombres de siempre, para
+# que un flasher antiguo siga funcionando) y la V19 como motherboard_hw19_*.
+
+from flasher import FIRMWARE_FOLDERS, required_files  # noqa: E402
+
+
+def test_la_release_trae_la_v19_a_su_carpeta(firmware_base, fake_release):
+    assert download_latest(firmware_base) is True
+    assert (firmware_base / 'motherboard_hw19' / 'firmware.bin').read_bytes() == _RELEASE_BYTES
+    assert (firmware_base / 'motherboard_hw19' / 'partitions.bin').is_file()
+    assert (firmware_base / 'motherboard_hw19' / 'bootloader.bin').is_file()
+
+
+def test_el_mapa_cubre_todo_lo_que_se_flashea():
+    # ota_data_initial.bin se genera en local (write_initial_ota_data) salvo en
+    # las placas que lo traen de su build; el resto tiene que venir de la release.
+    destinos = set(updater._ASSET_MAP.values())
+    for folder, board in FIRMWARE_FOLDERS:
+        for fname in required_files(board):
+            if fname == 'ota_data_initial.bin':
+                continue
+            assert f'{folder}/{fname}' in destinos, f'{folder}/{fname}'
+
+
+def test_la_carpeta_v19_se_puede_anclar(firmware_base, fake_release):
+    (firmware_base / 'motherboard_hw19').mkdir()
+    (firmware_base / 'motherboard_hw19' / 'firmware.bin').write_bytes(_LOCAL_BYTES)
+    (firmware_base / 'motherboard_hw19' / PIN_MARKER).write_text('env=IncuNest_V19\n')
+    assert download_latest(firmware_base) is True
+    assert (firmware_base / 'motherboard_hw19' / 'firmware.bin').read_bytes() == _LOCAL_BYTES
+    assert (firmware_base / 'motherboard' / 'firmware.bin').read_bytes() == _RELEASE_BYTES

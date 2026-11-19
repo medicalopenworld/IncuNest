@@ -12,7 +12,8 @@ import requests
 from requests.auth import HTTPBasicAuth
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
-from detector import Board
+from detector import Board, MB_HW_V18
+from flasher import board_folder
 
 _BOARD_FOLDER: dict[Board, str] = {
     Board.MOTHERBOARD: 'motherboard',
@@ -89,6 +90,9 @@ class WifiBoard:
     fw_version: str
     hostname: str = ''
     sn: Optional[int] = None
+    # Revision de la motherBoard tal como la declara ella misma ("hw" en
+    # /get_fw_version, motherBoard 18.62.0 en adelante). None: no la declara.
+    hw: Optional[int] = None
 
 
 # The HMI firmware builds its hostname from WIFI_NAME "IncuNest-Display"
@@ -143,6 +147,7 @@ def flash_board_wifi(
     firmware_base: Path,
     progress_cb: Callable[[str, Optional[int]], None],
     timeout_s: float = 120.0,
+    hw: Optional[int] = None,
 ) -> None:
     """Flash firmware.bin to an ESP32 via HTTP OTA POST /update.
 
@@ -151,7 +156,15 @@ def flash_board_wifi(
     configurada lanza MissingCredentials en vez de intentar la subida.
     Raises RuntimeError on auth failure, FAIL response, or unexpected response.
     """
-    fw_path = firmware_base / _BOARD_FOLDER[board] / 'firmware.bin'
+    # motherBoard: el binario de SU revision (hw declarado por la placa). Sin
+    # declaracion (firmware anterior a 18.62.0) se trata como V18, como hasta
+    # ahora; si en realidad es una V19, la placa rechaza la imagen por su marca
+    # (fw_image_tag.h) antes de escribir nada.
+    if board == Board.MOTHERBOARD:
+        folder = board_folder(board, MB_HW_V18 if hw is None else hw)
+    else:
+        folder = _BOARD_FOLDER[board]
+    fw_path = firmware_base / folder / 'firmware.bin'
     if not fw_path.exists():
         raise FileNotFoundError(f'firmware.bin no encontrado: {fw_path}')
 
@@ -223,6 +236,27 @@ def _board_from_declaration(data: dict) -> Optional[Board]:
     if not isinstance(data, dict):
         return None
     return _BOARD_BY_ID.get(str(data.get('board', '')).strip().lower())
+
+
+def _hw_from_declaration(data: dict) -> Optional[int]:
+    """Revision de motherBoard declarada en /get_fw_version ("hw"), o None."""
+    if not isinstance(data, dict):
+        return None
+    try:
+        return int(data.get('hw'))
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_fw_hw(ip: str, timeout: float = 2.0) -> Optional[int]:
+    """GET /get_fw_version y devuelve "hw", o None si no lo declara o falla."""
+    try:
+        resp = requests.get(f'http://{ip}/get_fw_version', timeout=timeout)
+        if resp.status_code == 200:
+            return _hw_from_declaration(resp.json())
+    except Exception:
+        pass
+    return None
 
 
 def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
@@ -303,6 +337,7 @@ def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
             fw_version=_get_fw_version(ip),
             hostname=hostname,
             sn=_sn_from_hostname(hostname),
+            hw=_get_fw_hw(ip),
         )
         for ip, board, hostname in found
     ]
@@ -365,7 +400,8 @@ def _probe_ip(ip: str) -> Optional[WifiBoard]:
             # Firmware without sn field — try OS mDNS reverse lookup
             hostname = _resolve_hostname(ip)
             sn = _sn_from_hostname(hostname)
-        return WifiBoard(ip=ip, board=board, fw_version=fw_version, sn=sn)
+        return WifiBoard(ip=ip, board=board, fw_version=fw_version, sn=sn,
+                         hw=_hw_from_declaration(data))
     except Exception:
         return None
 

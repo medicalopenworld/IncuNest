@@ -78,3 +78,53 @@ def test_entorno_sin_version_va_al_final(pio_dir):
     _env(pio_dir, 'generico')
     _env(pio_dir, 'IncuNest_V17')
     assert pick_pio_env_dir(pio_dir).name == 'IncuNest_V17'
+
+
+# --- Entornos de banco y una revision por carpeta --------------------------
+# IncuNest_V19_bench lleva logs de informacion y la consola de banco de J1
+# (FTEST, LOAD...): nunca se empaqueta. Y con dos revisiones de motherBoard en
+# el flasher, cada carpeta toma SOLO su revision: "la mas alta" metia la V19 en
+# la carpeta de la V18 en cuanto alguien compilaba IncuNest_V19.
+
+from main import BENCH_ENV_SUFFIX  # noqa: E402
+
+
+def test_nunca_elige_un_entorno_de_banco(pio_dir):
+    _env(pio_dir, 'IncuNest_V19', mtime=1000)
+    _env(pio_dir, 'IncuNest_V19' + BENCH_ENV_SUFFIX, mtime=2000)
+    assert pick_pio_env_dir(pio_dir).name == 'IncuNest_V19'
+
+
+def test_solo_banco_devuelve_none(pio_dir):
+    _env(pio_dir, 'IncuNest_V19' + BENCH_ENV_SUFFIX)
+    assert pick_pio_env_dir(pio_dir, hw=19) is None
+
+
+def test_hw18_no_coge_la_v19_aunque_sea_mayor(pio_dir):
+    _env(pio_dir, 'IncuNest_V18', mtime=1000)
+    _env(pio_dir, 'IncuNest_V19', mtime=2000)
+    assert pick_pio_env_dir(pio_dir, hw=18).name == 'IncuNest_V18'
+
+
+def test_hw19_coge_la_v19(pio_dir):
+    _env(pio_dir, 'IncuNest_V18', mtime=2000)
+    _env(pio_dir, 'IncuNest_V19', mtime=1000)
+    assert pick_pio_env_dir(pio_dir, hw=19).name == 'IncuNest_V19'
+
+
+def test_hw19_sin_compilar_devuelve_none_y_no_cae_a_la_v18(pio_dir):
+    _env(pio_dir, 'IncuNest_V18')
+    assert pick_pio_env_dir(pio_dir, hw=19) is None
+
+
+def test_hw18_no_coge_la_v17(pio_dir):
+    # La V17 no se distingue de la V18 por hardware (las dos sin PSRAM) y el
+    # flasher no la soporta: la carpeta de la V18 es solo para IncuNest_V18.
+    _env(pio_dir, 'IncuNest_V17', mtime=2000)
+    assert pick_pio_env_dir(pio_dir, hw=18) is None
+
+
+def test_hw19_tampoco_coge_fabrica(pio_dir):
+    _env(pio_dir, 'IncuNest_V19' + FACTORY_ENV_SUFFIX, mtime=2000)
+    _env(pio_dir, 'IncuNest_V19', mtime=1000)
+    assert pick_pio_env_dir(pio_dir, hw=19).name == 'IncuNest_V19'
