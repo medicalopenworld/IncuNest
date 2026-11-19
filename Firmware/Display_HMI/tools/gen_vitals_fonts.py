@@ -6,11 +6,15 @@ of one instance of a variable font, and lv_font_conv cannot pin variation axes.
 This writes the same C structures lv_font_conv does (LVGL 8, 4 bpp, plain
 bitmaps, no kerning), with FreeType through Pillow as the rasterizer.
 
-Three fonts, written to src/ui/assets/:
+Four fonts, written to src/ui/assets/:
 
   ui_font_vitals_value   48 px  wght 500  opsz 48   "0123456789.-"
   ui_font_vitals_small   20 px  wght 400  opsz 14   "0123456789.-"
-  ui_font_vitals_title   14 px  wght 400  opsz 14   the letters of the titles
+  ui_font_vitals_title   16 px  wght 400  opsz 14   the letters of the titles
+  ui_font_vitals_unit    14 px  wght 400  opsz 14   the letters of the units
+
+The units have a font of their own, and not two more letters in the titles',
+so that the line box of the titles stays the one the rows were laid out with.
 
 Roboto's digits all have the same advance (tabular figures), so a reading does
 not move sideways when it changes; Montserrat's do not.
@@ -40,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(HERE), "src", "ui", "assets")
 DIGITS = "0123456789.-"
 TITLES = sorted(set("PR" "SpO2" "PI %"))
+UNITS = sorted(set("bpm" "%"))
 
 
 def parse_axes(text):
@@ -179,14 +184,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--ttf", required=True, help="RobotoFlex-Regular.ttf (the variable font)")
     ap.add_argument("--value-axes", default="wght=500,opsz=48", help="axes of the 48 px readings")
-    ap.add_argument("--small-axes", default="wght=400,opsz=14", help="axes of the 20 px reading and the titles")
+    ap.add_argument("--small-axes", default="wght=400,opsz=14", help="axes of the 20 px reading, the titles and the units")
     args = ap.parse_args()
     value_axes, small_axes = parse_axes(args.value_axes), parse_axes(args.small_axes)
     value_ttf, value_font = instance(args.ttf, value_axes)
     small_ttf, small_font = instance(args.ttf, small_axes)
     write_font("ui_font_vitals_value", value_ttf, value_font, 48, DIGITS, value_axes, "Roboto Flex")
     write_font("ui_font_vitals_small", small_ttf, small_font, 20, DIGITS, small_axes, "Roboto Flex")
-    write_font("ui_font_vitals_title", small_ttf, small_font, 14, TITLES, small_axes, "Roboto Flex")
+    write_font("ui_font_vitals_title", small_ttf, small_font, 16, TITLES, small_axes, "Roboto Flex")
+    write_font("ui_font_vitals_unit", small_ttf, small_font, 14, UNITS, small_axes, "Roboto Flex")
 
 
 if __name__ == "__main__":
