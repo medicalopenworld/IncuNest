@@ -1092,3 +1092,83 @@ too, so a consumer that only tests whether a value is finite is also covered.
    fault from missing samples.
 
 See `docs/hw19.md`.
+## 28. Bursts of spikes in the pleth trace after a cold power-on, V18 (OPEN — hardware, no firmware mitigation)
+
+Seen on the bench for weeks at least, measured on 2026-11-18. Number 27 is the DNS
+panic of `fix/dns-provisioning-panic`, not merged when this was written.
+
+**Symptom.** On a V18 the pleth trace of the display shows bursts of sharp,
+isolated spikes. A burst lasts between 1 and 5 s on screen and they come about
+every 66 s (65 to 67 s between most of them, 98 s once).
+
+**It depends on how the board was started, not on the firmware.** With the same
+binary (motherBoard 18.60.0), ten minutes with the probe on a simulator:
+
+| Start | Spikes on the display |
+|---|---|
+| Restart after an OTA update | 0 |
+| Cold power-on | 25, in bursts about 66 s apart |
+
+Bench rule that follows: to compare two firmwares on pulse oximetry on a V18,
+start both the same way. A cold start against a restart compares the start, not
+the firmware.
+
+**Where it comes from.** The raw codes of the AFE4490 are already wrong, before
+any processing. After a cold power-on, with a diagnostic build that watched every
+sample of the library (not in the repository):
+
+- A continuous background in the two LED channels: about 120 samples per second
+  that jump more than 1500 counts away from their neighbours (59 069 in 8 min).
+  The two ambient channels stay almost clean.
+- On top of it, every ~66 s, 4 to 9 s with jumps of up to 298 115 counts on a
+  signal of about 1.1 million. These are the bursts seen on the display.
+- After a restart by OTA, same build: none of either in 9 min.
+
+**Ruled out with measurements:**
+
+- The UART link to the display: 0 UART errors and whole, well-formed `CTRL,PPG`
+  lines during the bursts. The spikes arrive in the values, not in the transport.
+- The display's WiFi: with its radio off the bursts go on.
+- The gain changes of the library (HGAC): 11 changes without a spike, and no
+  change during the bursts.
+
+Ruled out without a measurement: reading the library at 50 Hz (18.59.0; the
+bursts were seen before that change), the priority of the sample task (reading
+the code, it is the highest of the board) and the SPI bus (the AFE is alone on
+it).
+
+**Suspected cause, not confirmed: the 2G modem.** The hardware designer points
+at it and says it is fixed in the V19. What supports it: in a capture of another
+V18 the instants of the drops keep a period of 15.0 ms, which is the alias, at
+the 500 Hz of the AFE, of the 4.615 ms frame of GSM. The direct test, a cold
+start with the modem without supply, has not been done: the V18 has no line to
+cut it (`GSM_PWR_EN` exists from the V19 on). How it gets in (the LED supply or
+the radio field) is not known, nor why a restart without a power cycle leaves
+the signal clean.
+
+**Effect on the readings: not measured on IncuNest.** One data point only, from
+another firmware on a V18 with library v0.122 and a simulator at 85 bpm and
+SpO2 99 %, for a single burst of 5 s:
+
+| Quantity | Effect |
+|---|---|
+| SpO2 | no value for 9.4 s (the library withholds it; it does not publish a wrong one) |
+| HR1 | no value for 3.9 s, then up to 88.5 bpm before returning to 85 |
+| HR2, HR3 | none (the pulse rate on screen comes from these two) |
+| PI | +12 % (4.60 to 5.17) |
+| Probe state | applied all the time |
+
+IncuNest carries v0.124 and its bursts repeat, so this is a first reference, not
+a measurement of the product.
+
+**What is pending.**
+
+1. Measure, on IncuNest after a cold power-on, which algorithms are affected and
+   for how long.
+2. Decide with that whether the library should process this interference. It
+   competes with artefacts that no hardware redesign will remove (motion), which
+   come first.
+3. Check a V19 when there is one.
+
+Every unit in the field starts cold, so on a V18 this is the normal case, not a
+corner case.
