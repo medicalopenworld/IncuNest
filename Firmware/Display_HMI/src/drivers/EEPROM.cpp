@@ -26,6 +26,7 @@
 #include <Preferences.h>
 #include "EEPROM_defines.h"
 #include "main.h"
+#include "drivers/hum_en_policy.h"
 
 extern char wifi_ssid[64];
 extern char wifi_pass[64];
@@ -46,8 +47,25 @@ void loaddefaultValues() {
   p.putUChar (HMI_KEY_HUMIDITY,  DEFAULT_HUMIDITY);
   p.putUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
   p.putUChar (HMI_KEY_DARK_MODE, 0);
-  p.putUChar (HMI_KEY_HUM_EN,    0);
+  p.putUChar (HMI_KEY_HUM_EN,    HUM_EN_DEFAULT);
+  p.putUChar (HMI_KEY_HUM_EN_FRC, 1);  // equipo nuevo: ya nace habilitado
   p.putUChar (HMI_KEY_SKIN_EN,   0);
+  p.end();
+}
+
+// Habilita el control de humedad una vez en los equipos que ya traian
+// firmware (ver drivers/hum_en_policy.h).
+static void applyHumEnPolicy() {
+  Preferences p;
+  p.begin(HMI_NS_CFG, false);
+  const HumEnBoot r = hum_en_on_boot(p.isKey(HMI_KEY_HUM_EN_FRC),
+                                     p.isKey(HMI_KEY_HUM_EN),
+                                     p.getUChar(HMI_KEY_HUM_EN, 0));
+  if (r.write) {
+    p.putUChar(HMI_KEY_HUM_EN, r.value);
+    p.putUChar(HMI_KEY_HUM_EN_FRC, 1);
+    ESP_LOGI("HMI", "Control de humedad habilitado por defecto (forzado una vez)");
+  }
   p.end();
 }
 
@@ -131,6 +149,7 @@ void initEEPROM() {
       loaddefaultValues();
     }
   }
+  applyHumEnPolicy();
   recapVariables();
 }
 
@@ -150,7 +169,7 @@ void recapVariables() {
     humValue          = p.getUChar (HMI_KEY_HUMIDITY,  DEFAULT_HUMIDITY);
     photoTimerMinutes = p.getUChar (HMI_KEY_PHOTO_MIN, PHOTO_TIMER_EEPROM_DEFAULT);
     darkMode          = p.getUChar (HMI_KEY_DARK_MODE, 0) != 0;
-    humidityEnabled   = p.getUChar (HMI_KEY_HUM_EN,    0) != 0;
+    humidityEnabled   = p.getUChar (HMI_KEY_HUM_EN,    HUM_EN_DEFAULT) != 0;
     skinPanelEnabled  = p.getUChar (HMI_KEY_SKIN_EN,   0) != 0;
     in3.serialNumber  = p.getInt   (HMI_KEY_SERIAL,    0);
     p.end(); }
