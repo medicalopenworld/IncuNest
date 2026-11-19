@@ -28,6 +28,8 @@ constexpr char HMI_KEY_HUMIDITY[]    = "humidity";
 constexpr char HMI_KEY_PHOTO_MIN[]   = "photo_min";
 constexpr char HMI_KEY_DARK_MODE[]   = "dark_mode";
 constexpr char HMI_KEY_HUM_EN[]      = "hum_en";
+// Marca: hum_en ya se forzo a 1 una vez (drivers/hum_en_policy.h).
+constexpr char HMI_KEY_HUM_EN_FRC[]  = "hum_en_frc";
 constexpr char HMI_KEY_SKIN_EN[]     = "skin_en";
 constexpr char HMI_KEY_VOLUME[]      = "volume";
 constexpr char HMI_KEY_DISP_FREQ[]   = "disp_freq";
