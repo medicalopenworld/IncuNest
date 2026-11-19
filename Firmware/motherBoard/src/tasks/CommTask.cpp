@@ -669,6 +669,14 @@ bool g_hmiEverSeen = false;
 // cada hora; el flag lo levanta parse_line() y lo consume el bucle de
 // Communication_Task, que es el mismo hilo, asi que no hace falta sincronizar.
 static bool s_serviceSendPending = false;
+
+// CTRL,PROBE on request. The probe state goes out when it changes and is not
+// repeated while the probe is applied (CTRL,VIT travels instead), so a display
+// that starts, or asks for the state again, with the probe already on the
+// patient never heard of it: its pulse-oximetry panel stayed hidden until the
+// probe was taken off and put back. Raised by parse_line() on HMI,UI_READY and
+// HMI,REQ,STATE, consumed by the loop of Communication_Task (same thread).
+static bool s_probeSendPending = false;
 constexpr uint32_t SERVICE_BCAST_PERIOD_MS = 3600UL * 1000UL;
 
 static void sendServiceToHMI() {
@@ -721,6 +729,7 @@ void parse_line(const char *line) {
     }
     setHMIConnected(true);
     xSemaphoreGive(hmi_state_req_sem);
+    s_probeSendPending = true;
     // Solo el UI_READY (el display acaba de arrancar): REQ,STATE se repite y
     // no necesita el estado de servicio cada vez.
     if (strcmp(line, "HMI,UI_READY") == 0) s_serviceSendPending = true;
@@ -1472,9 +1481,13 @@ void Communication_Task(void *pvParameters) {
     // to 2 s between two states without contact). incunest_afe4490 already
     // debounces the state (0.2 s), so this cannot flood the link. The repeat
     // every 2 s of that block counts from this line.
+    // Since 18.62.0 it also goes out when the display asks for the state
+    // (s_probeSendPending), whatever the state is: the display decides by the
+    // state it receives, not by edges, so a repeated line changes nothing.
     {
       const ProbeState cur = afe_s.probe_state;
-      if (cur != prev_probe_state) {
+      if (cur != prev_probe_state || s_probeSendPending) {
+        s_probeSendPending = false;
         char probe_msg[20];
         snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n", (uint8_t)cur);
         hmiSerial.print(probe_msg);
