@@ -1092,6 +1092,77 @@ too, so a consumer that only tests whether a value is finite is also covered.
    fault from missing samples.
 
 See `docs/hw19.md`.
+
+## 27. Repeated `PANIC` in the TCP/IP thread while ThingsBoard provisioning cannot resolve its host — FIXED (not yet benched)
+
+Found on the V18 bench board on 2026-11-17 (18.57.0 and 18.58.0, built without
+`Credentials.h`, so `THINGSBOARD_SERVER` is the placeholder `"myURL"`). Five
+crash reports, all `PANIC (4)`, all ending in
+`[WiFi] no se pudo abrir la conexion de provisioning` every ~1.3 s. Uptime
+before the crash: ~39 385 s once on 18.57.0, then ~1 117, ~3 054, ~1 995 and
+~6 230 s on 18.58.0.
+
+*   **What the core dump says** (the last of the five; the other four were not
+    decoded): task `tiT` (lwIP's TCP/IP thread), `LoadProhibited` reading
+    address 0x15, in `tcpip_thread → sys_check_timeouts → dns_timeout_cb →
+    dns_tmr → dns_check_entry → dns_send → udp_sendto`. The `pcb` passed to
+    `udp_sendto` is the value 1, which is what `dns_pcbs[DNS_MAX_SOURCE_PORTS]`
+    reads: index 4 is lwIP's "this entry has no pcb" mark and the variable right
+    after the array is `is_tmr_start`. The DNS timer sent an entry that was
+    marked active while its `pcb_idx` still held that mark. The addresses were
+    translated with the ELF of 18.59.0, not the exact one: lwIP is precompiled,
+    so its code is the same and only displaced (by 0x1d0, the one shift that
+    puts all six return addresses right after a call instruction).
+*   **Cause**: arduino-esp32 2.0.14's `WiFiGenericClass::hostByName()` calls
+    lwIP's raw `dns_gethostbyname()` from the calling task, here the OTA/WiFi
+    task on core 1, with no TCP/IP core lock (`CONFIG_LWIP_TCPIP_CORE_LOCKING`
+    is not set) while the TCP/IP thread runs on core 0. `dns_enqueue()` sets
+    the entry to `DNS_STATE_NEW` before it assigns `pcb_idx`; a DNS timer tick
+    in that gap sends the entry with the stale index. A name that does not
+    resolve is never cached, so every attempt is a fresh enqueue, and the
+    unprovisioned branch of `WIFI_TB_OTA()` called `WIFITBProvision()` on every
+    pass of the OTA task with no wait: ~2 800 lookups an hour (the provisioned
+    branch does 120).
+*   **Confirmed with a sixth core dump** (2026-11-18, 18.60.0, this time with
+    its exact ELF): at the instant of the fault `tiT` is in
+    `dns_tmr → dns_check_entry(0) → dns_send → udp_sendto(pcb=0x1)` and the OTA
+    task is in `WIFITBProvision → … → hostByName("myURL") → dns_gethostbyname →
+    dns_enqueue → dns_alloc_pcb → dns_alloc_random_port → udp_bind`, that is,
+    inside the gap. The gap is not a few instructions: it spans `udp_new()` and
+    `udp_bind()`, and the OTA task (priority 4) can be preempted inside it,
+    which fits a crash about once an hour better than the first estimate did
+    (that fit is reasoning, not a measurement).
+*   **Impact**: not limited to the placeholder credentials. An unprovisioned
+    unit on a WiFi network whose DNS fails (no uplink, captive portal, filtered
+    network) ran the same loop. A provisioned unit only looks the host up once
+    every 30 s while its ThingsBoard link is down, so it was exposed far less.
+    While it looped, the OTA task was inside `hostByName()` almost all the time.
+*   **Fix (18.64.0)**, two parts:
+    1.  Every DNS lookup runs inside the TCP/IP thread. The link wraps
+        `dns_gethostbyname` (`-Wl,--wrap`, `platformio.ini`) and
+        `src/system/lwip_dns_guard.cpp` forwards the call with
+        `tcpip_api_call()`. This removes the cause, whatever the interleaving
+        was, and covers every caller (the core, the libraries), not only
+        provisioning. The flag and the file go together.
+    2.  Provisioning attempts that fail before the request is out wait 5 s,
+        10 s ... up to 5 min (`modules/util/retry_backoff`), and start again at
+        once when the WiFi reconnects. Not a cure by itself: it stops the
+        hammering and the log line every 1.3 s.
+*   **Bench so far** (2026-11-18, V18, unprovisioned, no `Credentials.h`):
+    81 min without a restart. The attempts show from outside as a ~1.3 s stall
+    of the web server (same task): after the first ones they came 80 s, 160 s
+    and then 300 s apart, every time, where there used to be one every 1.3 s;
+    `/debug/state` answers in 0.2 s instead of ~1.6 s. Each lookup returns as
+    before, so the wrapper does not hang the resolver.
+*   **Still to verify**: a night without restarts (81 min is not proof: the
+    board used to last 56 min on average, with one run of 11 h). A faster check
+    is a temporary console command that looks up a name that does not resolve
+    in a tight loop, with and without the linker flag.
+*   **Still there, not touched**: `hostByName()` gives up after 15 s but lwIP
+    keeps the pointer to its result, which can be gone when a late answer
+    arrives. The HMI uses the same core and was not reviewed for this. The 3.x
+    core resolves through `lwip_getaddrinfo()` and has none of it.
+
 ## 28. Bursts of spikes in the pleth trace after a cold power-on, V18 (OPEN — hardware, no firmware mitigation)
 
 Seen on the bench for weeks at least, measured on 2026-11-18. Number 27 is the DNS
