@@ -73,7 +73,7 @@
 // Con tres componentes deja de parecer un numero y se queda como texto.
 // Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
 // por igualdad y el flash tool elige por la revision de HW del entorno.
-#define FWversion "18.59.1"
+#define FWversion "18.64.0"
 #define WIFI_NAME "IncuNest"
 // Titulo del firmware en ThingsBoard (OTA por MQTT). ThingsBoard solo ofrece un
 // paquete cuyo titulo coincide con el que declara la unidad, asi que una V19
@@ -92,12 +92,20 @@
 #define DEFAULT_WIFI_EN ON
 
 #define LOG_MODEM_DATA true
+// LOG_INFORMATION / LOG_ERRORS / LOG_CHARGER se pueden encender desde
+// platformio.ini (entorno de banco IncuNest_V19_bench) sin tocar este fichero.
+#ifndef LOG_INFORMATION
 #define LOG_INFORMATION false
+#endif
+#ifndef LOG_ERRORS
 #define LOG_ERRORS false
+#endif
 #define LOG_ALARMS true
 #define LOG_PULSIOXIMETRY false
 #define LOG_DRIVE false // Google Drive upload + MB/HMI crash capture
+#ifndef LOG_CHARGER
 #define LOG_CHARGER false
+#endif
 
 #define USE_SYSTEM_WITHOUT_ACTUATORS_TEST \
   true // only if previous test was OK and that fail cause is not being able to

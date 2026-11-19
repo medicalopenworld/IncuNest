@@ -216,9 +216,21 @@ Enviado cada 1 segundo (intercalado con STATE).
   presentación no cambia el control.
 
 #### CTRL,PROBE (Estado de contacto de la sonda SpO2)
-Enviado cada 2 segundos **mientras el estado no sea `2` (APPLIED)**, y una vez
-de forma inmediata en la transición a `2`. Mientras hay contacto válido no se
-repite: en su lugar viaja `CTRL,VIT`.
+Enviado de forma inmediata **en cada cambio de estado**, y además cada
+2 segundos **mientras el estado no sea `2` (APPLIED)**. Mientras hay contacto
+válido no se repite: en su lugar viaja `CTRL,VIT`.
+
+También se envía, sea cual sea el estado, **cuando el display pide el estado**
+(`HMI,UI_READY` al arrancar y `HMI,REQ,STATE`), desde la motherBoard 18.63.0.
+Sin esto, un display que arrancaba con la sonda ya colocada no recibía nunca el
+estado `2` y dejaba oculto el panel de pulsioximetría hasta que la sonda se
+quitaba y se volvía a poner.
+
+Hasta la motherBoard 18.62.0 solo era inmediata la transición a `2`. Las demás
+esperaban al bloque de 1 Hz: hasta 1 s al retirar la sonda y hasta 2 s entre
+dos estados sin contacto. La librería filtra los cambios de estado (0,2 s), así
+que el aviso inmediato no puede inundar el enlace. La repetición de 2 s se
+cuenta desde el último aviso enviado.
 **Formato**: `CTRL,PROBE,state`
 
 - `state` es el valor crudo del enum `ProbeState` de la librería
@@ -931,8 +943,8 @@ observan un estado ya cacheado por otra tarea o una petición asíncrona ya en
 vuelo: `charger`, `env_sensor`, `sb_status`, `sb_camera`, `gsm_at`, `gsm_sim`,
 `gsm_signal`, `gsm_net`, `wifi`, `tb_provision`, `time` y los instantáneos
 `sysinfo`, `ina3221`, `skin_adc`, `hmi_link`, `nvs`, `littlefs`, `power_src`,
-`humid_usb`, `sb_door`, `afe_probe`, `sim_act`) y **ACTIVOS** (`standby`, `actuators`,
-`fan_rpm`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
+`sb_door`, `afe_probe`, `sim_act`) y **ACTIVOS** (`standby`, `actuators`,
+`fan_rpm`, `humid_usb`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
 ascendente de id: `sb_env`/`sb_light` van al final para dar tiempo a que
 `env_sensor` resuelva la cascada `sb_usb` en paralelo). Al arrancar `START`,
 la motherBoard emite `RUNNING` de **todos** los pasivos a la vez y arranca un
@@ -1014,7 +1026,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 11 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s; SKIP `sin usb` | |
 | 12 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
 | 13 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
-| 14 | humid_usb | **omitido por ahora** (`SKIP`, detail `omitido`): el jig de fábrica todavía no puede medir el humidificador; no toca `USB_EN` | |
+| 14 | humid_usb | **activo** (desde el banco de la V19.A, 19/11/2026): enciende el humidificador (`USB_EN`) 5 s y mide su corriente por R19 (canal USB del INA3221 secundario, lecturas de `sensors_Task`); PASA si el incremento sobre el reposo está entre 20 y 800 mA y `USB_FAULT` no se activa. Detail `i=<mA> base=<mA>` (+` FAULT`) | |
 | 15 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → **SKIP** `sin microfono` (ya no pregunta al operario, camino CONFIRM retirado) | |
 | 16 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
 | 17 | afe_probe | sonda SpO2 conectada | ✓ |

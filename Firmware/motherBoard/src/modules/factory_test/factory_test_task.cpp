@@ -146,6 +146,7 @@ static uint32_t s_testStartMs = 0;
 static bool s_abortReasonLogged = false;
 
 volatile bool g_factoryTestActive = false;
+volatile bool g_benchLoadActive = false;
 
 bool factoryTestRunning(void) { return s_running; }
 
@@ -387,6 +388,11 @@ void ftest_emit(unsigned id, FtestStatus st, const char *detail) {
     logE("[FTEST] resultado id=" + String(id) + " no cabe en la linea");
     return;
   }
+#ifdef FTEST_BENCH_DEBUG
+  // Banco: cada linea tambien por la UART de depuracion (J1), para leer la
+  // bateria sin depender de la pantalla del display.
+  ESP_LOGW("FTEST", "%s", line);
+#endif
   CommunicationHost_EnqueueWait(line, FTEST_EMIT_WAIT_MS);
 }
 

@@ -9,7 +9,7 @@ import esptool
 
 import esptool_io
 import nvs_gen
-from detector import Board
+from detector import Board, MB_HW_V18, MB_HW_V19
 
 
 _BOARD_FOLDER = {
@@ -17,6 +17,42 @@ _BOARD_FOLDER = {
     Board.DISPLAY_HMI: 'display_hmi',
     Board.SENSORBOARD: 'sensorboard',
 }
+
+# Una carpeta por revision de motherBoard. La V18 se queda en 'motherboard' para
+# no romper las releases ni los data/firmware/ que ya existen; la V19 tiene la
+# suya. Que revision toca la decide el hardware (detector.detect_motherboard_hw),
+# nunca lo que haya compilado en el PC: el binario de una revision en la otra no
+# sirve (V18 en una V19: el display se queda sin 5 V).
+MB_FOLDER_BY_HW = {
+    MB_HW_V18: 'motherboard',
+    MB_HW_V19: 'motherboard_hw19',
+}
+
+# Todas las carpetas de data/firmware/ que el flasher sabe flashear, con su
+# placa (para saber que ficheros lleva cada una).
+FIRMWARE_FOLDERS: tuple[tuple[str, Board], ...] = (
+    (MB_FOLDER_BY_HW[MB_HW_V18], Board.MOTHERBOARD),
+    (MB_FOLDER_BY_HW[MB_HW_V19], Board.MOTHERBOARD),
+    (_BOARD_FOLDER[Board.DISPLAY_HMI], Board.DISPLAY_HMI),
+    (_BOARD_FOLDER[Board.SENSORBOARD], Board.SENSORBOARD),
+)
+
+
+def board_folder(board: Board, hw: Optional[int] = None) -> str:
+    """Carpeta de data/firmware/ para esa placa (y revision, si es motherBoard).
+
+    Una motherBoard sin revision conocida es un ValueError: no hay forma de
+    saber que binario le toca, y adivinar es justo lo que no se puede hacer.
+    """
+    if board == Board.MOTHERBOARD:
+        folder = MB_FOLDER_BY_HW.get(hw)
+        if folder is None:
+            raise ValueError(
+                f"Revision de motherBoard desconocida ({hw!r}): no se flashea."
+            )
+        return folder
+    return _BOARD_FOLDER[board]
+
 
 _BOARD_BEFORE_RESET = {
     Board.MOTHERBOARD: 'default-reset',
@@ -90,13 +126,13 @@ def required_files(board: Board) -> list[str]:
 
 
 def missing_files(firmware_base: Path) -> dict[str, list[str]]:
-    """Devuelve {carpeta → ficheros que faltan} para las tres placas.
+    """Devuelve {carpeta → ficheros que faltan} para todas las carpetas de firmware.
 
     Sirve para que un hueco salga en el registro al refrescar los binarios y no
     en un FileNotFoundError delante de la placa, en fabrica.
     """
     out: dict[str, list[str]] = {}
-    for board, folder in _BOARD_FOLDER.items():
+    for folder, board in FIRMWARE_FOLDERS:
         absent = [
             fname for fname in required_files(board)
             if not (firmware_base / folder / fname).is_file()
@@ -117,7 +153,7 @@ def write_initial_ota_data(firmware_base: Path) -> list[str]:
     Devuelve las carpetas escritas.
     """
     written: list[str] = []
-    for board, folder in _BOARD_FOLDER.items():
+    for folder, board in FIRMWARE_FOLDERS:
         if _OTA_DATA_NAME not in required_files(board):
             continue
         dest = firmware_base / folder / _OTA_DATA_NAME
@@ -208,7 +244,8 @@ def serial_to_write(current: Optional[int], requested: int) -> Optional[int]:
     return None if current is not None and requested == current else requested
 
 
-def read_device_serial(port: str, firmware_base: Path) -> Optional[int]:
+def read_device_serial(port: str, firmware_base: Path,
+                       hw: int = MB_HW_V18) -> Optional[int]:
     """Numero de serie que la placa ya tiene en NVS, o None si no se puede leer.
 
     Sirve para NO reescribir la NVS cuando el serial no cambia. Escribirla
@@ -223,7 +260,9 @@ def read_device_serial(port: str, firmware_base: Path) -> Optional[int]:
     None significa "no se sabe" (placa virgen, lectura fallida): el llamante
     tiene que asumir lo peor y avisar antes de escribir.
     """
-    folder = firmware_base / _BOARD_FOLDER[Board.MOTHERBOARD]
+    # V18 y V19 comparten tabla de particiones (ESP32S3_8MB.csv); se lee la de
+    # la revision por si algun dia se separan.
+    folder = firmware_base / board_folder(Board.MOTHERBOARD, hw)
     offset, size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
 
     fd, tmp = tempfile.mkstemp(suffix='.bin')
@@ -255,8 +294,11 @@ def flash_board(
     firmware_base: Path,
     progress_callback: Callable[[str, Optional[int]], None],
     serial_number: Optional[int] = None,
+    hw: Optional[int] = None,
 ) -> None:
-    folder = firmware_base / _BOARD_FOLDER[board]
+    """Flashea la placa. `hw` es obligatorio para la motherBoard (MB_HW_V18 o
+    MB_HW_V19, de detector.detect_motherboard_hw)."""
+    folder = firmware_base / board_folder(board, hw)
     file_pairs = list(_BOARD_FILES[board])
 
     for _, filename in file_pairs:

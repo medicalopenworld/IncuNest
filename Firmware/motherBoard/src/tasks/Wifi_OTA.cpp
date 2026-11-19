@@ -568,6 +568,13 @@ void configWifiServer() {
     // "board" es la identidad que declara el propio dispositivo: es lo que el
     // flasher debe creerse, en vez de deducir la placa del hostname mDNS.
     json += ",\"board\":\"" FW_BOARD_ID_MOTHERBOARD "\"";
+    // Revision de hardware (HW_NUM): el flasher la usa para elegir entre la
+    // carpeta de la V18 y la de la V19 al actualizar por WiFi. Sin ella
+    // mandaba el binario de la V18 a una V19, que lo rechazaba por su marca
+    // (fw_image_tag.h) y no habia forma de actualizarla por WiFi. No es un
+    // dato sensible (es la revision de la PCB), por eso va sin credencial pese
+    // al aviso de arriba.
+    json += ",\"hw\":" + String(HW_NUM);
     json += "}";
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", json);
@@ -1949,7 +1956,7 @@ static bool s_cfgSubscribed = false;
 static RuntimeConfigPubState s_cfgPub = {};
 
 // Growing wait between provisioning attempts that fail before the request is
-// out (5 s, 10 s ... 5 min, modules/util/retry_backoff). Until 18.59.0 there
+// out (5 s, 10 s ... 5 min, modules/util/retry_backoff). Until 18.63.0 there
 // was none: with a ThingsBoard host that does not resolve, WIFITBProvision()
 // ran again on the very next pass, about 2 800 DNS lookups an hour, and each
 // one was a chance for the lwIP race of known_issues.md #27. A rejected

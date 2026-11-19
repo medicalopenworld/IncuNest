@@ -351,3 +351,69 @@ class TestDiscoverBoards:
             result = discover_boards(timeout_s=1.0)
 
         assert result == []
+
+
+# ── Revision de motherBoard por WiFi (V18 / V19) ─────────────────────────
+# Desde motherBoard 18.62.0, /get_fw_version declara "hw" (HW_NUM). Con eso el
+# flasher elige motherboard/ (V18) o motherboard_hw19/ (V19). Firmware anterior
+# no lo declara: se trata como V18, igual que antes; si en realidad es una V19,
+# la propia placa rechaza la imagen por su marca (fw_image_tag.h).
+
+from wifi_flasher import _hw_from_declaration, _probe_ip  # noqa: E402
+
+
+class TestMotherboardRevisionOverWifi:
+    @pytest.fixture(autouse=True)
+    def _creds(self, monkeypatch):
+        monkeypatch.setattr(wifi_flasher, '_WEB_USER', 'incunestadmin')
+        monkeypatch.setattr(wifi_flasher, '_WEB_PASS', 'no-es-real-1')
+        monkeypatch.setattr(wifi_flasher, '_WEB_USER_LEGACY', None)
+        monkeypatch.setattr(wifi_flasher, '_WEB_PASS_LEGACY', None)
+
+    @pytest.fixture
+    def base(self, tmp_path):
+        for folder in ('motherboard', 'motherboard_hw19', 'display_hmi'):
+            (tmp_path / folder).mkdir()
+            (tmp_path / folder / 'firmware.bin').write_bytes(folder.encode())
+        return tmp_path
+
+    def _ok(self):
+        r = MagicMock(); r.status_code = 200; r.text = 'OK'
+        return r
+
+    def _uploaded(self, mp):
+        enc = mp.call_args.kwargs['data'].encoder
+        return enc.fields['update'][1].name
+
+    def test_hw_from_declaration(self):
+        assert _hw_from_declaration({'board': 'motherboard', 'hw': 19}) == 19
+        assert _hw_from_declaration({'board': 'motherboard', 'hw': '18'}) == 18
+        assert _hw_from_declaration({'board': 'motherboard'}) is None
+        assert _hw_from_declaration({'board': 'motherboard', 'hw': 'x'}) is None
+        assert _hw_from_declaration('nope') is None
+
+    def test_v19_uploads_the_v19_binary(self, base):
+        with patch('wifi_flasher.requests.post', return_value=self._ok()) as mp:
+            flash_board_wifi('192.168.1.1', Board.MOTHERBOARD, base,
+                             lambda m, p: None, hw=19)
+        assert 'motherboard_hw19' in self._uploaded(mp)
+
+    def test_without_hw_motherboard_is_v18_as_before(self, base):
+        with patch('wifi_flasher.requests.post', return_value=self._ok()) as mp:
+            flash_board_wifi('192.168.1.1', Board.MOTHERBOARD, base, lambda m, p: None)
+        uploaded = self._uploaded(mp)
+        assert 'motherboard' in uploaded and 'motherboard_hw19' not in uploaded
+
+    def test_unknown_hw_is_refused(self, base):
+        with patch('wifi_flasher.requests.post', return_value=self._ok()):
+            with pytest.raises(ValueError):
+                flash_board_wifi('192.168.1.1', Board.MOTHERBOARD, base,
+                                 lambda m, p: None, hw=21)
+
+    def test_probe_keeps_declared_hw(self):
+        r = MagicMock(); r.status_code = 200
+        r.json.return_value = {'version': '18.62.0', 'sn': 1,
+                               'board': 'motherboard', 'hw': 19}
+        with patch('wifi_flasher.requests.get', return_value=r):
+            wb = _probe_ip('192.168.1.5')
+        assert wb.board == Board.MOTHERBOARD and wb.hw == 19

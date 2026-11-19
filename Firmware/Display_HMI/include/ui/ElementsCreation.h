@@ -546,7 +546,8 @@ extern lv_obj_t * ui_CheckImg;
 // digits of one width, only the glyphs the readings use.
 LV_FONT_DECLARE(ui_font_vitals_value);    // 48 px, PR and SpO2
 LV_FONT_DECLARE(ui_font_vitals_small);    // 20 px, PI
-LV_FONT_DECLARE(ui_font_vitals_title);    // 14 px, the titles
+LV_FONT_DECLARE(ui_font_vitals_title);    // 16 px, the titles (14 px until 4.8.1)
+LV_FONT_DECLARE(ui_font_vitals_unit);     // 14 px, the units under PR and SpO2
 extern lv_obj_t * ui_LockPulseOxFrame;
 extern lv_obj_t * ui_LockPPGChart;
 extern lv_obj_t * ui_LockVitCont;

@@ -1313,12 +1313,15 @@ void runSysInfo() {
           (unsigned)(heap / 1024u));
   // PSRAM "aprox 8MB": el propio SDK reserva parte del banco OPI, asi que el
   // valor reportado suele quedar algo por debajo de 8*1024*1024 exactos.
-  // Heap >= 50 kB y no 60 (banco 2026-10-07): con el microfono siempre
-  // encendido (~6,7 kB de SRAM interna) el HMI sano se queda en ~58 kB en
-  // pleno test, y 60 suspendia todas las unidades. 50 deja margen para cazar
-  // una fuga de verdad.
+  // Heap >= 30 kB. Historia: 60 suspendia todas las unidades con el microfono
+  // siempre encendido (~6,7 kB de SRAM interna); 50 (banco 2026-10-07) se fijo
+  // con el HMI en ~58 kB, sin WiFi conectada. Con la WiFi conectada al AP (banco
+  // V19.A, 19/11/2026) el HMI sano queda en ~39 kB libres y ~37,7 kB de minimo,
+  // estable a lo largo de la bateria de banco (sin fuga), y 50 lo suspendia.
+  // 30 deja ~8 kB de margen sobre ese minimo y sigue muy por encima del suelo
+  // de DRAM interna que necesitan WiFi y panel (6 kB, bench_tests dram-interna).
   const bool ok = flash == 16u * 1024u * 1024u &&
-                  psram >= 7u * 1024u * 1024u && heap >= 50u * 1024u;
+                  psram >= 7u * 1024u * 1024u && heap >= 30u * 1024u;
   finishLocal(ok ? FTEST_PASS : FTEST_FAIL, detail);
 }
 

@@ -18,6 +18,8 @@
 #include "modules/control/alarm_machine.h"
 #include "modules/control/photo_override.h"
 #include "system/power_rails.h"
+#include "modules/control/heater_supply_limit.h"
+#include "modules/control/charge_policy.h"
 #include "SPO2.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/system_clock.h"
@@ -508,6 +510,37 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
   // fuente de entrada valida) y true fija en HW < 19, que no tiene el pin.
   J(",\"hw\":{\"num\":%d,\"mains_ok\":%d}", (int)HW_NUM,
     mainsPresentPin() ? 1 : 0);
+
+  // Cargador BQ25730: la ultima lectura que dejo sensors_Task (sin I2C aqui).
+  // valid/age_ms dicen si es de fiar; st es ChargerStatus (0x20) en crudo. En
+  // mV y mA, con el signo de ichg/ibus del driver.
+  J(",\"chg\":{\"valid\":%d,\"age_ms\":%lu,\"ac\":%d,\"fault\":%d,"
+    "\"st\":%u,\"vbus\":%u,\"vbat\":%u,\"vsys\":%u,\"ichg\":%d,"
+    "\"idchg\":%u,\"ibus\":%d}",
+    g_bq_status_valid ? 1 : 0,
+    (unsigned long)(g_bq_status_ms ? (uint32_t)(millis() - g_bq_status_ms) : 0),
+    g_bq_status.ac_present ? 1 : 0, g_bq_status.fault ? 1 : 0,
+    (unsigned)g_bq_status.raw_status, (unsigned)g_bq_status.vbus_mv,
+    (unsigned)g_bq_status.vbat_mv, (unsigned)g_bq_status.vsys_mv,
+    (int)g_bq_status.ichg_ma, (unsigned)g_bq_status.idchg_ma,
+    (int)g_bq_status.ibus_ma);
+#if (HW_NUM >= 19)
+  {
+    extern volatile uint8_t g_charge_policy_applied;
+    J(",\"chg_policy\":\"%s\"",
+      charge_policy_name((ChargePolicyMode)g_charge_policy_applied));
+  }
+  {
+    // Fuente y tope del calefactor con el mismo criterio que PID.cpp.
+    const bool vbusFresh = g_bq_status_valid &&
+                           (millis() - g_bq_status_ms) < HEATER_SUPPLY_VBUS_MAX_AGE_MS;
+    const HeaterSupply supply = heater_supply_classify(
+        mainsPresentPin(), vbusFresh, g_bq_status.vbus_mv);
+    J(",\"heater_supply\":{\"src\":\"%s\",\"max_pwm\":%u}",
+      heater_supply_name(supply),
+      (unsigned)heater_supply_max_pwm(supply, (uint16_t)HEATER_MAX_PWM));
+  }
+#endif
 
   // AFE4490: diag = AFE4490Data::diag_code (bits 0-12 = REG_DIAG 0x30, resto
   // banderas RSQM). stalls = episodios de parada (>10 s sin muestra) del AFE.

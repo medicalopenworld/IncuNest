@@ -65,8 +65,13 @@
 #include "modules/sensors/sensors_module.h"
 #include "modules/util/tz_source.h"
 #include "system/hw_selftest.h"
+#include "drivers/IncuNest_humidifier.h"
 
 extern IncuNest_parameters in3;
+extern MAM_IncuNest_Humidifier in3_hum;
+// sensors_module.cpp: sube con cada lectura del INA3221 SECUNDARIO (calefactor
+// y USB/humidificador). Sirve de sello de frescura de in3.USB_current.
+extern unsigned long heaterCurrentSampleSeq;
 extern bool ambientSensorPresent;
 extern bool digitalCurrentSensorPresent[2];
 extern uint32_t g_lastHmiLineMs;
@@ -585,15 +590,93 @@ static FtestStatus ftest_fan_rpm(char *detail, FtestCascade *cascade) {
 }
 
 // ---------------------------------------------------------------------------
-// 14: HUMID_USB (pasivo, instantaneo) -- omitido en banco 2026-09-06: el jig
-// de fabrica no tiene todavia forma de medir el consumo del humidificador por
-// USB_EN/USB_FAULT. FTEST_SKIP explicito (no toca USB_EN) en vez de convertir
-// en FAIL un hardware sano; el HMI oculta los SKIP. Reactivar cuando el jig
-// pueda medirlo (design.md D10, bench2). El cuerpo anterior (acceso directo a
-// USB_EN/USB_FAULT/measureMeanConsumption) sigue en el historial de git.
-static FtestStatus ftest_humid_usb(char *detail, FtestCascade *, uint32_t) {
-  D("omitido");
-  return FTEST_SKIP;
+// 14: HUMID_USB (ACTIVO) -- corriente del humidificador por el shunt R19
+// (100 mOhm, canal USB_SHUNT_CHANNEL del INA3221 SECUNDARIO; en la V17-V19 R19
+// va en serie entre 5V@2A y la entrada del TPS2553, cuya salida VUSB es J13).
+// Estuvo omitido desde el banco 2026-09-06 porque el jig no tenia humidificador;
+// se reactiva en el banco de la V19.A (19/11/2026) con el humidificador puesto.
+//
+// Sin I2C directo (regla de cabecera): lee in3.USB_current, que refresca
+// sensors_Task, y solo cuenta muestras con heaterCurrentSampleSeq nuevo.
+// Enciende con in3_hum.turn(), el mismo camino que el control; restore() del
+// runner lo apaga pase lo que pase.
+#define FTEST_HUMID_MAX_MA 800.0f   // = HUMIDIFIER_CONSUMPTION_MAX del autotest
+#define FTEST_HUMID_SPINUP_MS 3000u
+#define FTEST_HUMID_WINDOW_MS 2000u
+
+// Media de in3.USB_current durante window_ms con muestras frescas. NAN si no
+// llega ninguna; false si hay que abortar.
+static bool humid_mean_current(uint32_t window_ms, float *mean_a, char *detail) {
+  double sum = 0.0;
+  unsigned n = 0;
+  unsigned long lastSeq = heaterCurrentSampleSeq;
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < window_ms) {
+    if (ftest_abort_requested()) {
+      D("%s", ftest_abort_reason());
+      return false;
+    }
+    const unsigned long seq = heaterCurrentSampleSeq;
+    if (seq != lastSeq) {
+      lastSeq = seq;
+      const double i = in3.USB_current;
+      if (std::isfinite(i)) {
+        sum += i;
+        n++;
+      }
+    }
+    ftest_yield();
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+  *mean_a = n ? (float)(sum / n) : NAN;
+  return true;
+}
+
+static bool humid_wait(uint32_t ms, char *detail) {
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < ms) {
+    if (ftest_abort_requested()) {
+      D("%s", ftest_abort_reason());
+      return false;
+    }
+    ftest_yield();
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  return true;
+}
+
+static FtestStatus ftest_humid_usb(char *detail, FtestCascade *) {
+  if (!digitalCurrentSensorPresent[SECUNDARY]) {
+    D("sin INA secundario");
+    return FTEST_FAIL;
+  }
+  in3_hum.turn(OFF);
+  float base = NAN;
+  if (!humid_mean_current(1000, &base, detail)) return FTEST_SKIP;
+
+  in3_hum.turn(ON);
+  if (!humid_wait(FTEST_HUMID_SPINUP_MS, detail)) {
+    in3_hum.turn(OFF);
+    return FTEST_SKIP;
+  }
+  float on = NAN;
+  const bool ok = humid_mean_current(FTEST_HUMID_WINDOW_MS, &on, detail);
+  // USB_FAULT del TPS2553: activo bajo (pull-up interno, ver initGPIO()).
+  const bool fault = digitalRead(USB_FAULT) == LOW;
+  in3_hum.turn(OFF);
+  if (!ok) return FTEST_SKIP;
+
+  if (!std::isfinite(base) || !std::isfinite(on)) {
+    D("sin lecturas INA");
+    return FTEST_FAIL;
+  }
+  const float delta_ma = (on - base) * 1000.0f;
+  D("i=%.0fmA base=%.0fmA%s", on * 1000.0f, base * 1000.0f, fault ? " FAULT" : "");
+  if (fault) return FTEST_FAIL;
+  // En positivo: un NaN cae en FAIL (ver fan_rpm).
+  return (delta_ma >= FTEST_HUMID_MIN_MA && delta_ma <= FTEST_HUMID_MAX_MA)
+             ? FTEST_PASS
+             : FTEST_FAIL;
 }
 
 // ---------------------------------------------------------------------------
@@ -948,7 +1031,7 @@ static const FtestEntry kFtestTable[] = {
     {FTEST_MB_SB_CAMERA, true, nullptr, ftest_sb_camera},
     {FTEST_MB_ACTUATORS, false, ftest_actuators, nullptr},
     {FTEST_MB_FAN_RPM, false, ftest_fan_rpm, nullptr},
-    {FTEST_MB_HUMID_USB, true, nullptr, ftest_humid_usb},
+    {FTEST_MB_HUMID_USB, false, ftest_humid_usb, nullptr},
     {FTEST_MB_BUZZER, false, ftest_buzzer, nullptr},
     {FTEST_MB_AFE_SPI, false, ftest_afe_spi, nullptr},
     {FTEST_MB_AFE_PROBE, true, nullptr, ftest_afe_probe},
@@ -972,8 +1055,8 @@ static_assert(sizeof(kFtestTable) / sizeof(kFtestTable[0]) == FTEST_MB_COUNT,
 // tiempo a que env_sensor (pasivo) resuelva la cascada sb_usb en paralelo con
 // standby/actuators/fan_rpm/buzzer/afe_spi.
 static const unsigned kFtestActiveOrder[FTEST_ACTIVE_COUNT] = {
-    FTEST_MB_STANDBY,  FTEST_MB_ACTUATORS, FTEST_MB_FAN_RPM, FTEST_MB_BUZZER,
-    FTEST_MB_AFE_SPI,  FTEST_MB_SB_ENV,    FTEST_MB_SB_LIGHT,
+    FTEST_MB_STANDBY,  FTEST_MB_ACTUATORS, FTEST_MB_FAN_RPM, FTEST_MB_HUMID_USB,
+    FTEST_MB_BUZZER,   FTEST_MB_AFE_SPI,   FTEST_MB_SB_ENV,  FTEST_MB_SB_LIGHT,
 };
 
 // Orden en que el runner arranca los PASIVOS (ascendente de id, solo por
@@ -983,7 +1066,7 @@ static const unsigned kFtestPassiveOrder[FTEST_PASSIVE_COUNT] = {
     FTEST_MB_SYSINFO,   FTEST_MB_INA3221,     FTEST_MB_CHARGER,
     FTEST_MB_POWER_SRC, FTEST_MB_SKIN_ADC,    FTEST_MB_ENV_SENSOR,
     FTEST_MB_SB_STATUS, FTEST_MB_SB_DOOR,     FTEST_MB_SB_CAMERA,
-    FTEST_MB_HUMID_USB, FTEST_MB_AFE_PROBE,   FTEST_MB_HMI_LINK,
+    FTEST_MB_AFE_PROBE, FTEST_MB_HMI_LINK,
     FTEST_MB_GSM_AT,    FTEST_MB_GSM_SIM,     FTEST_MB_SIM_ACT,
     FTEST_MB_GSM_SIGNAL,
     FTEST_MB_GSM_NET,   FTEST_MB_WIFI,        FTEST_MB_TB_PROVISION,
