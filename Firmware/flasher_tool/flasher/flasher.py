@@ -335,14 +335,21 @@ def flash_board(
     for addr, fname in file_pairs:
         args += [addr, fname if os.path.isabs(fname) else str(folder / fname)]
 
-    reset_seen = False
+    # Una excepcion solo se perdona si TODOS los ficheros se han escrito y
+    # verificado (esptool imprime "Hash of data verified." tras comprobar el
+    # MD5 de cada uno): con USB nativo el puerto puede desaparecer en el reset
+    # final. No vale buscar "resetting": en esptool 5 el teardown hace el reset
+    # tambien cuando el comando falla, y un fallo tras conectar salia en verde.
+    verified = 0
+    lost_connection = False
 
     class _Writer(io.StringIO):
         def write(self, text: str) -> int:
-            nonlocal reset_seen
+            nonlocal verified, lost_connection
             result = super().write(text)
-            if 'resetting' in text.lower():
-                reset_seen = True
+            verified += text.count('Hash of data verified')
+            if 'Lost connection' in text:
+                lost_connection = True
             if text.strip():
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
@@ -357,8 +364,16 @@ def flash_board(
                 "Flasheo fallido. Vuelve a intentarlo."
             )
     except Exception as e:
-        if not reset_seen:
-            raise RuntimeError(str(e))
+        if verified < len(file_pairs):
+            msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            if lost_connection:
+                # Motherboard 373 (2026-11-19): la placa dejaba de responder al
+                # escribir por lo que tenia conectado ademas del USB, y se
+                # quedaba colgada hasta volver a ponerla en boot.
+                msg += ("\nLa placa ha dejado de responder durante la escritura. "
+                        "Desconecta todo menos el cable USB, vuelve a poner la "
+                        "placa en modo boot y reintenta.")
+            raise RuntimeError(msg)
     finally:
         esptool_io.set_thread_writer(None)
         if nvs_tmp:

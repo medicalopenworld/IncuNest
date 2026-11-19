@@ -211,3 +211,85 @@ def test_v19_missing_binaries_do_not_fall_back_to_v18(tmp_path):
         (tmp_path / 'motherboard' / f).write_bytes(bytes([0xFF]) * 16)
     with pytest.raises(FileNotFoundError, match='motherboard_hw19'):
         flash_board('COM3', Board.MOTHERBOARD, tmp_path, lambda m, p: None, hw=MB_HW_V19)
+
+
+# --- Un error de esptool no puede acabar en "flasheado con exito" ----------
+# En esptool 5 el teardown de cada comando (reset_chip) corre tambien cuando el
+# comando falla, y siempre imprime "Hard resetting via RTS pin...". El flasher
+# tomaba esa palabra como prueba de que la escritura habia terminado y se
+# tragaba la excepcion: un fallo despues de conectar (stub, cambio de baudios,
+# escritura) salia en verde con la placa sin flashear.
+
+class _FatalError(Exception):
+    pass
+
+
+def _esptool_falla_tras_conectar(args):
+    print("Connecting....")
+    print("Connected to ESP32-S3 on COM3:")
+    print("Hard resetting via RTS pin...")
+    raise _FatalError("Failed to enter flash download mode")
+
+
+def test_fallo_tras_conectar_no_es_exito(firmware_dir):
+    with patch('flasher.esptool.main', _esptool_falla_tras_conectar):
+        with pytest.raises(RuntimeError, match='flash download mode'):
+            flash_board('COM3', Board.MOTHERBOARD, firmware_dir,
+                        lambda m, p: None, hw=MB_HW_V19)
+
+
+def test_fallo_a_mitad_de_escritura_no_es_exito(firmware_dir):
+    def fake_main(args):
+        print("Hash of data verified.")   # bootloader
+        print("Hash of data verified.")   # particiones
+        print("Hard resetting via RTS pin...")
+        raise _FatalError("Serial data stream stopped")
+
+    with patch('flasher.esptool.main', fake_main):
+        with pytest.raises(RuntimeError, match='stream stopped'):
+            flash_board('COM3', Board.MOTHERBOARD, firmware_dir,
+                        lambda m, p: None, hw=MB_HW_V18)
+
+
+def test_puerto_que_desaparece_en_el_reset_final_si_es_exito(firmware_dir):
+    # Con USB nativo el puerto puede desaparecer en el reset final, cuando
+    # todo ya esta escrito y verificado: eso si es un flasheo correcto.
+    def fake_main(args):
+        n = len([a for a in args if a.startswith('0x')])
+        for _ in range(n):
+            print("Hash of data verified.")
+        print("Hard resetting via RTS pin...")
+        raise OSError("could not open port")
+
+    with patch('flasher.esptool.main', fake_main):
+        flash_board('COM3', Board.MOTHERBOARD, firmware_dir,
+                    lambda m, p: None, hw=MB_HW_V19)
+
+
+# Si la placa deja de responder a mitad de escritura (Lost connection / Write
+# timeout), el error dice que hacer. En la motherBoard 373 (2026-11-19) la
+# causa era lo que tenia conectado ademas del USB: con todo desconectado
+# flasheo bien. La placa queda colgada hasta volver a ponerla en boot.
+def test_conexion_perdida_explica_que_hacer(firmware_dir):
+    def fake_main(args):
+        print("Compressed 14032 bytes to 9771...")
+        print("\nLost connection, retrying...")
+        print("Hard resetting via RTS pin...")
+        raise _FatalError("Write timeout")
+
+    with patch('flasher.esptool.main', fake_main):
+        with pytest.raises(RuntimeError) as exc:
+            flash_board('COM3', Board.MOTHERBOARD, firmware_dir,
+                        lambda m, p: None, hw=MB_HW_V18)
+    msg = str(exc.value)
+    assert 'Write timeout' in msg
+    assert 'desconecta' in msg.lower()
+    assert 'boot' in msg.lower()
+
+
+def test_otro_error_no_lleva_la_pista(firmware_dir):
+    with patch('flasher.esptool.main', _esptool_falla_tras_conectar):
+        with pytest.raises(RuntimeError) as exc:
+            flash_board('COM3', Board.MOTHERBOARD, firmware_dir,
+                        lambda m, p: None, hw=MB_HW_V19)
+    assert 'desconecta' not in str(exc.value).lower()
