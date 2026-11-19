@@ -15,11 +15,11 @@ from PIL import Image, ImageTk
 from detector import (
     Board, find_all_board_ports, board_from_vid_pid,
     is_ambiguous_native_usb, is_sensorboard_app_port,
-    detect_board_ambiguous, BoardDetectionError,
+    detect_board_ambiguous, detect_motherboard_hw, BoardDetectionError,
 )
 from flasher import (
     flash_board, has_firmware_flashed, missing_files, read_device_serial,
-    serial_to_write, write_initial_ota_data,
+    serial_to_write, write_initial_ota_data, MB_FOLDER_BY_HW,
 )
 from updater import (
     check_update_available, download_latest, pinned_folders, PIN_MARKER,
@@ -61,18 +61,34 @@ PIO_ARTIFACTS = ('firmware.bin', 'bootloader.bin', 'partitions.bin')
 # compilado mas tarde: una moneda al aire con una credencial de flota en juego.
 FACTORY_ENV_SUFFIX = '_factory'
 
+# Sufijo de los entornos de banco (IncuNest_V19_bench): logs de informacion y
+# consola de banco por J1 (FTEST, LOAD, FANMAX...). Tampoco se empaquetan nunca.
+BENCH_ENV_SUFFIX = '_bench'
+_EXCLUDED_ENV_SUFFIXES = (FACTORY_ENV_SUFFIX, BENCH_ENV_SUFFIX)
+
+
+def _env_hw(name: str) -> int:
+    m = re.search(r'[Vv](\d+)', name)
+    return int(m.group(1)) if m else -1
+
 
 def _pio_env_sort_key(p: Path) -> tuple:
     # Prefer higher version number (e.g. V17 > V16); mtime as tiebreaker.
-    m = re.search(r'[Vv](\d+)', p.parent.name)
-    return (int(m.group(1)) if m else -1, p.stat().st_mtime)
+    return (_env_hw(p.parent.name), p.stat().st_mtime)
 
 
-def pick_pio_env_dir(pio_dir: Path, pinned_env: Optional[str] = None) -> Optional[Path]:
+def pick_pio_env_dir(pio_dir: Path, pinned_env: Optional[str] = None,
+                     hw: Optional[int] = None) -> Optional[Path]:
     """Directorio .pio/build/<env>/ del que copiar los artefactos.
 
     Prefiere la revision de hardware mas alta y, a igualdad, el build mas
-    reciente. Descarta los entornos de fabrica (FACTORY_ENV_SUFFIX).
+    reciente. Descarta los entornos de fabrica (FACTORY_ENV_SUFFIX) y de banco
+    (BENCH_ENV_SUFFIX).
+
+    Con hw solo valen los entornos de ESA revision (IncuNest_V18 para hw=18):
+    cada revision de motherBoard tiene su carpeta en data/firmware/ y "la mas
+    alta" metia la V19 en la de la V18. Sin entorno de esa revision devuelve
+    None, nunca otro.
 
     Con pinned_env se copia exactamente ese entorno, sea cual sea su sufijo:
     es como se refrescan unos binarios de fabrica sin volver al de
@@ -85,7 +101,8 @@ def pick_pio_env_dir(pio_dir: Path, pinned_env: Optional[str] = None) -> Optiona
         return env_dir if (env_dir / 'firmware.bin').is_file() else None
     candidates = [
         p for p in pio_dir.glob('*/firmware.bin')
-        if not p.parent.name.endswith(FACTORY_ENV_SUFFIX)
+        if not p.parent.name.endswith(_EXCLUDED_ENV_SUFFIXES)
+        and (hw is None or _env_hw(p.parent.name) == hw)
     ]
     if not candidates:
         return None
@@ -468,7 +485,8 @@ class _WifiDeviceSlot:
         self._wb = wb
         self._state = self._STATE_AVAILABLE
         sn_str = f"SN:{wb.sn}  " if wb.sn is not None else ""
-        self._title.configure(text=f"{wb.board.value}  ·  {wb.ip}", fg='#212121')
+        rev = f" V{wb.hw}" if getattr(wb, 'hw', None) else ''
+        self._title.configure(text=f"{wb.board.value}{rev}  ·  {wb.ip}", fg='#212121')
         self._detail.configure(text=f"{sn_str}FW {wb.fw_version}  |  Disponible",
                                fg='#2E7D32')
         self._flash_btn.configure(state='normal')
@@ -741,7 +759,8 @@ class _WifiTab:
                 self._root.after(0, self._slots[slot_idx].update_progress, pct)
 
         try:
-            flash_board_wifi(wb.ip, wb.board, self._firmware_base, progress_cb)
+            flash_board_wifi(wb.ip, wb.board, self._firmware_base, progress_cb,
+                             hw=wb.hw)
             self._root.after(0, self._on_flash_ok, wb, slot_idx)
         except Exception as exc:
             self._root.after(0, self._on_flash_err, str(exc), wb, slot_idx)
@@ -773,6 +792,10 @@ class FlasherApp:
         self._slots: list[_Slot] = []
         self._port_to_slot: dict[str, int] = {}
         self._cooldown_until: dict[str, float] = {}
+        # Revision de cada motherBoard conectada (detector.detect_motherboard_hw),
+        # por puerto. Se lee del eFuse en el hilo de sondeo, antes de asignar el
+        # slot; sin ella la placa no se flashea (ver flasher.board_folder).
+        self._mb_hw: dict[str, int] = {}
         self._sb_hint_mute_until: float = 0.0
         self._known_ports: set = set()
 
@@ -975,6 +998,10 @@ class FlasherApp:
                     self.root.after(0, self._on_identify_start, device)
                     try:
                         board = detect_board_ambiguous(device)
+                        if board == Board.MOTHERBOARD:
+                            # V18 o V19, por el eFuse de PSRAM del modulo: el
+                            # firmware de una revision no vale para la otra.
+                            self._mb_hw[device] = detect_motherboard_hw(device)
                     except BoardDetectionError as exc:
                         self.root.after(0, self._on_identify_failed, device, str(exc))
                         continue
@@ -1040,8 +1067,11 @@ class FlasherApp:
                 return
             self._slots[slot_idx].assign(port, board)
             self._tick_slot(slot_idx)
-        self._slots[slot_idx].log(f"{board.value} detectado en {port}.", 'info')
-        self._log_line(f"{board.value} detectado en {port} → slot {slot_idx + 1}", 'info')
+        label = board.value
+        if board == Board.MOTHERBOARD and port in self._mb_hw:
+            label += f" V{self._mb_hw[port]}"
+        self._slots[slot_idx].log(f"{label} detectado en {port}.", 'info')
+        self._log_line(f"{label} detectado en {port} → slot {slot_idx + 1}", 'info')
         self._update_status_banner()
 
         if board == Board.MOTHERBOARD and self._force_serial_number_entry:
@@ -1066,7 +1096,8 @@ class FlasherApp:
             self._run_flash(port, board, slot_idx, None)
 
     def _read_serial_then_ask(self, port: str, board: Board, slot_idx: int) -> None:
-        current = read_device_serial(port, get_firmware_base())
+        current = read_device_serial(port, get_firmware_base(),
+                                     self._mb_hw.get(port, 18))
         self.root.after(0, self._ask_serial, port, board, slot_idx, current)
 
     def _ask_serial(self, port: str, board: Board, slot_idx: int,
@@ -1155,7 +1186,9 @@ class FlasherApp:
     def _flash_thread(self, port: str, board: Board, slot_idx: int,
                       progress_cb, serial_number: Optional[int] = None) -> None:
         try:
-            flash_board(port, board, get_firmware_base(), progress_cb, serial_number)
+            hw = self._mb_hw.get(port) if board == Board.MOTHERBOARD else None
+            flash_board(port, board, get_firmware_base(), progress_cb, serial_number,
+                        hw=hw)
             self.root.after(0, self._on_flash_ok, port, board, slot_idx)
         except Exception as exc:
             self.root.after(0, self._on_flash_err, str(exc), port, board, slot_idx)
@@ -1290,16 +1323,19 @@ class FlasherApp:
 
             pinned = pinned_folders(firmware_base)
 
-            for board_folder, pio_dir in [
-                ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build'),
-                ('motherboard', repo_root / 'motherBoard' / '.pio' / 'build'),
-            ]:
+            mb_pio = repo_root / 'motherBoard' / '.pio' / 'build'
+            # Cada revision de motherBoard a su carpeta, y solo su entorno
+            # (pick_pio_env_dir con hw): IncuNest_V18 -> motherboard/,
+            # IncuNest_V19 -> motherboard_hw19/.
+            for board_folder, pio_dir, hw in [
+                ('display_hmi', repo_root / 'Display_HMI' / '.pio' / 'build', None),
+            ] + [(folder, mb_pio, mb_hw) for mb_hw, folder in MB_FOLDER_BY_HW.items()]:
                 if not pio_dir.is_dir():
                     continue
                 if board_folder in pinned and not pinned[board_folder]:
                     # Anclada sin declarar entorno: no se toca.
                     continue
-                env_dir = pick_pio_env_dir(pio_dir, pinned.get(board_folder))
+                env_dir = pick_pio_env_dir(pio_dir, pinned.get(board_folder), hw=hw)
                 if env_dir is None:
                     continue
                 sources[board_folder] = {

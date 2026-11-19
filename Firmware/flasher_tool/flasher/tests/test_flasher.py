@@ -5,7 +5,7 @@ from unittest.mock import patch
 from flasher import (
     flash_board, missing_files, write_initial_ota_data, _ProgressTracker,
 )
-from detector import Board
+from detector import Board, MB_HW_V18, MB_HW_V19
 
 
 @pytest.fixture
@@ -13,6 +13,8 @@ def firmware_dir(tmp_path):
     for folder, files in [
         ('motherboard', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
                          'firmware.bin']),
+        ('motherboard_hw19', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
+                              'firmware.bin']),
         ('display_hmi', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
                          'firmware.bin']),
         ('sensorboard', ['bootloader.bin', 'partitions.bin', 'ota_data_initial.bin',
@@ -36,7 +38,7 @@ def test_motherboard_flash_includes_correct_addresses(firmware_dir):
     """
     captured = []
     with patch('flasher.esptool.main', lambda args: captured.extend(args)):
-        flash_board('COM3', Board.MOTHERBOARD, firmware_dir, lambda m, p: None)
+        flash_board('COM3', Board.MOTHERBOARD, firmware_dir, lambda m, p: None, hw=MB_HW_V18)
 
     assert '0x0000' in captured
     assert '0x8000' in captured
@@ -82,7 +84,7 @@ def test_display_hmi_no_flashea_imagen_spiffs(firmware_dir):
 def test_flash_passes_port_to_esptool(firmware_dir):
     captured = []
     with patch('flasher.esptool.main', lambda args: captured.extend(args)):
-        flash_board('COM7', Board.MOTHERBOARD, firmware_dir, lambda m, p: None)
+        flash_board('COM7', Board.MOTHERBOARD, firmware_dir, lambda m, p: None, hw=MB_HW_V18)
 
     assert 'COM7' in captured
 
@@ -95,7 +97,7 @@ def test_progress_callback_receives_percentage(firmware_dir):
 
     with patch('flasher.esptool.main', fake_main):
         flash_board('COM3', Board.MOTHERBOARD, firmware_dir,
-                    lambda msg, pct: progress.append((msg, pct)))
+                    lambda msg, pct: progress.append((msg, pct)), hw=MB_HW_V18)
 
     assert any(pct == 50 for _, pct in progress)
 
@@ -104,7 +106,7 @@ def test_raises_file_not_found_for_missing_binary(tmp_path):
     (tmp_path / 'motherboard').mkdir()  # empty — no bin files
 
     with pytest.raises(FileNotFoundError, match='bootloader.bin'):
-        flash_board('COM3', Board.MOTHERBOARD, tmp_path, lambda m, p: None)
+        flash_board('COM3', Board.MOTHERBOARD, tmp_path, lambda m, p: None, hw=MB_HW_V18)
 
 
 def test_sensorboard_flash_includes_correct_addresses(firmware_dir):
@@ -150,7 +152,7 @@ def test_write_initial_ota_data_creates_virgin_images(tmp_path):
     """
     written = write_initial_ota_data(tmp_path)
 
-    assert set(written) == {'motherboard', 'display_hmi', 'sensorboard'}
+    assert set(written) == {'motherboard', 'motherboard_hw19', 'display_hmi', 'sensorboard'}
     for folder in written:
         data = (tmp_path / folder / 'ota_data_initial.bin').read_bytes()
         assert len(data) == 0x2000
@@ -165,7 +167,47 @@ def test_missing_files_reports_gaps_per_board(tmp_path):
     assert 'spiffs.bin' not in gaps['display_hmi']
     assert 'ota_data_initial.bin' not in gaps['display_hmi']
     assert 'firmware.bin' in gaps['motherboard']
+    assert 'firmware.bin' in gaps['motherboard_hw19']
 
 
 def test_missing_files_empty_when_everything_is_there(firmware_dir):
     assert missing_files(firmware_dir) == {}
+
+
+# --- Una carpeta de firmware por revision de motherBoard -------------------
+# V18 sigue en motherboard/ (compatible con las releases y los datos que ya
+# hay); V19 va en motherboard_hw19/. La revision la decide el hardware
+# (detector.detect_motherboard_hw), no lo que haya compilado en el PC.
+
+def _flash_capture(firmware_dir, hw):
+    captured = []
+    with patch('flasher.esptool.main', lambda args: captured.extend(args)):
+        flash_board('COM3', Board.MOTHERBOARD, firmware_dir, lambda m, p: None, hw=hw)
+    return captured
+
+
+def test_v19_flashes_from_its_own_folder(firmware_dir):
+    captured = _flash_capture(firmware_dir, MB_HW_V19)
+    app = captured[captured.index('0x10000') + 1]
+    assert Path(app).parent.name == 'motherboard_hw19'
+
+
+def test_v18_flashes_from_motherboard_folder(firmware_dir):
+    captured = _flash_capture(firmware_dir, MB_HW_V18)
+    app = captured[captured.index('0x10000') + 1]
+    assert Path(app).parent.name == 'motherboard'
+
+
+def test_motherboard_without_revision_is_refused(firmware_dir):
+    # Sin revision no hay forma de saber que binario toca: no se adivina.
+    with patch('flasher.esptool.main', lambda args: None):
+        with pytest.raises(ValueError):
+            flash_board('COM3', Board.MOTHERBOARD, firmware_dir, lambda m, p: None)
+
+
+def test_v19_missing_binaries_do_not_fall_back_to_v18(tmp_path):
+    (tmp_path / 'motherboard').mkdir()
+    for f in ('bootloader.bin', 'partitions.bin', 'ota_data_initial.bin', 'firmware.bin'):
+        (tmp_path / 'motherboard' / f).write_bytes(bytes([0xFF]) * 16)
+    with pytest.raises(FileNotFoundError, match='motherboard_hw19'):
+        flash_board('COM3', Board.MOTHERBOARD, tmp_path, lambda m, p: None, hw=MB_HW_V19)

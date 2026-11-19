@@ -105,7 +105,7 @@ def main() -> int:
     print("Para obtener un binario publicable, compila con la activacion de SIM")
     print("apagada y vuelve a copiar los binarios (PowerShell):")
     print('  $env:PLATFORMIO_BUILD_FLAGS="-DFTEST_SIM_ACT_ENABLED=0"')
-    print("  pio run -e IncuNest_V18")
+    print("  pio run -e IncuNest_V18 -e IncuNest_V19")
     print("(o deja que lo compile CI, que no tiene Credentials.h)")
     return 1
 
