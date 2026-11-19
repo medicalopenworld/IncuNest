@@ -4442,7 +4442,10 @@ void ui_ScreenLock_screen_init(void) {
   // same colour: PR (green), SpO2 (cyan), PI (violet). Rows and not columns
   // since 4.8.0, so that the chart can take 649 px (5 s). The title says "PR"
   // and not "HR": the rate comes from the pleth, and monitors keep "HR" for
-  // the one derived from the ECG. Hidden until a probe is applied.
+  // the one derived from the ECG. Since 4.8.2 PR and SpO2 carry their unit
+  // under the title ("bpm", "%"; PI has had it in its title from the start)
+  // and the titles are 16 px instead of 14.
+  // Hidden until a probe is applied.
   ui_LockVitCont = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_LockVitCont);
   lv_obj_set_size(ui_LockVitCont, LOCK_VIT_WIDTH_PX, 105);
@@ -4459,15 +4462,16 @@ void ui_ScreenLock_screen_init(void) {
 
   static const struct {
     const char *title;
+    const char *unit;  // under the title, or NULL when the title carries it
     uint32_t color;
     const lv_font_t *font;
     bool title_centred;  // title at mid height of the digits, not on their baseline
     lv_obj_t **value;
   } lock_vitals[] = {
-      // The widest row is "SpO2" and "100": 35 + 75 px of the 122.
-      {"PR", 0x5CD08A, &ui_font_vitals_value, true, &ui_LockHRLabel},
-      {"SpO2", 0x3CC8E0, &ui_font_vitals_value, true, &ui_LockSpO2Label},
-      {"PI %", 0xB9A6F5, &ui_font_vitals_small, false, &ui_LockPILabel},
+      // The widest row is "SpO2" and "100": 39 + 75 px of the 122.
+      {"PR", "bpm", 0x5CD08A, &ui_font_vitals_value, true, &ui_LockHRLabel},
+      {"SpO2", "%", 0x3CC8E0, &ui_font_vitals_value, true, &ui_LockSpO2Label},
+      {"PI %", NULL, 0xB9A6F5, &ui_font_vitals_small, false, &ui_LockPILabel},
   };
   // The line box of these fonts is the ink box of their glyphs
   // (tools/gen_vitals_fonts.py), so a label is exactly as tall as its digits.
@@ -4488,10 +4492,12 @@ void ui_ScreenLock_screen_init(void) {
     lv_obj_set_align(*v.value, LV_ALIGN_TOP_RIGHT);
     lv_obj_set_pos(*v.value, 0, row_y);
 
-    // Beside the big digits the capitals of the title are centred on the
-    // height of the digits: on their baseline a 14 px title looked dropped
-    // next to a 36 px number. The PI title stays on the baseline of its
-    // reading, which is hardly taller than the title itself.
+    // Beside the big digits the title is centred on the height of the digits:
+    // on their baseline a small title looked dropped next to a 36 px number.
+    // With a unit, what is centred is the block of the two lines, from the top
+    // of the title's capitals to the baseline of the unit. The PI title stays
+    // on the baseline of its reading, which is hardly taller than the title
+    // itself.
     lv_obj_t *title = lv_label_create(ui_LockVitCont);
     lv_label_set_text(title, v.title);
     lv_obj_set_style_text_color(title, lv_color_hex(v.color),
@@ -4502,10 +4508,29 @@ void ui_ScreenLock_screen_init(void) {
     const lv_coord_t digits_asc = v.font->line_height - v.font->base_line;
     const lv_coord_t title_asc =
         ui_font_vitals_title.line_height - ui_font_vitals_title.base_line;
+    // Between the baseline of the title and the top of the unit: the
+    // descender of the "p" of "SpO2", and 2 px clear of it.
+    const lv_coord_t unit_gap = ui_font_vitals_title.base_line + 2;
+    const lv_coord_t unit_asc =
+        ui_font_vitals_unit.line_height - ui_font_vitals_unit.base_line;
+    const lv_coord_t block_asc =
+        title_asc + (v.unit ? unit_gap + unit_asc : 0);
+    const lv_coord_t title_y =
+        row_y + (v.title_centred ? (digits_asc - block_asc) / 2
+                                 : digits_asc - block_asc);
     lv_obj_set_align(title, LV_ALIGN_TOP_LEFT);
-    lv_obj_set_pos(title, 0,
-                   row_y + (v.title_centred ? (digits_asc - title_asc) / 2
-                                            : digits_asc - title_asc));
+    lv_obj_set_pos(title, 0, title_y);
+
+    if (v.unit) {
+      lv_obj_t *unit = lv_label_create(ui_LockVitCont);
+      lv_label_set_text(unit, v.unit);
+      lv_obj_set_style_text_color(unit, lv_color_hex(v.color),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_style_text_font(unit, &ui_font_vitals_unit,
+                                 LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_align(unit, LV_ALIGN_TOP_LEFT);
+      lv_obj_set_pos(unit, 0, title_y + title_asc + unit_gap);
+    }
 
     row_y += v.font->line_height + row_gap;
   }
