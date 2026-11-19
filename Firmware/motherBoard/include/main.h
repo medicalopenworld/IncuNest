@@ -73,7 +73,7 @@
 // Con tres componentes deja de parecer un numero y se queda como texto.
 // Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
 // por igualdad y el flash tool elige por la revision de HW del entorno.
-#define FWversion "18.64.0"
+#define FWversion "18.65.0"
 #define WIFI_NAME "IncuNest"
 // Titulo del firmware en ThingsBoard (OTA por MQTT). ThingsBoard solo ofrece un
 // paquete cuyo titulo coincide con el que declara la unidad, asi que una V19
@@ -622,6 +622,7 @@ void loaddefaultValues();
 void recapVariables();
 
 void initRoomSensor();
+void releaseI2C2ForUsb();
 void initAmbientSensor();
 void initSkinSensor();
 void powerMonitor();

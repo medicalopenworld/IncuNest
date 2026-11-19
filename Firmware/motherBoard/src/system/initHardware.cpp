@@ -221,20 +221,15 @@ bool initI2C() {
     return false;
   }
 
-#if (HW_NUM >= 19)
-  // V19 (CHANGELOG, firmware 2): IO19/IO20 son D-/D+ del USB hacia la
-  // SensorBoard y no hay sensores de cabina por I2C2. No se levanta Wire1: el
-  // sondeo de I2C sobre las lineas USB puede ver un ACK falso con la
-  // SensorBoard conectada y desviar el arranque al camino I2C (sin control de
-  // temperatura). wire2 queda a nullptr e initRoomSensor() no sondea.
-  logI("[HW] -> I2C2 not used on HW19 (IO19/IO20 = USB to SensorBoard)");
-#else
+  // IO19/IO20 son el I2C2 hacia la placa de sensores por I2C (SHTC3 + STS35)
+  // o el USB hacia la SensorBoard, segun lo que lleve el equipo. En la V19
+  // tambien (antes no se levantaba Wire1 en HW19): initRoomSensor() sondea y,
+  // si no responde ningun sensor, libera los pines para el host USB.
   logI("[HW] -> Initializing I2C2 (SDA=" + String(I2C2_SDA) +
        " SCL=" + String(I2C2_SCL) + ")");
   Wire1.begin(I2C2_SDA, I2C2_SCL, DEFAULT_I2C_SPEED);
   wire2 = &Wire1;
   logI("[HW] -> I2C2 initialized (SHTC3 + STS35 bus)");
-#endif
 
   return true;
 }
@@ -308,13 +303,28 @@ void initInterrupts() {
   attachInterrupt(FAN_SPEED_FEEDBACK, fanEncoderISR, CHANGE);
 }
 
+// El equipo va con la SensorBoard por USB: IO19/IO20 dejan de ser I2C2. Se
+// cierra Wire1 y se quitan los pull-up internos que dejo puestos (unos 45k):
+// con ellos en D+/D- el host USB puede no detectar bien la SensorBoard. El
+// enlace USB de la V19 se valido sin Wire1 levantado, y asi queda igual.
+void releaseI2C2ForUsb() {
+  if (wire2 == nullptr) return;
+  Wire1.end();
+  wire2 = nullptr;
+  gpio_pullup_dis((gpio_num_t)I2C2_SDA);
+  gpio_pulldown_dis((gpio_num_t)I2C2_SDA);
+  gpio_pullup_dis((gpio_num_t)I2C2_SCL);
+  gpio_pulldown_dis((gpio_num_t)I2C2_SCL);
+  logI("[HW] -> I2C2 released: IO19/IO20 go to the SensorBoard USB link");
+}
+
 void initRoomSensor() {
   static int16_t room_sensor_error;
   static char errorMessage[64];
 
   if (wire2 == nullptr) {
-    // HW19: sin bus I2C2 (ver initI2C()). roomSensorPresent[] a false hace que
-    // main.cpp levante el enlace USB con la SensorBoard.
+    // I2C2 liberado para el USB de la SensorBoard (releaseI2C2ForUsb()):
+    // no hay sensores de cabina por I2C.
     for (int i = 0; i < ROOM_SENSOR_POSIBILITIES; i++) {
       roomSensorPresent[i] = false;
     }

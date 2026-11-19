@@ -1643,6 +1643,7 @@ void setup() {
   } else {
     sensorSourceSet(SENSOR_SOURCE_SENSORBOARD);
     logI("No air sensor on I2C2: starting SensorBoard USB link ...");
+    releaseI2C2ForUsb();
     sensorboard_comm_init();
     xTaskCreatePinnedToCore(sensorboard_comm_task, "SB_COMM", 4096, NULL,
                             SENSORBOARD_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
