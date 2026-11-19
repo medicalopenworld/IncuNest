@@ -669,6 +669,14 @@ bool g_hmiEverSeen = false;
 // cada hora; el flag lo levanta parse_line() y lo consume el bucle de
 // Communication_Task, que es el mismo hilo, asi que no hace falta sincronizar.
 static bool s_serviceSendPending = false;
+
+// CTRL,PROBE on request. The probe state goes out when it changes and is not
+// repeated while the probe is applied (CTRL,VIT travels instead), so a display
+// that starts, or asks for the state again, with the probe already on the
+// patient never heard of it: its pulse-oximetry panel stayed hidden until the
+// probe was taken off and put back. Raised by parse_line() on HMI,UI_READY and
+// HMI,REQ,STATE, consumed by the loop of Communication_Task (same thread).
+static bool s_probeSendPending = false;
 constexpr uint32_t SERVICE_BCAST_PERIOD_MS = 3600UL * 1000UL;
 
 static void sendServiceToHMI() {
@@ -721,6 +729,7 @@ void parse_line(const char *line) {
     }
     setHMIConnected(true);
     xSemaphoreGive(hmi_state_req_sem);
+    s_probeSendPending = true;
     // Solo el UI_READY (el display acaba de arrancar): REQ,STATE se repite y
     // no necesita el estado de servicio cada vez.
     if (strcmp(line, "HMI,UI_READY") == 0) s_serviceSendPending = true;
@@ -1466,11 +1475,23 @@ void Communication_Task(void *pvParameters) {
     uint32_t afe_seq = 0;
     const AFE4490Data afe_s = spo2Snapshot(&afe_seq);
 
-    // Detect APPLIED transition — notify display immediately
+    // The probe state changed: tell the display now, whatever the new state.
+    // Until 18.62.0 only the change to APPLIED went out at once; any other
+    // waited for the 1 Hz block below (up to 1 s when the probe came off, up
+    // to 2 s between two states without contact). incunest_afe4490 already
+    // debounces the state (0.2 s), so this cannot flood the link. The repeat
+    // every 2 s of that block counts from this line.
+    // Since 18.63.0 it also goes out when the display asks for the state
+    // (s_probeSendPending), whatever the state is: the display decides by the
+    // state it receives, not by edges, so a repeated line changes nothing.
     {
-      ProbeState cur = afe_s.probe_state;
-      if (cur == ProbeState::PROBE_APPLIED && prev_probe_state != ProbeState::PROBE_APPLIED) {
-        hmiSerial.print("CTRL,PROBE,2\n");
+      const ProbeState cur = afe_s.probe_state;
+      if (cur != prev_probe_state || s_probeSendPending) {
+        s_probeSendPending = false;
+        char probe_msg[20];
+        snprintf(probe_msg, sizeof(probe_msg), "CTRL,PROBE,%u\n", (uint8_t)cur);
+        hmiSerial.print(probe_msg);
+        last_probe_status_time = millis();
       }
       prev_probe_state = cur;
     }
