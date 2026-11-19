@@ -212,3 +212,19 @@ def _read_mem(port: str, address: int) -> int:
             "Comprueba que la placa este conectada correctamente."
         )
     return int(m.group(1), 16)
+
+
+def identify_native_usb(port: str, solo_motherboard: bool = False) -> tuple[Board, Optional[int]]:
+    """Placa (y revision, si es motherBoard) de un puerto USB nativo de Espressif.
+
+    Con solo_motherboard (flasher_config.json) no se mira el tamano de flash:
+    toda placa es motherBoard y solo se lee su revision del eFuse. Una
+    SensorBoard conectada por error no pasa esa lectura (PSRAM_CAP=1, ninguna
+    revision de motherBoard) y no se flashea.
+    """
+    if solo_motherboard:
+        return Board.MOTHERBOARD, detect_motherboard_hw(port)
+    board = detect_board_ambiguous(port)
+    if board == Board.MOTHERBOARD:
+        return board, detect_motherboard_hw(port)
+    return board, None

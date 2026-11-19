@@ -15,7 +15,7 @@ from PIL import Image, ImageTk
 from detector import (
     Board, find_all_board_ports, board_from_vid_pid,
     is_ambiguous_native_usb, is_sensorboard_app_port,
-    detect_board_ambiguous, detect_motherboard_hw, BoardDetectionError,
+    identify_native_usb, BoardDetectionError,
 )
 from flasher import (
     flash_board, has_firmware_flashed, missing_files, read_device_serial,
@@ -802,6 +802,9 @@ class FlasherApp:
         cfg = load_config()
         self._force_serial_number_entry: bool = bool(cfg.get('force_serial_number', False))
         self._force_download: bool = bool(cfg.get('force_download_latest_firmware', False))
+        # Tanda solo de motherBoards: no se distingue de la SensorBoard por el
+        # tamano de flash (ver detector.identify_native_usb).
+        self._solo_motherboard: bool = bool(cfg.get('solo_motherboard', False))
         self._downloading: bool = False
 
         self._build_ui()
@@ -997,11 +1000,11 @@ class FlasherApp:
                     # slot first so the user sees what is going on meanwhile.
                     self.root.after(0, self._on_identify_start, device)
                     try:
-                        board = detect_board_ambiguous(device)
-                        if board == Board.MOTHERBOARD:
-                            # V18 o V19, por el eFuse de PSRAM del modulo: el
-                            # firmware de una revision no vale para la otra.
-                            self._mb_hw[device] = detect_motherboard_hw(device)
+                        # V18 o V19, por el eFuse de PSRAM del modulo: el
+                        # firmware de una revision no vale para la otra.
+                        board, hw = identify_native_usb(device, self._solo_motherboard)
+                        if hw is not None:
+                            self._mb_hw[device] = hw
                     except BoardDetectionError as exc:
                         self.root.after(0, self._on_identify_failed, device, str(exc))
                         continue

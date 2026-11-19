@@ -188,3 +188,56 @@ def test_detect_hw_raises_on_nonzero_exit():
     with patch('detector.esptool.main', bad_exit):
         with pytest.raises(BoardDetectionError):
             detect_motherboard_hw('COM3')
+
+
+# --- Modo "solo motherboard" (flasher_config.json: "solo_motherboard") -----
+# En una tanda solo de motherBoards se salta la prueba del tamano de flash que
+# la distingue de una SensorBoard virgen. La revision V18/V19 se sigue leyendo
+# del eFuse, y eso tambien hace de red: una SensorBoard (N16R8, PSRAM 8 MB) da
+# PSRAM_CAP=1, que no es ninguna motherBoard, y no se flashea.
+
+from detector import identify_native_usb  # noqa: E402
+
+
+def _fake_esptool_all(flash_size, word4, word5, seen):
+    def _inner(args):
+        seen.append(args)
+        if 'flash-id' in args:
+            print(f"Detected flash size: {flash_size}")
+        else:
+            addr = int(args[args.index('read-mem') + 1], 16)
+            print(f"{addr:#010x} = {({0x60007054: word4, 0x60007058: word5}[addr]):#010x}")
+    return _inner
+
+
+def test_solo_motherboard_no_mira_el_tamano_de_flash():
+    seen = []
+    with patch('detector.esptool.main', _fake_esptool_all('8MB', 0x2 << 3, 0, seen)):
+        board, hw = identify_native_usb('COM3', solo_motherboard=True)
+    assert (board, hw) == (Board.MOTHERBOARD, MB_HW_V19)
+    assert not any('flash-id' in a for a in seen)
+
+
+def test_solo_motherboard_v18():
+    with patch('detector.esptool.main', _fake_esptool_all('8MB', 0, 0, [])):
+        assert identify_native_usb('COM3', solo_motherboard=True) == (Board.MOTHERBOARD, MB_HW_V18)
+
+
+def test_solo_motherboard_con_una_sensorboard_no_flashea():
+    # N16R8: PSRAM_CAP=1 (8 MB) -> no es V18 ni V19.
+    with patch('detector.esptool.main', _fake_esptool_all('16MB', 0x1 << 3, 0, [])):
+        with pytest.raises(BoardDetectionError):
+            identify_native_usb('COM3', solo_motherboard=True)
+
+
+def test_modo_normal_sigue_distinguiendo_la_sensorboard():
+    seen = []
+    with patch('detector.esptool.main', _fake_esptool_all('16MB', 0x1 << 3, 0, seen)):
+        assert identify_native_usb('COM3', solo_motherboard=False) == (Board.SENSORBOARD, None)
+    assert any('flash-id' in a for a in seen)
+    assert not any('read-mem' in a for a in seen)
+
+
+def test_modo_normal_motherboard_lee_la_revision():
+    with patch('detector.esptool.main', _fake_esptool_all('8MB', 0x2 << 3, 0, [])):
+        assert identify_native_usb('COM3', solo_motherboard=False) == (Board.MOTHERBOARD, MB_HW_V19)
