@@ -33,6 +33,7 @@
 #include "modules/debug/debug_mode.h"
 #include "modules/control/photo_override.h"
 #include "modules/control/mains_detector.h"
+#include "modules/control/charge_policy.h"
 #include "modules/control/battery_gauge.h"
 #include "modules/util/retry_backoff.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
@@ -351,25 +352,28 @@ static void batt_gauge_persist() {
 // el detector no se entera. Hoy es el bit AC_STAT del BQ25730 (por I2C).
 //
 // La rev. V19 anade MAINS_OK_PIN (IO42, CHRG_OK del mismo cargador) y su
-// getter mainsPresentPin(). Se combinara aqui como AND sobre las fuentes que
+// getter mainsPresentPin(). Se combina aqui como AND sobre las fuentes que
 // responden — la red cuenta como presente solo si todas dicen que lo esta —,
-// con `valid` = registro valido OR pin presente: el pin sigue decidiendo con el
-// bus I2C colgado. AND y no OR porque el fallo que importa es no avisar de un
+// con `valid` = registro valido OR pin disponible: el pin sigue decidiendo con
+// el bus I2C colgado. AND y no OR porque el fallo que importa es no avisar de un
 // corte real (201.12.3.103), y una fuente atascada en "presente" lo taparia.
 // Razonado en openspec/changes/archive/*-shared-mains-detector/design.md.
 //
 // La validez es SOLO la de la lectura (g_bq_status_valid), no chargerPresent:
 // ese flag baja mientras init_BQ25730() reconfigura y no dice "no hay fuente".
-struct MainsReading {
-  bool valid;
-  bool present;
-};
+// MainsReading y la regla de combinacion viven en mains_detector.h
+// (mains_reading_combine, con tests de host).
 static MainsReading mains_present_now() {
-  MainsReading r = {};
   bool ac = false;
-  r.valid = charge_ac_present(&ac);
-  r.present = r.valid && ac;
-  return r;
+  const bool regValid = charge_ac_present(&ac);
+#if (HW_NUM >= 19)
+  // El pin no cuenta en la ventana tras una escritura al cargador: baja ~750 ms
+  // al escribir la tension de carga con la red presente (mains_pin_usable()).
+  const bool pinUsable = mains_pin_usable(true, millis(), g_bq_last_write_ms);
+  return mains_reading_combine(regValid, ac, pinUsable, mainsPresentPin());
+#else
+  return mains_reading_combine(regValid, ac, false, false);
+#endif
 }
 
 // Fallo tecnico del cargador: lleva > MAINS_DETECTOR_BLIND_MS sin dar lecturas
@@ -396,6 +400,14 @@ static inline bool chargerExpectedNow() {
 static Backoff s_cfgBackoff = {};
 static LogLimiter s_cfgLog = {};
 static LogLimiter s_reconfLog = {};
+
+// Politica de carga segun VBAT (modules/control/charge_policy.h, solo V19).
+// g_charge_policy_applied es el modo que el chip tiene AHORA: init_BQ25730() y
+// reconfigure_BQ25730() reescriben toda la configuracion (carga sin inhibir y
+// ChargeCurrent nominal), asi que tras cada una vuelve a NORMAL y la politica
+// se reaplica en la siguiente lectura. Lo lee /debug/state.
+static ChargePolicy s_chgPolicy = {CHG_POLICY_NORMAL};
+volatile uint8_t g_charge_policy_applied = CHG_POLICY_NORMAL;
 
 void sensors_Task(void *pvParameters) {
   // Instante en que empieza a haber muestras periodicas de verdad. Lo usa
@@ -438,6 +450,7 @@ void sensors_Task(void *pvParameters) {
           backoff_due(&s_cfgBackoff, millis())) {
         extern TwoWire *wire;
         if (init_BQ25730(wire)) {
+          g_charge_policy_applied = CHG_POLICY_NORMAL;
           backoff_ok(&s_cfgBackoff);
           log_limiter_reset(&s_cfgLog);
           logE("[CHG] BQ25730 configurado tras reintento");
@@ -483,6 +496,7 @@ void sensors_Task(void *pvParameters) {
           // reconfigure_BQ25730(), no init_BQ25730(): esta NO baja chargerPresent
           // (restaura MaxChargeVoltage = 14.4V, absorción).
           s_chargerReconfigFailing = !reconfigure_BQ25730(wire);
+          if (!s_chargerReconfigFailing) g_charge_policy_applied = CHG_POLICY_NORMAL;
           if (s_chargerReconfigFailing) {
             // Uno por episodio y luego cada 5 min: el reintento es en cada
             // lectura (5 s) y un fallo persistente llenaria el registro.
@@ -505,6 +519,37 @@ void sensors_Task(void *pvParameters) {
           if (!s_chargerReconfigFailing) prev_ac_present = g_bq_status.ac_present;
         }
 
+#if (HW_NUM >= 19)
+        // ── Politica de carga segun VBAT (charge_policy.h) ──────────────────
+        // Solo con adaptador: sin VBUS el BQ no carga y no hay nada que aplicar
+        // (la politica sigue la VBAT igualmente, para tener el modo correcto
+        // al volver la red).
+        {
+          const ChargePolicyMode want = charge_policy_update(
+              &s_chgPolicy, g_bq_status_valid, g_bq_status.vbat_mv);
+          if (g_bq_status_valid && g_bq_status.ac_present &&
+              want != (ChargePolicyMode)g_charge_policy_applied) {
+            bool ok;
+            if (want == CHG_POLICY_INHIBIT) {
+              ok = set_charge_inhibit(true);
+            } else {
+              ok = set_charge_inhibit(false) &&
+                   set_charge_current(want == CHG_POLICY_REDUCED
+                                          ? (uint16_t)CHG_POLICY_REDUCED_MA
+                                          : (uint16_t)BQ25730_ICHG_MA);
+            }
+            if (ok) {
+              ESP_LOGW("CHG", "politica de carga: %s -> %s (VBAT %u mV)",
+                       charge_policy_name((ChargePolicyMode)g_charge_policy_applied),
+                       charge_policy_name(want), (unsigned)g_bq_status.vbat_mv);
+              g_charge_policy_applied = (uint8_t)want;
+            } else {
+              ESP_LOGW("CHG", "politica de carga: no se pudo aplicar %s; se reintenta",
+                       charge_policy_name(want));
+            }
+          }
+        }
+#endif
         // ── Transición Absorción → Flotación ─────────────────────────────────
         // Cuando ICHG cae por debajo del umbral de corte durante 60 s seguidos,
         // se cambia la tensión objetivo a flotación para mantener la batería sin
@@ -637,6 +682,39 @@ static const char *DBGCON_TAG __attribute__((unused)) = "DBGCON";
 // no pisen los PWM mientras dura, y g_benchLoadActive para que eso NO calle las
 // alarmas de red, bateria baja y ruido (ver hw_selftest.h).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Diagnostico de banco: cada bajada del pin CHRG_OK (IO42) con su duracion,
+// por interrupcion (sin I2C, sin bloquear a nadie). Banco 19/11/2026: un falso
+// corte de red al pasar el cargador de absorcion a flotacion.
+// ---------------------------------------------------------------------------
+static volatile uint32_t s_chrgOkFallUs = 0;
+static volatile uint32_t s_chrgOkLowUs = 0;   // ultima duracion en bajo
+static volatile uint32_t s_chrgOkPulses = 0;  // pulsos bajos terminados
+static volatile bool s_chrgOkLowNow = false;
+static void IRAM_ATTR chrgOkIsr() {
+  const uint32_t now = micros();
+  if (gpio_get_level((gpio_num_t)MAINS_OK_PIN) == 0) {
+    s_chrgOkFallUs = now;
+    s_chrgOkLowNow = true;
+  } else if (s_chrgOkLowNow) {
+    s_chrgOkLowUs = now - s_chrgOkFallUs;
+    s_chrgOkLowNow = false;
+    s_chrgOkPulses++;
+  }
+}
+void benchChrgOkMonitorInit() {
+  attachInterrupt(MAINS_OK_PIN, chrgOkIsr, CHANGE);
+}
+// Desde OTA_WIFI_Task: un log por pulso terminado.
+void benchChrgOkMonitorPoll() {
+  static uint32_t reported = 0;
+  if (s_chrgOkPulses != reported) {
+    reported = s_chrgOkPulses;
+    ESP_LOGW("CHRGOK", "CHRG_OK estuvo en bajo %lu ms (pulso #%lu)",
+             (unsigned long)(s_chrgOkLowUs / 1000), (unsigned long)reported);
+  }
+}
+
 #define BENCH_LOAD_MAX_S 600
 #define BENCH_LOAD_AIR_MAX_C 37.0
 #define BENCH_LOAD_HEATER_MAX_A 12.0
@@ -1076,6 +1154,9 @@ void OTA_WIFI_Task(void *pvParameters) {
   WIFI_TB_Init();
   for (;;) {
     debugConsolePoll();
+#ifdef FTEST_BENCH_DEBUG
+    benchChrgOkMonitorPoll();
+#endif
     WifiOTAHandler();
     vTaskDelay(pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
@@ -1475,6 +1556,9 @@ void setup() {
   initEEPROM();
   initGPIO();
   powerRailsInit();
+#if defined(FTEST_BENCH_DEBUG) && (HW_NUM >= 19)
+  benchChrgOkMonitorInit();
+#endif
   // HW19: el raíl de 5 V (humidificador, LEDs del AFE, SensorBoard por USB,
   // display HMI) esta apagado por pull-down hasta que el firmware lo levanta.
   // Va DESPUES de initGPIO() a proposito: initGPIO() deja USB_EN (humidificador)

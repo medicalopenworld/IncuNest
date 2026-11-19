@@ -82,3 +82,19 @@ bool mains_detector_blind(const MainsDetector *d, bool charger_expected,
   }
   return (uint32_t)(now_ms - d->last_valid_ms) > MAINS_DETECTOR_BLIND_MS;
 }
+
+MainsReading mains_reading_combine(bool reg_valid, bool reg_present,
+                                   bool pin_available, bool pin_present) {
+  MainsReading r;
+  r.valid = reg_valid || pin_available;
+  r.present = r.valid && (!reg_valid || reg_present) &&
+              (!pin_available || pin_present);
+  return r;
+}
+
+bool mains_pin_usable(bool pin_available, uint32_t now_ms,
+                      uint32_t last_write_ms) {
+  if (!pin_available) return false;
+  // Resta sin signo: correcta aunque millis() de la vuelta.
+  return (uint32_t)(now_ms - last_write_ms) >= MAINS_PIN_BLANK_AFTER_CHARGER_WRITE_MS;
+}
