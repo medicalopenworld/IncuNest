@@ -12,13 +12,19 @@
 // hace falta para juzgar ritmo/morfología a simple vista: el contenido útil
 // de un pulso PPG está por debajo de ~20 Hz. Diezmar a 50 Hz da margen
 // (incluye la muesca dicrótica) con una décima parte del volumen de datos.
-#define PPG_SNAPSHOT_SRC_HZ     500
+// Since motherBoard 18.59.0 SPO2_Task reads the library 50 times a second (one
+// sample of every ten), so the samples reach this module already at
+// PPG_SNAPSHOT_FS_HZ and PPG_SNAPSHOT_DECIM is 1: every sample fed is stored.
+// Until 18.58.0 the feed was at 500 Hz and this module kept one of ten. The
+// result is the same series: one sample of ppg_disp every 20 ms.
+#define PPG_SNAPSHOT_SRC_HZ     50
 #define PPG_SNAPSHOT_FS_HZ      50
 #define PPG_SNAPSHOT_DURATION_S 8
 #define PPG_SNAPSHOT_DECIM      (PPG_SNAPSHOT_SRC_HZ / PPG_SNAPSHOT_FS_HZ)
 #define PPG_SNAPSHOT_SAMPLES    (PPG_SNAPSHOT_FS_HZ * PPG_SNAPSHOT_DURATION_S)
 
-// Captura automática mientras WiFi/ThingsBoard estén arriba y el gate pase.
+// Captura automática por GPRS (apagada, ver transport_policy.h). La de WiFi
+// usa TX_PPG_AUTOCAPTURE_WIFI_MS.
 #define PPG_SNAPSHOT_AUTO_INTERVAL_MS (15UL * 60UL * 1000UL)
 
 // Si una captura no termina en 3x su duración esperada (p. ej. el AFE4490
@@ -32,8 +38,8 @@ enum class PpgSnapshotStatus {
   SIGNAL_NOT_READY,  // gate falló: sonda no aplicada o rsqi == 0
 };
 
-// Se llama una vez por muestra del AFE4490 (500 Hz) desde SPO2_Task. No hace
-// nada si no hay una captura en curso — seguro de llamar siempre.
+// Called from SPO2_Task once per sample it reads (PPG_SNAPSHOT_SRC_HZ). Does
+// nothing while no capture is running, so it is safe to call always.
 void ppgSnapshotFeed(const AFE4490Data &data, uint32_t now_ms);
 
 // Arranca una captura si el gate pasa y no hay ya una en curso.
@@ -63,8 +69,12 @@ void ppgSnapshotRelease();
 // sea true; el módulo no sabe nada de ThingsBoard/JSON — el llamador decide
 // cómo serializarlo (Wifi_OTA.cpp lo manda como serie temporal real, un
 // punto por muestra, para poder usar un chart estándar en el dashboard).
-// Las muestras son ppg_disp tal cual lo entrega la libreria: float en dominio
-// OT (A/A, ~1e-5..1e-6) desde la v0.69. Sin escalar ni normalizar aqui.
+// The samples are ppg_disp as the library delivers it, nothing scaled or
+// normalised here. Since motherBoard 18.57.0 (lib v0.119, NORM_PI selected in
+// initSPO2()) that is a dimensionless [-1, +1] waveform scaled by the library
+// with the PI folded into its amplitude; from lib v0.69 until 18.57.0 it was A/A (OT
+// domain, ~1e-5..1e-6). The ThingsBoard key is still PPG_snapshot_v1, so the two
+// eras are NOT comparable under the same key — pending review (2026-11-08).
 uint16_t ppgSnapshotSampleCount();
 const float *ppgSnapshotSamples();
 

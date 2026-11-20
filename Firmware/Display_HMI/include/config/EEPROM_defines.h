@@ -28,6 +28,8 @@ constexpr char HMI_KEY_HUMIDITY[]    = "humidity";
 constexpr char HMI_KEY_PHOTO_MIN[]   = "photo_min";
 constexpr char HMI_KEY_DARK_MODE[]   = "dark_mode";
 constexpr char HMI_KEY_HUM_EN[]      = "hum_en";
+// Marca: hum_en ya se forzo a 1 una vez (drivers/hum_en_policy.h).
+constexpr char HMI_KEY_HUM_EN_FRC[]  = "hum_en_frc";
 constexpr char HMI_KEY_SKIN_EN[]     = "skin_en";
 constexpr char HMI_KEY_VOLUME[]      = "volume";
 constexpr char HMI_KEY_DISP_FREQ[]   = "disp_freq";
@@ -41,6 +43,47 @@ constexpr char HMI_KEY_MNT_EN[]       = "mnt_en";      // avisos on/off
 constexpr char HMI_KEY_MNT_SNOOZE[]   = "mnt_snooze";  // epoch fin del "mas tarde"
 constexpr char HMI_KEY_MNT_SEQ[]      = "mnt_seq";     // ultimo bebe visto al mando
 constexpr char HMI_KEY_MNT_TPEND[]    = "mnt_tpend";   // alta sin terminal hecha
+constexpr char HMI_KEY_SVC_EN[]       = "svc_en";      // aviso de servicio on/off (defecto ON)
+
+// Recordatorio de pesada diaria (modules/maintenance/weigh_tracker). Epochs
+// UTC, como mnt_*. El protocolo no da el epoch de la ultima pesada, asi que
+// el HMI lo sella al enviarla; cada sello va con el seq al que pertenece.
+constexpr char HMI_KEY_WGH_SEQ[]     = "wgh_seq";     // bebe del sello de pesada
+constexpr char HMI_KEY_WGH_LAST[]    = "wgh_last";    // epoch ultima pesada real
+constexpr char HMI_KEY_WGH_SEEN_SEQ[] = "wgh_sseq";   // bebe del "visto"
+constexpr char HMI_KEY_WGH_SEEN_AT[] = "wgh_sfirst";  // epoch 1a vez al mando
+constexpr char HMI_KEY_WGH_SNOOZE[]  = "wgh_snooze";  // epoch fin del "mas tarde"
+constexpr char HMI_KEY_WGH_EN[]      = "wgh_en";      // aviso on/off (def. ON)
+
+// Zona horaria y procedencia de lo ultimo escrito en el RTC (PCF8563).
+//
+// El chip guarda el INSTANTE y nada mas: no tiene RAM de usuario respaldada por
+// pila, a diferencia de un DS1307. Asi que el huso y el rango de la fuente
+// tienen que vivir aqui, o tras un ciclo de alimentacion el display pintaria
+// UTC sin avisar de que es UTC — dos horas de error en España, y en la fecha
+// que sella el historial de alarmas.
+//
+// UNA SOLA CLAVE con los tres campos empaquetados, no tres claves. La NVS no
+// da transaccionalidad: con claves sueltas, un corte entre la primera y la
+// tercera escritura dejaria el huso de una hora junto al rango de otra, y el
+// error resultante son horas enteras. Empaquetado, o se escribe entero o no se
+// escribe.
+//
+//   bits 0-7   tzq + 48  (offset en cuartos de hora, desplazado a sin signo)
+//   bits 8-11  tzsrc     (TzSource: 0=desconocido, 1=NITZ, 2=IP, 3=manual)
+//   bits 12-15 src       (Proto_TimeSource del epoch escrito en el chip)
+constexpr char HMI_KEY_RTC_TZ[] = "rtc_tz";
+
+// Bebe al mando (modules/patient, state/patient_state). El HMI conserva el bebe
+// activo entre reinicios porque la placa lo conserva y reanuda sus terapias.
+// Cada clave es UN blob (no un campo por clave), por el mismo motivo que
+// `rtc_tz`: la NVS no es transaccional, y con claves sueltas un corte dejaria
+// el nombre de un bebe junto a los minutos de otro. Formato y version en
+// modules/patient/patient_session.h.
+//   pat_id   : identidad (seq, nombre, semanas, ageDays + epoch de captura)
+//   pat_ther : segundos acumulados de foto/termo/humedad del mismo seq
+constexpr char HMI_KEY_PAT_ID[]   = "pat_id";
+constexpr char HMI_KEY_PAT_THER[] = "pat_ther";
 
 // --------------- Keys: hmi_wifi ---------------
 constexpr char HMI_KEY_SSID[]     = "ssid";
@@ -66,6 +109,11 @@ constexpr char HMI_KEY_FTEST_FWVER[]    = "fwver";
 // Veredicto unico de la bateria (shared-factory-test-bench2 D5): 0 = nunca
 // persistido con un valor valido (clave ausente), 1 = HW OK, 2 = HW ERROR.
 constexpr char HMI_KEY_FTEST_VERDICT[]  = "verdict";
+// Primer test de hardware de fabrica: 0 = pendiente (el equipo arranca parado
+// en la pantalla de inicio con el boton de test), 1 = hecho. Clave ausente =
+// aun no decidido: FactoryTest_LoadFirstTestState() la fija en el primer
+// arranque con este firmware.
+constexpr char HMI_KEY_FTEST_FIRST_DONE[] = "first_done";
 
 void initEEPROM();
 void loaddefaultValues();

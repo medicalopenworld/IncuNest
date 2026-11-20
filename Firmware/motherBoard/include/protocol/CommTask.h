@@ -57,6 +57,7 @@ void   Communication_Task(void *pv);
 void   CommunicationHost_Send(const char *);
 void   setHMIConnected(bool connected);
 double getRemainingPhotoTime();
+bool   photoExpiryTakePersistOff(void);
 void   sendWifiToHMI(const char *ssid, const char *pass);
 
 // Cola de lineas hacia el HMI para tareas que no son Communication_Task

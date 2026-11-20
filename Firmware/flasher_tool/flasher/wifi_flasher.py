@@ -1,3 +1,4 @@
+import os
 import socket
 import threading
 import time
@@ -11,7 +12,8 @@ import requests
 from requests.auth import HTTPBasicAuth
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
-from detector import Board
+from detector import Board, MB_HW_V18
+from flasher import board_folder
 
 _BOARD_FOLDER: dict[Board, str] = {
     Board.MOTHERBOARD: 'motherboard',
@@ -29,19 +31,54 @@ _BOARD_BY_ID: dict[str, Board] = {v: k for k, v in _BOARD_ID.items()}
 # coincide, que es exactamente lo que faltaba el 2026-09-08.
 _BOARD_HEADER = 'X-IncuNest-Board'
 
-# Credentials are intentionally embedded: this is a factory-floor tool used on a
-# local network. The same credentials are compiled into the ESP32 firmware.
-_AUTH_SEQUENCES: dict[Board, list] = {
-    Board.DISPLAY_HMI: [
-        HTTPBasicAuth('incunestadmin', 'savinglives'),
-        HTTPBasicAuth('in3admin', 'savinglives'),
-    ],
-    Board.MOTHERBOARD: [
-        HTTPBasicAuth('incunestadmin', 'savinglives'),
-        HTTPBasicAuth('in3admin', 'savinglives'),
-        None,
-    ],
-}
+# LAS CREDENCIALES YA NO VAN EN EL FUENTE.
+#
+# Antes estaban aqui en claro, con el comentario de que era aceptable por ser
+# una herramienta de taller en red local. No lo era: este repositorio es
+# PUBLICO, asi que la contrasena del servidor web de todas las placas estaba
+# publicada en GitHub. Se rotaron el 2026-09-15 y la nueva no vuelve al fuente.
+#
+# Se leen del entorno, igual que hace tools/bench_tests:
+#
+#   set INCUNEST_WEB_USER=...
+#   set INCUNEST_WEB_PASS=...
+#
+# Por entorno y no por argumento de linea de comandos a proposito: un argumento
+# se ve en el listado de procesos de la maquina.
+#
+# INCUNEST_WEB_USER_LEGACY / _PASS_LEGACY son opcionales y existen solo para
+# alcanzar unidades que todavia no han recibido firmware nuevo: hasta que se
+# actualicen siguen aceptando la credencial vieja. En cuanto no queden equipos
+# antiguos, se borran.
+_WEB_USER = os.environ.get('INCUNEST_WEB_USER')
+_WEB_PASS = os.environ.get('INCUNEST_WEB_PASS')
+_WEB_USER_LEGACY = os.environ.get('INCUNEST_WEB_USER_LEGACY')
+_WEB_PASS_LEGACY = os.environ.get('INCUNEST_WEB_PASS_LEGACY')
+
+
+def _auth_sequence(board: Board) -> list:
+    """Credenciales a probar, en orden. Vacia si no hay ninguna configurada."""
+    seq = []
+    if _WEB_USER and _WEB_PASS:
+        seq.append(HTTPBasicAuth(_WEB_USER, _WEB_PASS))
+    if _WEB_USER_LEGACY and _WEB_PASS_LEGACY:
+        seq.append(HTTPBasicAuth(_WEB_USER_LEGACY, _WEB_PASS_LEGACY))
+    # La motherBoard admite ademas un intento sin autenticacion: hay revisiones
+    # de firmware antiguas en las que /update no la pedia.
+    if board is Board.MOTHERBOARD:
+        seq.append(None)
+    return seq
+
+
+class MissingCredentials(RuntimeError):
+    """No hay credenciales en el entorno y sin ellas no se puede subir nada."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            'Faltan credenciales del servidor web. Define INCUNEST_WEB_USER e '
+            'INCUNEST_WEB_PASS en el entorno antes de usar la subida por WiFi. '
+            'Ya no van dentro del codigo: el repositorio es publico.'
+        )
 
 _MDNS_SERVICE = '_http._tcp.local.'
 
@@ -53,6 +90,9 @@ class WifiBoard:
     fw_version: str
     hostname: str = ''
     sn: Optional[int] = None
+    # Revision de la motherBoard tal como la declara ella misma ("hw" en
+    # /get_fw_version, motherBoard 18.62.0 en adelante). None: no la declara.
+    hw: Optional[int] = None
 
 
 # The HMI firmware builds its hostname from WIFI_NAME "IncuNest-Display"
@@ -107,20 +147,33 @@ def flash_board_wifi(
     firmware_base: Path,
     progress_cb: Callable[[str, Optional[int]], None],
     timeout_s: float = 120.0,
+    hw: Optional[int] = None,
 ) -> None:
     """Flash firmware.bin to an ESP32 via HTTP OTA POST /update.
 
     Uses MultipartEncoderMonitor for real network-level progress (0–98%).
-    Tries auth credentials in order: incunestadmin, in3admin, None (MB only).
+    Las credenciales salen del entorno (ver _auth_sequence); si no hay ninguna
+    configurada lanza MissingCredentials en vez de intentar la subida.
     Raises RuntimeError on auth failure, FAIL response, or unexpected response.
     """
-    fw_path = firmware_base / _BOARD_FOLDER[board] / 'firmware.bin'
+    # motherBoard: el binario de SU revision (hw declarado por la placa). Sin
+    # declaracion (firmware anterior a 18.62.0) se trata como V18, como hasta
+    # ahora; si en realidad es una V19, la placa rechaza la imagen por su marca
+    # (fw_image_tag.h) antes de escribir nada.
+    if board == Board.MOTHERBOARD:
+        folder = board_folder(board, MB_HW_V18 if hw is None else hw)
+    else:
+        folder = _BOARD_FOLDER[board]
+    fw_path = firmware_base / folder / 'firmware.bin'
     if not fw_path.exists():
         raise FileNotFoundError(f'firmware.bin no encontrado: {fw_path}')
 
     progress_cb('Conectando…', None)
 
-    for auth in _AUTH_SEQUENCES[board]:
+    sequence = _auth_sequence(board)
+    if not sequence:
+        raise MissingCredentials()
+    for auth in sequence:
         with open(fw_path, 'rb') as fw_file:
             encoder = MultipartEncoder(
                 fields={'update': ('firmware.bin', fw_file, 'application/octet-stream')}
@@ -183,6 +236,27 @@ def _board_from_declaration(data: dict) -> Optional[Board]:
     if not isinstance(data, dict):
         return None
     return _BOARD_BY_ID.get(str(data.get('board', '')).strip().lower())
+
+
+def _hw_from_declaration(data: dict) -> Optional[int]:
+    """Revision de motherBoard declarada en /get_fw_version ("hw"), o None."""
+    if not isinstance(data, dict):
+        return None
+    try:
+        return int(data.get('hw'))
+    except (TypeError, ValueError):
+        return None
+
+
+def _get_fw_hw(ip: str, timeout: float = 2.0) -> Optional[int]:
+    """GET /get_fw_version y devuelve "hw", o None si no lo declara o falla."""
+    try:
+        resp = requests.get(f'http://{ip}/get_fw_version', timeout=timeout)
+        if resp.status_code == 200:
+            return _hw_from_declaration(resp.json())
+    except Exception:
+        pass
+    return None
 
 
 def _identify_board_type(ip: str, timeout: float = 0.5) -> Optional[Board]:
@@ -263,6 +337,7 @@ def _discover_mdns(timeout_s: float) -> list[WifiBoard]:
             fw_version=_get_fw_version(ip),
             hostname=hostname,
             sn=_sn_from_hostname(hostname),
+            hw=_get_fw_hw(ip),
         )
         for ip, board, hostname in found
     ]
@@ -325,7 +400,8 @@ def _probe_ip(ip: str) -> Optional[WifiBoard]:
             # Firmware without sn field — try OS mDNS reverse lookup
             hostname = _resolve_hostname(ip)
             sn = _sn_from_hostname(hostname)
-        return WifiBoard(ip=ip, board=board, fw_version=fw_version, sn=sn)
+        return WifiBoard(ip=ip, board=board, fw_version=fw_version, sn=sn,
+                         hw=_hw_from_declaration(data))
     except Exception:
         return None
 

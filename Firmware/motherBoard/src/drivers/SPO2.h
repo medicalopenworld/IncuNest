@@ -1,5 +1,6 @@
 #pragma once
 #include "incunest_afe4490.h"
+#include <ArduinoJson.h>
 #include <freertos/task.h>
 
 #include <type_traits>
@@ -8,23 +9,56 @@
 // by hand. The library lives in another repo with another owner: in v0.69 it
 // changed ppg_disp from int32_t (ADC counts) to float (OT domain, A/A) and the
 // firmware kept compiling without a single warning, because float -> int32_t is
-// a legal implicit conversion. All four consumers (CommTask's transport scale,
-// DriveUpload's CSV, PpgSnapshot's buffer, SPO2's log) silently truncated every
-// sample to 0 — a flat trace, not a build error.
+// a legal implicit conversion. All the consumers (CommTask's transport scale,
+// PpgSnapshot's buffer, SPO2's log, the Drive CSV that existed then) silently
+// truncated every sample to 0 — a flat trace, not a build error.
 //
 // The pin in platformio.ini stops that from arriving unannounced; this turns the
 // remaining case — someone bumps the pin without revisiting the consumers — into
 // a compile error instead of a flat waveform on a patient monitor.
+//
+// The type is only half of the contract: the RANGE is the other half, and no
+// static_assert can see it. Since lib v0.116 the range depends on the display
+// mode initSPO2() selects (NORM_PI -> [-1, +1]; NO_NORM -> A/A, ~1e-6), and the
+// consumers below are written for NORM_PI. Changing the mode means revisiting
+// CommTask's wire scale and PpgSnapshot's samples again.
 static_assert(
     std::is_same<decltype(AFE4490Data::ppg_disp), float>::value,
-    "AFE4490Data::ppg_disp changed type: re-check the scale in CommTask.cpp, the "
-    "CSV format in DriveUpload.cpp and the buffer in PpgSnapshot.cpp");
+    "AFE4490Data::ppg_disp changed type: re-check the scale in CommTask.cpp "
+    "and the buffer in PpgSnapshot.cpp");
 
 #define SPO2_INIT_TIME 1000
 
 extern INCUNEST_AFE4490 afe;
 extern TaskHandle_t     g_spo2_task;
-extern volatile AFE4490Data g_spo2_data;
+
+// The latest sample of the AFE, whole: every field belongs to the same
+// instant. This is the only way to read it. SPO2_Task rewrites the sample 50
+// times a second, so a consumer takes ONE copy and works on it; reading two
+// fields in two calls pairs values of different samples (the SQI of one with
+// the value of the next), which is what the volatile global this replaces
+// allowed. Before the first sample, and while the AFE is stalled
+// (afe_watchdog.h), the copy carries no measurement: the five clinical output
+// quantities and the three display quantities are NaN and probe_state is
+// PROBE_DISCONNECTED.
+//
+// seq, when given, receives a number that changes every time the sample does:
+// a consumer that must act once per sample (CTRL,PPG) compares it with the one
+// of its previous copy.
+AFE4490Data spo2Snapshot(uint32_t *seq = nullptr);
+
+// Adds the pulse-oximeter keys to a telemetry message (SpO2 with its SQI, PI,
+// HR1, HR2 and HR3 with theirs), the same for WiFi and GPRS. A key is sent
+// only when the library publishes a value: finite, not NaN. Neither the SQI
+// nor the probe state decides it.
+void spo2AddTelemetry(JsonObject &json);
 
 void initSPO2();
+
+// diag_code de la ultima muestra: bits 0-12 = REG_DIAG (0x30) del AFE4490 que
+// rellena runAfeDiagnostics() cada 5 s con la sonda ausente; resto = banderas
+// RSQM. Se publica como AFE_diag (DIAG) y en /debug/state.
+uint32_t afeDiagCode(void);
+// Episodios de parada del AFE (sin muestra > AFE_WD_STALL_MS) desde el arranque.
+uint32_t afeStallCount(void);
 void SPO2_Task(void *pvParameters);

@@ -65,6 +65,8 @@ bool s_open = false;
 uint16_t s_attempts = 0;
 bool s_quizSolved = false;
 UiControlSnapshot s_snap;
+// Perfil recordado por el asistente al entrar en formacion (ver endLesson).
+BabyWizardSession s_prevSession = {0, "", 0, 0};
 // Verdadero mientras el overlay este subido por encima de un modal de la capa
 // superior (paso libre); restoreZ() lo devuelve al fondo.
 bool s_raised = false;
@@ -285,11 +287,14 @@ void endLesson(bool passed, bool aborted) {
     // lo que la leccion encendio) y baja el flag.
     UI_RestoreControlSnapshot(&s_snap);
     Training_Exit();
-    // El seq de formacion (0xFFFF) no debe sobrevivir a la leccion. Solo se
-    // borra si es el de ZOE: si la leccion no llego a seleccionarla, el
-    // perfil recordado (un paciente registrado) se queda como estaba.
-    if (BabyWizard_GetActiveSeq() == TRAINING_BABY_SEQ) {
-      BabyWizard_ClearActiveProfile();
+    // Un seq de formacion (ZOE o el bebe registrado en la leccion) no debe
+    // sobrevivir a la leccion: se restaura el perfil recordado de antes de
+    // entrar (un paciente registrado, o ninguno). Antes se borraba sin mas,
+    // y con un paciente registrado eso dejaba un flanco seq -> 0 que el
+    // recordatorio de mantenimiento anotaba en NVS como alta falsa. Si la
+    // leccion no llego a seleccionar a ninguno, no hay nada que restaurar.
+    if (Training_IsPracticeSeq(BabyWizard_GetActiveSeq())) {
+      BabyWizard_SetSession(&s_prevSession);
     }
   }
   if (mode == MODE_DEMO) passed = false;
@@ -648,6 +653,10 @@ void Training_StartLesson(const Course *course, uint8_t lessonIdx) {
   if (s_lesson->flags & LESSON_INTERACTIVE) {
     if (gateOk()) {
       UI_GetControlSnapshot(&s_snap);
+      // El perfil recordado (un paciente registrado sin terapia, o nada)
+      // vuelve tal cual al salir: la leccion lo sustituye por un bebe de
+      // practicas al seleccionarlo en el asistente.
+      BabyWizard_GetSession(&s_prevSession);
       Training_Enter();
       s_mode = MODE_INTERACTIVE;
     } else {
@@ -696,12 +705,17 @@ void Training_Poll(void) {
   // overlay vuelve al fondo de la capa.
   if (kind == STEP_DO && (st.flags & STEP_FREE)) {
     // El SALIR de la franja se esconde mientras haya un dialogo de la
-    // pantalla principal abierto: el teclado del asistente llega hasta y=456
-    // y su barra de espacio quedaba debajo del boton (abortaria la leccion
-    // con un toque bajo). Siguen valiendo el aborto por alarma e inactividad
-    // y la X del propio dialogo.
+    // pantalla principal abierto: el teclado del asistente (y el del registro
+    // desde Bebes, que es el mismo) llega hasta y=456 y su barra de espacio
+    // quedaba debajo del boton (abortaria la leccion con un toque bajo).
+    // Siguen valiendo el aborto por alarma e inactividad y la X del propio
+    // dialogo.
+    const BabyHistoryStep bh = BabyHistory_GetStep();
+    const bool babyKeypad =
+        bh == BH_NEW_NAME || bh == BH_NEW_GEST || bh == BH_NEW_WEIGHT;
     const bool mainDialog = BabyWizard_IsOpen() || BabyExitDialog_IsOpen() ||
-                            TimeDialog_IsOpen() || HelpDialog_IsOpen();
+                            TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
+                            babyKeypad;
     show(s_stripExit, !mainDialog);
 
     const bool modalTop = AlarmCenter_IsOpen() || TelemetryHistory_IsOpen();

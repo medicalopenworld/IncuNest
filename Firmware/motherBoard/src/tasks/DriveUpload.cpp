@@ -14,25 +14,35 @@
 // fully-qualified vfs path; LittleFS.* methods take the relative one.
 #define LFS_MOUNT "/littlefs"
 
+// The raw PPG capture (one /pox_<ms>.csv per 60 s window, 500 samples/s,
+// uploaded to <SN>/2-Pulsioximetry/) was REMOVED in 18.57.0. Writing to the
+// flash while the AFE4490 is sampling stalls the CPU cache for every page
+// program / sector erase, the library's DRDY handshake is a binary semaphore
+// and the AFE has no FIFO, so every sample that arrives during a flash write
+// is lost without trace. Measured on the bench (2026-11-02, V18, patient
+// simulator at 135 bpm): ~11 % of the samples lost with the probe applied,
+// HR shown 152 bpm. HR is "samples between beats" scaled by the nominal
+// 500 Hz, so fewer samples inflate it; SpO2 and PI are ratios of signals that
+// lose the same samples and were not affected. Lowering the capture rate only
+// reduces how often the flash is written, not the loss per write, so there is
+// no rate at which this design keeps the sample stream complete. A RAM-only
+// capture published over the network (like PpgSnapshot) is the replacement.
+//
+// What stays: the upload task for the crash reports (<SN>/1-Logs/), which are
+// written at boot after a failure, never while measuring.
+
 extern IncuNest_parameters in3;
 
-static QueueHandle_t s_sample_queue = nullptr;
 static QueueHandle_t s_upload_queue = nullptr;
+static TaskHandle_t  s_upload_task  = nullptr;
 
-static TaskHandle_t s_write_task  = nullptr;
-static TaskHandle_t s_upload_task = nullptr;
-
-static volatile bool s_upload_slot_busy = false;
 static bool s_time_synced = false;
 
-// One request = one upload. `source_path` holds the CSV/log on LittleFS;
-// `clear_pulsiox_slot` tells the uploader to release the single pulsiox slot
-// (pox_upload.csv) when done, so the writer task can rotate again.
+// One request = one upload. `source_path` holds the log on LittleFS.
 struct DriveUploadRequest {
   char source_path[32];
   char drive_folder[32];
   char drive_filename[96];
-  bool clear_pulsiox_slot;
 };
 
 #define DRIVE_UPLOAD_QUEUE_LEN 4
@@ -40,6 +50,29 @@ struct DriveUploadRequest {
 // Silent remove: LittleFS.exists() + LittleFS.remove() both log [E] at the
 // framework level when the file is missing. We clean pre-emptively so probe
 // via POSIX stat() on the mounted path, which does not log.
+// Un informe de caida NO se borra al fallar la subida.
+//
+// Es el unico artefacto que no se puede volver a generar: son las ultimas
+// lineas antes de morir, y si se pierden hay que esperar a que la averia se
+// repita.
+//
+// El borrado indiscriminado dejaba la placa SIEMPRE sin informes: se escribia
+// el fichero, se encolaba para Drive, la subida no era posible (sin red o sin
+// Drive configurado) y la tarea lo borraba igual, incluso por la rama
+// "network not ready, dropping upload". Comprobado el 2026-09-21: seis caidas
+// forzadas seguidas y en la placa seguian solo cuatro informes de la 18.2.
+//
+// No hace falta limite extra: keepNewestCrashLog() ya los acota a
+// DRIVE_CRASH_LOG_RETENTION_CAP (5) en cada arranque, o sea 22 KB como mucho
+// en una particion de 2 MB. Y se pueden descargar con GET /debug/crash.
+static bool isCrashReport(const char *path) {
+  if (path == nullptr) {
+    return false;
+  }
+  const char *base = (path[0] == '/') ? path + 1 : path;
+  return strncmp(base, "crash_", 6) == 0;
+}
+
 static void removeIfExists(const char *path) {
   char full[40];
   snprintf(full, sizeof(full), LFS_MOUNT "%s", path);
@@ -281,120 +314,31 @@ static void ensureTimeSynced() {
   }
 }
 
-// ─── Writer: queue -> unique CSV per window, rotate every WINDOW_MS ──────────
-// Each window writes to /pox_<ms>.csv with a fresh inode — we never reuse a
-// path or rename an existing file, which avoided an esp_littlefs fd-table
-// corruption that asserted `lfs_mlist_isopen` on the next open after rotation.
-static void driveWriteTask(void *pv) {
-  int      csv_fd          = -1;
-  char     csv_rel[24]     = {0};  // "/pox_<ms>.csv" (LittleFS-relative)
-  uint32_t window_start_ms = 0;
-  bool     hb_detected     = false;
-
-  auto rotate = [&]() {
-    if (csv_fd < 0)
-      return;
-    ::close(csv_fd);
-    csv_fd = -1;
-
-#if DRIVE_DISABLE_UPLOAD
-    removeIfExists(csv_rel);
-    logDrive("upload disabled, dropped window");
-    return;
-#endif
-
-    if (s_upload_slot_busy) {
-      removeIfExists(csv_rel);
-      logDrive("upload still busy, dropped window");
-      return;
-    }
-
-    DriveUploadRequest req{};
-    time_t now;
-    time(&now);
-    struct tm t;
-    gmtime_r(&now, &t);
-    char tsbuf[32];
-    strftime(tsbuf, sizeof(tsbuf), "%Y_%m_%d_%H_%M_%S", &t);
-    snprintf(req.source_path, sizeof(req.source_path), "%s", csv_rel);
-    snprintf(req.drive_folder, sizeof(req.drive_folder), "%s",
-             DRIVE_SUBFOLDER_PULSIOX);
-    snprintf(req.drive_filename, sizeof(req.drive_filename),
-             "%s%s_%d_PulseOximeter_data.csv", hb_detected ? "DH_" : "", tsbuf,
-             (int)in3.serialNumber);
-    req.clear_pulsiox_slot = true;
-
-    s_upload_slot_busy = true;
-    if (xQueueSend(s_upload_queue, &req, 0) != pdTRUE) {
-      // Should not happen (slot_busy guards the queue) — recover.
-      s_upload_slot_busy = false;
-      removeIfExists(csv_rel);
-      logDrive("upload queue full");
-    }
-  };
-
-  for (;;) {
-    DrivePpgSample s;
-    bool got = xQueueReceive(s_sample_queue, &s, pdMS_TO_TICKS(200)) == pdTRUE;
-
-    // Rotate on wall-clock boundary even if samples stop arriving.
-    if (csv_fd >= 0 && (millis() - window_start_ms) >= DRIVE_UPLOAD_WINDOW_MS) {
-      rotate();
-    }
-    if (!got)
-      continue;
-
-    do {
-      if (csv_fd < 0) {
-        // Serialize with the upload task: esp_littlefs in Arduino 2.x corrupts
-        // the open-files mlist if two fds from different tasks are alive at
-        // once. Skip opening a new window while an upload is in flight —
-        // samples are dropped (~upload duration) but system stays alive.
-        if (s_upload_slot_busy) {
-          break;
-        }
-        snprintf(csv_rel, sizeof(csv_rel),
-                 DRIVE_CSV_PATH_PREFIX "%lu" DRIVE_CSV_PATH_SUFFIX,
-                 (unsigned long)s.t_ms);
-        char full[40];
-        snprintf(full, sizeof(full), LFS_MOUNT "%s", csv_rel);
-        csv_fd = ::open(full, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (csv_fd < 0) {
-          logDrive(String("cannot open ") + csv_rel);
-          vTaskDelay(pdMS_TO_TICKS(1000));
-          break;
-        }
-        static const char header[] = "t_ms,led1_sub,led2_sub,ppg_disp\n";
-        ::write(csv_fd, header, sizeof(header) - 1);
-        window_start_ms = s.t_ms;
-        hb_detected = false;
-      }
-
-      uint32_t rel_ms = s.t_ms - window_start_ms;
-      // ppg_disp goes out as %.4e (A/A, OT domain) — the same wire format the
-      // library's own PulseNest frames adopted in v0.69. "%d" truncated every
-      // sample to 0. The buffer grew from 48 to 64: "-1.2345e-06" is 11 chars.
-      char line[64];
-      int  n = snprintf(line, sizeof(line), "%u,%d,%d,%.4e\n", (unsigned)rel_ms,
-                        (int)s.led1_sub, (int)s.led2_sub, s.ppg_disp);
-      if (n > 0)
-        ::write(csv_fd, line, n);
-
-      if (s.valid_signal) {
-        hb_detected = true;
-      }
-
-      if (rel_ms >= DRIVE_UPLOAD_WINDOW_MS) {
-        rotate();
-      }
-    } while (xQueueReceive(s_sample_queue, &s, 0) == pdTRUE);
-  }
-}
-
 // Minimum heap we accept after a TLS failure. Below this the mbedTLS stack
 // has likely corrupted internal allocator state (observed: next LFS write
 // asserts `lfs_mlist_isopen`). Restart cleanly instead of operating blind.
-#define DRIVE_MIN_HEAP_AFTER_UPLOAD 50000
+//
+// ============ 50000 GARANTIZABA UN REINICIO POR CADA SUBIDA ============
+//
+// Medido en banco (2026-09-14, unidad 353): esta placa NO lleva PSRAM, asi que
+// ESP.getFreeHeap() es heap interno a secas, y en regimen —WiFi asociado, MQTT
+// arriba, enlace con el display— se estabiliza en unos 32 KB:
+//
+//     recien arrancada  ~63 KB
+//     en regimen        ~32 KB   (20 peticiones seguidas cuestan 8 B: no hay fuga)
+//
+// O sea que heap_after < 50000 se cumplia SIEMPRE, y una guarda pensada para
+// un caso excepcional reiniciaba la placa cada vez que una subida terminaba
+// BIEN. Es el mismo defecto de forma que el umbral del ventilador: una
+// constante elegida contra un punto de trabajo supuesto que no es el real.
+//
+// Baja a 20 KB: 12 por debajo del regimen medido, asi que solo salta ante un
+// agotamiento de verdad y no en operacion normal.
+//
+// Y lo que de verdad protege no es este numero, sino heap_caps_check_integrity_all()
+// unas lineas mas abajo: esa comprueba la corrupcion DIRECTAMENTE, sin umbral
+// que calibrar. El umbral es solo la red por si la corrupcion no se detecta.
+#define DRIVE_MIN_HEAP_AFTER_UPLOAD 20000
 
 // DNS preflight: skip TLS entirely if the host is not resolvable quickly.
 // Broken/partial handshakes are the path that corrupts heap.
@@ -421,9 +365,9 @@ static void driveUploadTask(void *pv) {
 
     if (!driveHostReachable()) {
       logDrive("network not ready, dropping upload");
-      removeIfExists(req.source_path);
-      if (req.clear_pulsiox_slot)
-        s_upload_slot_busy = false;
+      if (!isCrashReport(req.source_path)) {
+        removeIfExists(req.source_path);
+      }
       continue;
     }
 
@@ -434,21 +378,35 @@ static void driveUploadTask(void *pv) {
     uint32_t heap_after = ESP.getFreeHeap();
     bool heap_corrupt = !heap_caps_check_integrity_all(false);
 
-    // Check heap BEFORE releasing the slot: if the TLS stack corrupted the
-    // allocator, releasing s_upload_slot_busy would let the write task open a
-    // new LFS file on a broken heap, which asserts lfs_mlist_isopen.
+    // Check the heap BEFORE touching LittleFS again: if the TLS stack corrupted
+    // the allocator, the next LFS open on a broken heap asserts
+    // lfs_mlist_isopen.
     if (heap_after < DRIVE_MIN_HEAP_AFTER_UPLOAD || heap_corrupt) {
-      logDrive(String("CRITICAL heap ") + heap_after +
-               (heap_corrupt ? " (corrupt)" : "") +
-               " after upload, restarting to recover");
+      // ESP_LOGE y NO logDrive: esto REINICIA una placa que gobierna el
+      // calefactor, y logDrive va por LOG_DRIVE, que es false. O sea que el
+      // equipo se reiniciaba solo y el motivo no salia por ningun lado.
+      //
+      // En banco (2026-09-14) eso costo una investigacion entera: tras una
+      // tanda con la sonda puesta aparecio un `rst:0xc (RTC_SW_CPU_RST)` sin
+      // panico, sin backtrace y sin una linea que lo explicara. Parecia un
+      // crash y era este reinicio a proposito. Un reinicio deliberado siempre
+      // tiene que dejar rastro.
+      ESP_LOGE("DRIVE",
+               "heap CRITICO %u B%s tras subir %s/%s; se reinicia para "
+               "recuperar (umbral %u)",
+               (unsigned)heap_after, heap_corrupt ? " (corrupto)" : "",
+               req.drive_folder, req.drive_filename,
+               (unsigned)DRIVE_MIN_HEAP_AFTER_UPLOAD);
       Serial.flush();
       vTaskDelay(pdMS_TO_TICKS(200));
       esp_restart();
     }
 
-    removeIfExists(req.source_path);
-    if (req.clear_pulsiox_slot)
-      s_upload_slot_busy = false;
+    // Los informes de caida solo se borran si la subida SALIO BIEN: si fallo,
+    // el fichero es lo unico que queda de esa averia (ver isCrashReport).
+    if (ok || !isCrashReport(req.source_path)) {
+      removeIfExists(req.source_path);
+    }
     logDrive(String(ok ? "upload OK" : "upload FAILED") +
              " (heap=" + heap_after +
              ", delta=" + (int32_t)(heap_after - heap_before) + ")");
@@ -465,21 +423,7 @@ bool driveEnqueueLogUpload(const char *source_path,
            DRIVE_SUBFOLDER_LOGS);
   snprintf(req.drive_filename, sizeof(req.drive_filename), "%s",
            drive_filename);
-  req.clear_pulsiox_slot = false;
   return xQueueSend(s_upload_queue, &req, 0) == pdTRUE;
-}
-
-void drivePushSample(const AFE4490Data &data) {
-  if (s_sample_queue == nullptr)
-    return;
-  DrivePpgSample s;
-  s.t_ms         = millis();
-  s.led1_sub     = data.led1_sub;
-  s.led2_sub     = data.led2_sub;
-  s.ppg_disp     = data.ppg_disp;
-  s.valid_signal = (data.probe_state == ProbeState::PROBE_APPLIED) &&
-                   (data.rsqi == 1);
-  xQueueSend(s_sample_queue, &s, 0);
 }
 
 void initDriveUpload() {
@@ -487,8 +431,9 @@ void initDriveUpload() {
     logDrive("LittleFS begin failed");
     return;
   }
-  // Drop leftover per-window CSVs from a previous (possibly crashed) boot,
-  // and cap crash_mb_/crash_hmi_ logs that a crash loop left un-uploaded.
+  // Drop any /pox_*.csv left by a firmware older than 18.57.0 (the raw PPG
+  // capture, see the note at the top), and cap crash_mb_/crash_hmi_ logs that
+  // a crash loop left un-uploaded.
   CrashLogEntry mbKept[DRIVE_CRASH_LOG_RETENTION_CAP]  = {};
   CrashLogEntry hmiKept[DRIVE_CRASH_LOG_RETENTION_CAP] = {};
   int mbKeptCount = 0, hmiKeptCount = 0;
@@ -518,23 +463,15 @@ void initDriveUpload() {
     root.close();
   }
 
-  s_sample_queue = xQueueCreate(DRIVE_SAMPLE_QUEUE_LEN, sizeof(DrivePpgSample));
   s_upload_queue = xQueueCreate(DRIVE_UPLOAD_QUEUE_LEN,
                                 sizeof(DriveUploadRequest));
-  if (!s_sample_queue || !s_upload_queue) {
+  if (!s_upload_queue) {
     logDrive("queue alloc failed");
     return;
   }
 
-  xTaskCreatePinnedToCore(driveWriteTask, "DRV_WR", 6144, nullptr,
-                          SPO2_TASK_PRIORITY - 1, &s_write_task,
-                          CORE_MONITOR_FREERTOS);
-#if DRIVE_DISABLE_UPLOAD
-  logDrive("DriveUpload initialized (UPLOAD DISABLED — diagnostic)");
-#else
   xTaskCreatePinnedToCore(driveUploadTask, "DRV_UP", 8192, nullptr,
                           OTA_TASK_PRIORITY, &s_upload_task,
                           CORE_MONITOR_FREERTOS);
   logDrive("DriveUpload initialized");
-#endif
 }

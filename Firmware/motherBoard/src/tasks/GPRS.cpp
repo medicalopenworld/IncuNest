@@ -28,9 +28,12 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "modules/service/service_hours.h"
 #include "modules/baby_profile/baby_cloud.h"
 #include "modules/baby_profile/baby_profile_store.h"
-#include "modules/util/civil_time.h"
+#include "civil_time.h"
+#include "modules/util/system_clock.h"
+#include "modules/util/therapy_off_edge.h"
 #include "modules/util/tz_source.h"
 #include <sys/time.h>
 
@@ -42,6 +45,10 @@
 #include "SPO2.h"
 #include "Wifi_OTA.h"
 #include "main.h"
+#include "modules/config/runtime_config_tb.h"
+#include "tasks/CrashReporter.h"
+#include "system/power_rails.h"
+#include "modules/control/modem_power_cycle.h"
 
 // Initialize GSM modem
 TinyGsm modem(modemSerial);
@@ -60,6 +67,10 @@ Arduino_MQTT_Client mqttClientGPRS(client);
 ThingsBoard tb(mqttClientGPRS, MAX_MESSAGE_SIZE);
 
 StaticJsonDocument<JSON_OBJECT_SIZE(THINGSBOARD_FIELDS_AMOUNT)> GPRS_JSON;
+
+// Flanco de apagado de fototerapia/control -> publicacion adelantada. Solo lo
+// toca la tarea GPRS. A cero equivale a therapy_off_edge_init().
+static TherapyOffEdge s_offEdge = {};
 JsonObject addVariableToTelemetryGPRSJSON = GPRS_JSON.to<JsonObject>();
 
 // Cuando el pool se llena, ArduinoJson deja de anadir claves SIN error y
@@ -96,7 +107,8 @@ static constexpr size_t GPRS_APN_COUNT =
 
 // Statuses for updating
 bool currentFWSent = false;
-bool updateRequestSent = false;
+// updateRequestSent se ha retirado: nunca se asignaba, asi que la guarda que
+// dependia de ella no guardaba nada. Ver GPRSCheckOTA().
 
 extern double ReferenceTemperatureRange, ReferenceTemperatureLow;
 
@@ -122,6 +134,11 @@ static void rpc_diag_cb(JsonVariantConst const & /*data*/,
   response["uptime_s"]      = (uint32_t)(millis() / 1000);
   response["gprs_kill"]     = g_gprsKillCount;
   response["mon_kill"]      = g_monKillCount;
+#if (HW_NUM >= 19)
+  response["gsm_power_cycles"] = gsmPowerCycles();
+#endif
+  response["modem_resets"]  = GPRS.modemResets;
+  response["modem_reset_reason"] = GPRS.lastResetReason.c_str();
   response["hmi_boots"]     = g_hmiBootCount;
   response["hmi_last_rst"]  = g_hmiLastRst;
 }
@@ -142,19 +159,16 @@ static void rpc_setwifi_cb(JsonVariantConst const & data,
   response["status"] = "ok";
 }
 
-static void rpc_wipe_babies_cb(JsonVariantConst const & data,
-                               JsonDocument & response) {
-  // Same explicit confirmation as the /config path: a stray RPC must never
-  // erase clinical records.
-  if (data["confirm"] != 1234) {
-    response["status"] = "refused";
-    return;
-  }
-  int n = babyStore_wipeAll();
-  response["status"] = "wiped";
-  response["files_removed"] = n;
-  logModemData("[RPC] baby data wiped");
-}
+// Aqui vivia rpc_wipe_babies_cb(): borrar el historial clinico de una unidad
+// con un RPC desde el cuadro de mando. Retirado a proposito. El codigo de
+// confirmacion (1234) limitaba los accidentes, pero no cambiaba quien tenia
+// la capacidad: cualquiera con permiso de RPC sobre el dispositivo podia
+// dejar sin registros a una incubadora en produccion, desde fuera del
+// hospital y sin tocarla. El borrado sigue existiendo por la via de
+// servicio, "/config,BABY_WIPE,1234" por el cable entre placas
+// (CommTask.cpp), que exige acceso fisico al equipo.
+//
+// No lo vuelvas a registrar en rpc_callbacks[] sin una decision explicita.
 
 static void rpc_check_ota_cb(JsonVariantConst const & /*data*/,
                              JsonDocument & response) {
@@ -169,9 +183,9 @@ static void rpc_check_ota_cb(JsonVariantConst const & /*data*/,
 // compartido; lo único propio del transporte es por dónde sale el resultado.
 static void rpc_capture_ppg_gprs_cb(JsonVariantConst const & /*data*/,
                                     JsonDocument & response) {
+  const AFE4490Data afe_s = spo2Snapshot();
   PpgSnapshotStatus st = ppgSnapshotRequestCapture(
-      g_spo2_data.probe_state == ProbeState::PROBE_APPLIED, g_spo2_data.rsqi,
-      millis());
+      afe_s.probe_state == ProbeState::PROBE_APPLIED, afe_s.rsqi, millis());
   switch (st) {
     case PpgSnapshotStatus::STARTED:
       response["status"] = "started";
@@ -186,14 +200,22 @@ static void rpc_capture_ppg_gprs_cb(JsonVariantConst const & /*data*/,
 }
 #endif
 
+// El tercer argumento es el tamano del documento de respuesta y NO es
+// opcional: su defecto es JSON_OBJECT_SIZE(Default_RPC_Amount) con
+// Default_RPC_Amount = 0 (Constants.h del SDK), o sea capacidad CERO. Con
+// THINGSBOARD_ENABLE_DYNAMIC=1 el SDK monta TBJsonDocument(0), el primer
+// response[...] desborda y ThingsBoard.h hace break SIN enviar la respuesta:
+// el handler corre, pero el servidor se queda esperando y da 504. Aqui va el
+// numero exacto de campos que escribe cada callback; si anades uno, sube la
+// cuenta. Claves y literales son const char* (cero copia), asi que
+// JSON_OBJECT_SIZE(n) basta.
 static RPC_Callback rpc_callbacks[] = {
-  RPC_Callback("restart",  rpc_restart_cb),
-  RPC_Callback("getDiag",  rpc_diag_cb),
-  RPC_Callback("setWifi",  rpc_setwifi_cb),
-  RPC_Callback("wipeBabies", rpc_wipe_babies_cb),
-  RPC_Callback("checkOta",   rpc_check_ota_cb),
+  RPC_Callback("restart",  rpc_restart_cb,  JSON_OBJECT_SIZE(1)),
+  RPC_Callback("getDiag",  rpc_diag_cb,     JSON_OBJECT_SIZE(10)),
+  RPC_Callback("setWifi",  rpc_setwifi_cb,  JSON_OBJECT_SIZE(1)),
+  RPC_Callback("checkOta",   rpc_check_ota_cb,   JSON_OBJECT_SIZE(1)),
 #if TX_FEATURE_PPG_SNAPSHOT_GPRS
-  RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb),
+  RPC_Callback("capturePPG", rpc_capture_ppg_gprs_cb, JSON_OBJECT_SIZE(1)),
 #endif
 };
 static constexpr size_t RPC_CB_COUNT = sizeof(rpc_callbacks) / sizeof(rpc_callbacks[0]);
@@ -209,6 +231,27 @@ static void subscribeRPCHandlers() {
 // from the dashboard instead of only from a serial log nobody is attached to
 // while the unit is in the field. -1 = no OTA in flight.
 volatile int g_otaProgressPct = -1;
+
+// Una imagen ya descargada y a la espera de arrancar. Solo la borra el
+// reinicio, que es justo lo que se quiere: vive en RAM a proposito.
+//
+// Hace falta porque el modelo de OTA de ThingsBoard da por terminada la
+// actualizacion cuando el equipo REPORTA la version nueva, y este equipo no
+// reinicia al acabar (ver updatedCallback: el esp_restart() esta comentado a
+// conciencia, no se reinicia una incubadora con un nino dentro). Asi que el
+// servidor sigue viendo 18.35 con objetivo 18.36, vuelve a lanzar la
+// actualizacion, y Update.begin() ya falla porque la particion esta escrita:
+//
+//     [TB] Failed to initalize flash updater, ensure that the partition
+//          scheme has two app sections
+//
+// A partir de ahi el SDK entra en RETRY_UPDATE sin fin --Request_First_
+// Firmware_Packet() vuelve a poner m_retries a Get_Chunk_Retries() en cada
+// vuelta, asi que la cuenta de reintentos no baja NUNCA-- y machaca al
+// servidor a ~7 peticiones por segundo hasta que la unidad cae. Es lo que
+// reinicio las siete unidades de la tanda del 2026-09-21 con PANIC, y lo que
+// se reprodujo en banco el 2026-09-22 (ver known_issues.md #14).
+volatile bool g_otaPendingReboot = false;
 
 void progressCallback(const uint32_t &currentChunk,
                       const uint32_t &totalChuncks) {
@@ -228,6 +271,7 @@ void updatedCallback(const bool &success) {
   g_otaProgressPct = -1;
   if (success) {
     logModemData("[GPRS] -> Done, OTA will be implemented on next boot");
+    g_otaPendingReboot = true;
     // esp_restart();
   } else {
     logModemData("[GPRS] -> No new firmware");
@@ -283,7 +327,7 @@ void initGPRS() {
   // Normal power‑up path:
   Serial2.begin(MODEM_BAUD, SERIAL_8N1, GSM_UART_TX_PIN, GSM_UART_RX_PIN);
   GPRS.powerUp = true;
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
   digitalWrite(GPRS_PWRKEY, HIGH);
 #endif
 }
@@ -358,10 +402,18 @@ void GPRSEnsureTimeSynced() {
   static uint32_t s_lastAttemptMs = 0;
   if (s_synced) return;
 
-  // WiFi NTP may have won the race; nothing to do if the clock is already set.
+  // El reloj ya esta puesto: no hay nada que hacer aqui, gane quien gane.
+  //
+  // El mensaje decia "(WiFi NTP)" y era una suposicion, no un dato: esta rama
+  // salta con el reloj puesto por CUALQUIER fuente. Se vio en banco el
+  // 2026-09-16 anunciando WiFi NTP con la hora tecleada a mano en /config, y
+  // otra vez con la hora sembrada desde el RTC del HMI. Mando a dos personas a
+  // buscar un SNTP que nunca habia ocurrido. Ahora que time_source sabe de
+  // verdad quien puso el reloj, se dice el rango y se acabo la adivinanza.
   if (time(nullptr) >= (time_t)1609459200L) {
     s_synced = true;
-    logModemData("[GPRS] -> time already synced (WiFi NTP)");
+    logModemData("[GPRS] -> clock already set, source rank " +
+                 String((int)systemClockSource()));
     return;
   }
 
@@ -375,13 +427,23 @@ void GPRSEnsureTimeSynced() {
   float tz = 0.0f;
   uint32_t epoch = 0;
   bool got = false;
+  // De que rama sale `epoch`. Las dos acababan en el mismo settimeofday() y
+  // eran indistinguibles, pero NO valen lo mismo: AT+CCLK? devuelve la hora
+  // que anuncia la red (NITZ), que muchos operadores no emiten o emiten con
+  // minutos de error, mientras que el fallback habla con pool.ntp.org. Son el
+  // ultimo y el segundo rango de la jerarquia. Confundirlas dejaria un NTP
+  // bueno degradado a NITZ, y entonces la semilla del RTC del HMI —que esta
+  // por encima de NITZ— podria pisarlo.
+  Proto_TimeSource src = PROTO_TIME_SOURCE_NONE;
 
   if (modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
                            &tz)) {
     got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
                             (unsigned)hour, (unsigned)minute,
                             (unsigned)second, (int)tz, &epoch);
-    if (!got) {
+    if (got) {
+      src = PROTO_TIME_SOURCE_NITZ;
+    } else {
       // Expected when the operator sends no NITZ: the SIM800 reports its
       // 2004 default, which civil_to_unix_utc() rejects outright.
       logModemData("[GPRS] -> NITZ clock not valid yet");
@@ -397,6 +459,10 @@ void GPRSEnsureTimeSynced() {
                               (unsigned)hour, (unsigned)minute,
                               (unsigned)second, (int)tz, &epoch);
       if (got) {
+        // Esta hora viene de pool.ntp.org, no de la red movil, aunque se lea
+        // por el mismo AT+CCLK?: el CNTP de arriba acaba de reescribir el
+        // reloj del modem con ella. Rango NTP, no NITZ.
+        src = PROTO_TIME_SOURCE_NTP;
         // El sync solo se da por bueno si esta linea se alcanza: un intento
         // fallido (CCLK/CNTP con error, timeout de red...) no debe dejar la
         // zona marcada como contaminada para siempre — sin esto un fallo
@@ -410,11 +476,18 @@ void GPRSEnsureTimeSynced() {
 
   if (!got) return;
 
-  struct timeval tv = {};
-  tv.tv_sec = (time_t)epoch;
-  settimeofday(&tv, nullptr);
+  if (!systemClockSet(epoch, src)) {
+    // Una fuente mejor gano la carrera (hora puesta a mano, o SNTP por WiFi
+    // que llego entre la comprobacion de arriba y esta linea). No es un
+    // error: el reloj ya esta bien. Se marca sincronizado para no seguir
+    // gastando comandos AT en algo resuelto.
+    s_synced = true;
+    logModemData("[GPRS] -> cellular clock declined, better source already set");
+    return;
+  }
   s_synced = true;
-  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch));
+  logModemData("[GPRS] -> clock synced from cellular, epoch " + String(epoch) +
+               ", src " + String((int)src));
 }
 
 // Zona horaria desde la red movil (NITZ), separada de la puesta en hora.
@@ -544,15 +617,46 @@ void readGPRSData() {
 // cobertura). Un solo sitio para esta secuencia evita que ambos disparadores
 // diverjan con el tiempo.
 void GPRSForceReset(const String &reason) {
-  logE("[GPRS] -> reset: " + reason);
+  // Por logModemData y no logE: LOG_ERRORS esta a false, y con logE el motivo
+  // no salia nunca por el serie. En la prueba de banco de 18.52.1 se vio el
+  // "powering module down" pero no por que.
+  logModemData("[GPRS] -> reset: " + reason);
+  GPRS.modemResets++;
+  GPRS.lastResetReason = reason;
   GPRS.timeOut = false;
   GPRS.process = false;
   GPRS.post = false;
   GPRS.connect = false;
   GPRS.powerUp = true;
   GPRS.serverConnectionStatus = false;
+  GPRS.tbConnectFailures = 0;
+  // Una OTA que estuviera en curso muere con el modem: sin esto el flag se
+  // quedaba a true para siempre y GPRSCheckOTA() no volvia a lanzarse.
+  GPRS.OTAInProgress = false;
+#if (HW_NUM >= 19)
+  // HW19. El PWRKEY va a GND: el SIM800C solo arranca al APLICAR VBAT. Un
+  // AT+CPOWD=1 sin corte de VBAT lo dejaria apagado hasta el siguiente corte,
+  // asi que se distinguen dos casos (politica en modem_power_cycle.*):
+  //   - racha de reinicios suaves fallidos y backoff cumplido: AT+CPOWD=1 y
+  //     corte REAL de GSM_PWR_EN pasado el margen de apagado ordenado, de nuevo
+  //     alimentado >= 2 s despues. No bloquea: GPRSPowerUp() caso 0 espera a que
+  //     termine consultando gsmPowerCycleBusy().
+  //   - resto: AT+CFUN=1,1 (el modem se reinicia el mismo y conserva VBAT).
+  //     A CONFIRMAR EN BANCO V19 que el SIM800C reinicia asi y vuelve a
+  //     contestar AT en unos segundos.
+  // No se espera el URC "NORMAL POWER DOWN" antes de cortar: se da un margen
+  // fijo (MODEM_PC_SHUTDOWN_GRACE_MS). Esperar el URC con timeout queda como
+  // mejora opcional.
+  logModemData("[GPRS] -> resetting module...");
+  if (gsmSoftFailure(MODEM_PC_SHUTDOWN_GRACE_MS)) {
+    Serial2.print("AT+CPOWD=1\n");
+  } else {
+    Serial2.print("AT+CFUN=1,1\n");
+  }
+#else
   logModemData("[GPRS] -> powering module down...");
   Serial2.print("AT+CPOWD=1\n");
+#endif
   GPRS.packetSentenceTime = millis();
   GPRS.processTime = millis();
 }
@@ -589,14 +693,32 @@ void GPRSVerifyStillAttached() {
 
   if (!modem.isNetworkConnected()) {
     GPRSForceReset("network attach lost (SIM retirada o sin cobertura)");
+    return;
+  }
+  // Estar registrado en la red (CREG) no es tener sesion de datos. Si el
+  // contexto PDP se cae (+PDP: DEACT) el modem sigue registrado, CREG sigue
+  // diciendo 1/5 y el HMI seguia pintando "2G" mientras tb.connect() fallaba
+  // para siempre: el equipo no aparecia en ThingsBoard ni en el portal de
+  // Onomondo hasta reiniciar la placa (visto en banco, 2026-10-20).
+  // isGprsConnected() mira CGATT y que el modem conserve IP (AT+CIFSR).
+  if (!modem.isGprsConnected()) {
+    GPRSForceReset("data session lost (CREG ok, sin CGATT/IP)");
   }
 }
 
 void GPRSPowerUp() {
   switch (GPRS.process) {
   case 0:
+    // HW19: power-cycle del modem en curso (ver GPRSForceReset()). No se
+    // avanza hasta que GSM_PWR_EN vuelve a estar a nivel alto. Mientras
+    // GPRS.process sea 0, GPRSStatusHandler() no corre el temporizador de
+    // GPRS_TIMEOUT, asi que esta espera no la mata el timeout. No-op (false)
+    // en HW < 19.
+    if (gsmPowerCycleBusy()) {
+      break;
+    }
     GPRS.processTime = millis();
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
     digitalWrite(GPRS_PWRKEY, LOW);
 #endif
     GPRS.process++;
@@ -604,7 +726,7 @@ void GPRSPowerUp() {
     logModemData("[GPRS] -> powering up GPRS");
     break;
   case 1:
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
     if (millis() - GPRS.packetSentenceTime > 1000) {
       digitalWrite(GPRS_PWRKEY, HIGH);
       logModemData("[GPRS] -> GPRS powered");
@@ -659,7 +781,17 @@ void GPRSPowerUp() {
     GPRS.modemResponded = true;
     GPRS.simReady = true;
     GPRS.CCID = modem.getSimCCID();
-    GPRS.CCID.remove(GPRS.CCID.length() - 1);
+    // El ICCID va ENTERO. Antes se le quitaba siempre el ultimo caracter y se
+    // publicaban 19 digitos (a 89457300000051200304 le faltaba el 4). Ademas,
+    // 19 digitos caben en un int64 y ThingsBoard, que convierte en numero los
+    // strings que lo parecen, lo guardaba como long; su web lo pintaba como
+    // double y salia 8945730000005120000. Con 20 digitos (>= 8.9e19) no cabe
+    // y ThingsBoard lo guarda como string, exacto.
+    // Solo se quita la 'F' de relleno con la que el modem completa un ICCID
+    // de 19 digitos.
+    if (GPRS.CCID.endsWith("F") || GPRS.CCID.endsWith("f")) {
+      GPRS.CCID.remove(GPRS.CCID.length() - 1);
+    }
     GPRS.IMEI = modem.getIMEI();
     logModemData("[GPRS] -> CCID is: " + GPRS.CCID);
     logModemData("[GPRS] -> IMEI is: " + GPRS.IMEI);
@@ -707,6 +839,7 @@ void GPRSStablishConnection() {
     GPRS.connect = false;
     GPRS.process = false;
     GPRS.post = true;
+    gsmNoteConnected(); // vacia la racha de reinicios fallidos y el backoff (HW19)
     break;
   }
 }
@@ -740,7 +873,12 @@ void GPRSProvisionResponse(const JsonObjectConst &data) {
                    " - retrying as IncuNest-" + String(in3.serialNumber) + "_" + String(GPRS.provision_retry_count));
       GPRS.provision_request_sent = false;
     } else {
-      logModemData("[GPRS] -> Provision failed after max retries, giving up");
+      logModemData(
+          "[GPRS] -> provisioning AGOTADO: IncuNest-" +
+          String(in3.serialNumber) + " y sus _1.._" +
+          String(PROVISION_MAX_RETRIES) +
+          " ya existen en el servidor. No se reintenta hasta reiniciar; hay "
+          "que borrarlos en ThingsBoard o dar otro numero de serie.");
     }
     return;
   }
@@ -825,7 +963,21 @@ void GPRSCheckOTA() {
     currentFWSent = tb.Firmware_Send_Info(CURRENT_FIRMWARE_TITLE, FWversion) &&
                     tb.Firmware_Send_State(FW_STATE_UPDATED);
   }
-  if (!updateRequestSent) {
+  // La guarda es GPRS.OTAInProgress (la pone progressCallback y la quita
+  // updatedCallback), no la antigua updateRequestSent, que se declaraba a
+  // false y NO SE ASIGNABA EN NINGUN SITIO: la condicion era siempre cierta.
+  //
+  // Sin guarda, cada pasada periodica --cada GPRS_OTA_CHECK_INTERVAL, 10 min--
+  // volvia a llamar a Start_Firmware_Update() sobre una descarga ya en curso y
+  // la reiniciaba desde el trozo 0. Por 2G la descarga completa no cabe en esa
+  // ventana, asi que la OTA no podia terminar NUNCA: banco 2026-09-20, la
+  // barra llegaba a ~22.7% (trozo 688 de 2916) a los ~570 s y volvia a empezar,
+  // una y otra vez, sin un solo error por debajo. El unico rastro era un
+  // "Received chunk (688), not the same as requested chunk (0)" por vuelta.
+  // g_otaPendingReboot: ya hay una imagen escrita esperando arranque. Volver a
+  // empezar no puede salir bien --Update.begin() falla-- y deja al SDK
+  // reintentando sin fin. Ver el comentario de la bandera.
+  if (!GPRS.OTAInProgress && !g_otaPendingReboot) {
     tb.Start_Firmware_Update(OTAcallback);
   }
 }
@@ -894,6 +1046,15 @@ void switchAlarmTelemetryGPRS(int alarm, bool value) {
   case ALARM_SENSORBOARD_DOOR_FAULT:
     alarmKey = ALARM_SENSORBOARD_DOOR_FAULT_KEY;
     break;
+  case ALARM_PHOTO_LAMP_FAULT:
+    alarmKey = ALARM_PHOTO_LAMP_FAULT_KEY;
+    break;
+  case ALARM_BATTERY_LOW:
+    alarmKey = ALARM_BATTERY_LOW_KEY;
+    break;
+  case ALARM_NOISE_HIGH:
+    alarmKey = ALARM_NOISE_HIGH_KEY;
+    break;
   default:
     return;
   }
@@ -927,16 +1088,39 @@ void addConfigTelemetriesToGPRSJSON() {
   addVariableToTelemetryGPRSJSON[BOOT_COUNT_KEY] = g_bootCount;
   addVariableToTelemetryGPRSJSON[GPRS_KILL_COUNT_KEY] = g_gprsKillCount;
   addVariableToTelemetryGPRSJSON[GPRS_MON_KILL_COUNT_KEY] = g_monKillCount;
+#if (HW_NUM >= 19)
+  addVariableToTelemetryGPRSJSON[GSM_POWER_CYCLES_KEY] = gsmPowerCycles();
+#endif
+  addVariableToTelemetryGPRSJSON[AFE_DIAG_KEY] = afeDiagCode();
+  addVariableToTelemetryGPRSJSON[AFE_STALLS_KEY] = afeStallCount();
   addVariableToTelemetryGPRSJSON[FREE_HEAP_KEY] = (uint32_t)ESP.getFreeHeap();
   addVariableToTelemetryGPRSJSON[MIN_FREE_HEAP_KEY] = (uint32_t)ESP.getMinFreeHeap();
   addVariableToTelemetryGPRSJSON[UPTIME_S_KEY] = (uint32_t)(millis() / 1000);
   addVariableToTelemetryGPRSJSON[HMI_BOOT_COUNT_KEY] = g_hmiBootCount;
   addVariableToTelemetryGPRSJSON[HMI_LAST_RST_KEY] = g_hmiLastRst;
+  addVariableToTelemetryGPRSJSON[CHARGER_COMM_FAULT_KEY] = g_charger_comm_fault;
+  addVariableToTelemetryGPRSJSON[SVC_HEATER_H_KEY] =
+      ServiceHours_SinceHours(SVC_HEATER);
+  addVariableToTelemetryGPRSJSON[SVC_FAN_H_KEY] =
+      ServiceHours_SinceHours(SVC_FAN);
+  addVariableToTelemetryGPRSJSON[SVC_HUM_H_KEY] =
+      ServiceHours_SinceHours(SVC_HUMIDIFIER);
+  addVariableToTelemetryGPRSJSON[SVC_PHOTO_H_KEY] =
+      ServiceHours_SinceHours(SVC_PHOTO);
 #endif
   addVariableToTelemetryGPRSJSON[HW_NUM_KEY] = HW_NUM;
   addVariableToTelemetryGPRSJSON[HW_REV_KEY] = String(HW_REVISION);
   addVariableToTelemetryGPRSJSON[FW_VERSION_KEY] = FWversion;
   addVariableToTelemetryGPRSJSON[CCID_KEY] = GPRS.CCID.c_str();
+
+  // Causa de la ultima caida. Solo cuando la hubo: en un arranque limpio no se
+  // manda nada. Cuesta ~220 B una unica vez, y es la diferencia entre ver "se
+  // reinicio" y ver por que.
+  if (crashReportPending()) {
+    addVariableToTelemetryGPRSJSON[CRASH_REASON_KEY] = crashReportReason();
+    addVariableToTelemetryGPRSJSON[CRASH_REBOOTS_KEY] = crashReportReboots();
+    addVariableToTelemetryGPRSJSON[CRASH_LOG_KEY] = crashReportTail();
+  }
 #if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[IMEI_KEY] = GPRS.IMEI.c_str();
   addVariableToTelemetryGPRSJSON[APN_KEY] = GPRS.APN.c_str();
@@ -1017,6 +1201,7 @@ void addTelemetriesToGPRSJSON() {
                                TELEMETRIES_DECIMALS);
   }
   addVariableToTelemetryGPRSJSON[PHOTOTHERAPY_ACTIVE_KEY] = in3.phototherapy;
+  addVariableToTelemetryGPRSJSON[HUMIDIFIER_ACTIVE_KEY] = in3.humidityControl;
   addVariableToTelemetryGPRSJSON[HUMIDITY_ROOM_KEY] = roundSignificantDigits(
       in3.humidity[ROOM_DIGITAL_HUM_SENSOR], TELEMETRIES_DECIMALS);
   addVariableToTelemetryGPRSJSON[SYSTEM_CURRENT_KEY] =
@@ -1025,6 +1210,16 @@ void addTelemetriesToGPRSJSON() {
       roundSignificantDigits(in3.system_voltage, TELEMETRIES_DECIMALS);
 #if TX_GROUP_CELLULAR_GPRS // grupo CELLULAR — config/transport_policy.h
   addVariableToTelemetryGPRSJSON[CELL_SIGNAL_QUALITY_KEY] = GPRS.CSQ;
+#endif
+#if TX_GROUP_DIAG_GPRS // grupo DIAG — config/transport_policy.h
+  // En la telemetria periodica y no en la de configuracion: esa sale una vez
+  // por arranque, y estos reinicios ocurren con la placa ya en marcha. Solo
+  // si los hubo, para no gastar campos en regimen normal.
+  if (GPRS.modemResets > 0) {
+    addVariableToTelemetryGPRSJSON[GPRS_MODEM_RESETS_KEY] = GPRS.modemResets;
+    addVariableToTelemetryGPRSJSON[GPRS_RESET_REASON_KEY] =
+        GPRS.lastResetReason.c_str();
+  }
 #endif
   addVariableToTelemetryGPRSJSON[V5_CURRENT_KEY] =
       roundSignificantDigits(in3.USB_current, TELEMETRIES_DECIMALS);
@@ -1066,9 +1261,11 @@ void addTelemetriesToGPRSJSON() {
       addVariableToTelemetryGPRSJSON[DESIRED_HUMIDITY_ROOM_KEY] =
           in3.desiredControlHumidity;
     }
+    // Mismo motivo que en Wifi_OTA.cpp: el false sale en cada ciclo, asi que
+    // el true tambien tiene que salir siempre o la serie queda coja.
+    addVariableToTelemetryGPRSJSON[CONTROL_ACTIVE_KEY] = true;
     if (!GPRS.firstConfigPost) {
       GPRS.firstConfigPost = true;
-      addVariableToTelemetryGPRSJSON[CONTROL_ACTIVE_KEY] = true;
       if (in3.temperatureControl) {
         if (in3.controlMode == CONTROL_AIR) {
           addVariableToTelemetryGPRSJSON[CONTROL_MODE_KEY] = "AIR";
@@ -1121,33 +1318,10 @@ void addTelemetriesToGPRSJSON() {
                                              : in3.fanCtlPWM;
   }
 
-  // Suppress SpO2/HR telemetry unless the probe is actually on the patient —
-  // no probe or probe-present-but-not-applied readings aren't valid vitals.
-  if (g_spo2_data.probe_state == ProbeState::PROBE_APPLIED) {
-    if (g_spo2_data.spo2_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[SPO2_KEY] =
-          roundSignificantDigits(g_spo2_data.spo2, TELEMETRIES_DECIMALS);
-      addVariableToTelemetryGPRSJSON[SPO2_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.spo2_sqi, TELEMETRIES_DECIMALS);
-      addVariableToTelemetryGPRSJSON[PI_KEY] =
-          roundSignificantDigits(g_spo2_data.pi, TELEMETRIES_DECIMALS);
-    }
-    if (g_spo2_data.hr1_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[HR1_KEY] = (int)(g_spo2_data.hr1 + 0.5f);
-      addVariableToTelemetryGPRSJSON[HR1_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr1_sqi, TELEMETRIES_DECIMALS);
-    }
-    if (g_spo2_data.hr2_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[HR2_KEY] = (int)(g_spo2_data.hr2 + 0.5f);
-      addVariableToTelemetryGPRSJSON[HR2_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr2_sqi, TELEMETRIES_DECIMALS);
-    }
-    if (g_spo2_data.hr3_sqi > 0.0f) {
-      addVariableToTelemetryGPRSJSON[HR3_KEY] = (int)(g_spo2_data.hr3 + 0.5f);
-      addVariableToTelemetryGPRSJSON[HR3_SQI_KEY] =
-          roundSignificantDigits(g_spo2_data.hr3_sqi, TELEMETRIES_DECIMALS);
-    }
-  }
+  // Pulse oximeter: SpO2, PI and the three HR, each sent only when the
+  // library publishes a value. One function for both transports
+  // (drivers/SPO2.cpp).
+  spo2AddTelemetry(addVariableToTelemetryGPRSJSON);
 
 #if TX_GROUP_SENSORBOARD_GPRS // grupo SENSORBOARD — config/transport_policy.h
   sensorboard_add_telemetry(addVariableToTelemetryGPRSJSON);
@@ -1166,8 +1340,10 @@ static void publishBabyCloudDataGPRS() {
 
   if (babyStore_attributesDirty()) {
     const BabyProfile *occ = babyStore_currentOccupant();
-    int n = occ ? babyCloud_buildAttributesJson(occ, json, sizeof(json))
-                : babyCloud_buildEmptyAttributesJson(json, sizeof(json));
+    const uint32_t total = babyStore_totalRegistered();
+    int n = occ ? babyCloud_buildAttributesJson(occ, total, json, sizeof(json))
+                : babyCloud_buildEmptyAttributesJson(total, json,
+                                                     sizeof(json));
     if (n > 0 && tb.sendAttributeJson(json)) {
       babyStore_clearAttributesDirty();
     }
@@ -1183,6 +1359,12 @@ static void publishBabyCloudDataGPRS() {
     }
   }
 }
+
+// La suscripcion a los atributos compartidos de configuracion se hace UNA vez
+// por cliente, no en cada conexion (ver runtime_config_tb.h). Solo la toca la
+// tarea GPRS.
+static bool s_cfgSubscribed = false;
+static RuntimeConfigPubState s_cfgPub = {};
 
 void GPRSPost() {
   // Independiente de ThingsBoard a proposito: sin esto, una unidad sin
@@ -1228,12 +1410,26 @@ void GPRSPost() {
 
       GPRS.lastReconnectAttempt = millis();
       if (!tb.connect(THINGSBOARD_SERVER, GPRS.device_token.c_str())) {
-        logModemData("[GPRS] -> Failed to connect");
+        GPRS.tbConnectFailures++;
+        logModemData("[GPRS] -> Failed to connect (" +
+                     String(GPRS.tbConnectFailures) + "/" +
+                     String(GPRS_TB_CONNECT_MAX_FAILS) + ")");
+        if (GPRS.tbConnectFailures >= GPRS_TB_CONNECT_MAX_FAILS) {
+          GPRSForceReset("ThingsBoard inalcanzable por GPRS");
+        }
         return;
       } else {
+        GPRS.tbConnectFailures = 0;
         logModemData("[GPRS] -> Connected to host");
         GPRS.serverConnectionStatus = true;
         subscribeRPCHandlers();
+        // Configuracion remota por atributos compartidos (mb-remote-config).
+        // Tras subscribeRPCHandlers() y antes del OTA a proposito: si el
+        // fabricante cambio un limite mientras la unidad estaba apagada, hay
+        // que recogerlo aunque la comprobacion de firmware se alargue.
+        runtime_config_tb_connected(tb, runtime_config_on_update_gprs,
+                                  runtime_config_on_request_gprs, &s_cfgSubscribed,
+                                  "GPRS");
         if (ENABLE_GPRS_OTA && !GPRS.OTA_requested) {
           logModemData("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
@@ -1243,10 +1439,22 @@ void GPRSPost() {
       }
     }
     if (tb.connected()) {
-      if (millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
+      // Configuracion remota: aplica lo aplazado y publica cfg_rejected, cfg_change
+      // y el eco del valor efectivo, fuera de cualquier callback del SDK.
+      runtime_config_tb_service(tb, &s_cfgPub);
+      // Un apagado de fototerapia o control adelanta la publicacion: si no,
+      // en standby (3600 s) ThingsBoard tardaria hasta una hora en verlo.
+      // Ver modules/util/therapy_off_edge.h.
+      const bool offEdgeDue = therapy_off_edge_due(&s_offEdge, millis());
+      if (offEdgeDue ||
+          millis() - GPRS.lastSent > secsToMillis(GPRS.sendPeriod)) {
         // Send our firmware title and version
         logModemData("[GPRS] -> sendPeriod is " + String(GPRS.sendPeriod) +
                      " secs");
+        if (offEdgeDue) {
+          logModemData("[GPRS] -> Publicacion adelantada: apagado de "
+                       "fototerapia/control");
+        }
         logModemData("[GPRS] -> Posting GPRS data...");
 
         if (!GPRS.firstPublish) {
@@ -1270,6 +1478,9 @@ void GPRSPost() {
                                  JSON_STRING_SIZE(measureJson(
                                      addVariableToTelemetryGPRSJSON)))) {
           logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES SUCCESS");
+          // Solo si ha salido: un envio fallido deja el apagado pendiente y
+          // se reintenta pasada la separacion minima, no a la hora.
+          therapy_off_edge_published(&s_offEdge, millis());
         } else {
           logModemData("[GPRS] -> GPRS MQTT PUBLISH TELEMETRIES FAIL");
         }
@@ -1282,12 +1493,15 @@ void GPRSPost() {
         if (millis() - GPRS.lastPpgSnapshotAttempt >
             PPG_SNAPSHOT_AUTO_INTERVAL_MS) {
           GPRS.lastPpgSnapshotAttempt = millis();
+          const AFE4490Data afe_s = spo2Snapshot();
           ppgSnapshotRequestCapture(
-              g_spo2_data.probe_state == ProbeState::PROBE_APPLIED,
-              g_spo2_data.rsqi, millis());
+              afe_s.probe_state == ProbeState::PROBE_APPLIED, afe_s.rsqi,
+              millis());
         }
 #endif
-        ppgSnapshotPublish(tb, "GPRS");
+        // burst: esta tarea solo pasa por aquí una vez por ciclo de
+        // publicación; de trozo en trozo tardaría 16 ciclos.
+        ppgSnapshotPublish(tb, "GPRS", true);
 #endif
         GPRS.process = false;
         GPRS.lastSent = millis();
@@ -1310,6 +1524,11 @@ void GPRS_TB_Init() {
 }
 
 void GPRS_Handler() {
+  // En cada vuelta, haya conexion o no: un apagado ocurrido sin enlace queda
+  // pendiente y sale al reconectar. Control = el mismo criterio que
+  // control_active en addTelemetriesToGPRSJSON().
+  therapy_off_edge_observe(&s_offEdge, in3.phototherapy,
+                           in3.temperatureControl || in3.humidityControl);
   GPRSStatusHandler();
   if (GPRS.powerUp) {
     GPRSPowerUp();
@@ -1323,6 +1542,9 @@ void GPRS_Handler() {
   if (WIFIIsConnected()) {
     // WiFi already owns the ThingsBoard connection/publish; don't duplicate
     // it over cellular, just keep location fresh off the existing attach.
+    // Los fallos de ThingsBoard por GPRS anteriores a la WiFi no cuentan para
+    // cuando se vuelva a GPRS.
+    GPRS.tbConnectFailures = 0;
     GPRSUpdateLocationIfDue();
     GPRSEnsureTimeSynced();
     GPRSEnsureTimeZoneSynced();

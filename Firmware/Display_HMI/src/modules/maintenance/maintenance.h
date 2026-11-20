@@ -43,6 +43,12 @@ void Maintenance_Init(void);
 // atras. No pinta nada.
 void Maintenance_Tick(void);
 
+// El HMI acaba de DESCARTAR la identidad `seq` porque la placa no la confirma
+// (otro bebe al mando, otra placa, NVS borrada): el seq al mando va a pasar a 0,
+// pero eso NO es un alta y no debe dejar una limpieza terminal pendiente. Llamar
+// justo antes de BabyWizard_ClearActiveProfile(); vale para una sola transicion.
+void Maintenance_NoteSeqDropped(uint32_t seq);
+
 // Interruptor unico de Ajustes. Desactivado, NO avisa de ningun nivel: quien
 // lo apaga no quiere unos avisos y no otros. Las fechas se siguen guardando.
 bool Maintenance_IsEnabled(void);

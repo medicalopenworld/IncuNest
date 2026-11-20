@@ -7,9 +7,10 @@
 //
 // Cuelga de lv_layer_top(), mismo molde que AlarmCenter.h: overlay oculto
 // creado una vez, _Open/_Close/_IsOpen/_Poll para el ciclo de vida y
-// _ApplyLanguage para el cambio de idioma en caliente. Unica entrada: la fila
-// "Test de hardware" de ui_ScreenSettings (hmi-factory-test-settings-only);
-// ninguna otra pantalla ofrece el atajo.
+// _ApplyLanguage para el cambio de idioma en caliente. Entradas: la fila
+// "Test de hardware" de ui_ScreenSettings (hmi-factory-test-settings-only) y,
+// solo mientras el primer test de fabrica este pendiente, el boton de
+// ui_ScreenIntro (ver FactoryTest_FirstTestPending()).
 void FactoryTest_Init(void);
 
 // Abre la pantalla y arranca la secuencia de tests locales. Reentrante: si ya
@@ -28,6 +29,32 @@ void FactoryTest_Open(void);
 // FactoryTest_Poll() la resuelve llamando a FactoryTest_Open() en la
 // siguiente pasada, incluso con el overlay cerrado.
 void FactoryTest_RequestOpenFromSettings(void);
+
+// Interruptor del primer test de hardware de fabrica (2026-10-06: aparcado
+// para mas adelante). A 0, FactoryTest_FirstTestPending() es siempre false:
+// el equipo arranca como siempre, no se lee ni se escribe la marca de NVS y
+// el test de Ajustes funciona como antes. Ponerlo a 1 reactiva todo lo de
+// abajo. OJO al reactivarlo: las placas que hayan arrancado con este firmware
+// ya tienen el contador de arranques y se tomaran por equipos antiguos.
+#ifndef FACTORY_FIRST_HW_TEST_ENABLED
+#define FACTORY_FIRST_HW_TEST_ENABLED 0
+#endif
+
+// Primer test de hardware de fabrica. Mientras este pendiente, el equipo se
+// queda en ui_ScreenIntro con el boton "TEST DE HARDWARE" y no pasa a
+// ui_ScreenMain. En ese primer test SIM ACT tiene que PASAR (un AVISO u
+// OMITIDO cuenta como error), GSM SIGNAL no se muestra ni cuenta, y el
+// veredicto bueno es "TEST OK". Solo un TEST OK lo marca hecho en NVS.
+//
+// LoadFirstTestState() se llama UNA vez desde setup(), antes de crear las
+// tareas. `legacyUnit`: la NVS ya traia el contador de arranques de un
+// firmware anterior; es un equipo que ya estaba en uso y recibe este
+// firmware por OTA, y no se le exige el test (quedaria parado en la pantalla
+// de inicio en pleno servicio).
+void FactoryTest_LoadFirstTestState(bool legacyUnit);
+bool FactoryTest_FirstTestPending(void);
+// Boton de ui_ScreenIntro: mismo hand-off que la fila de Settings.
+void FactoryTest_RequestOpenFirstTest(void);
 
 // Cierra el overlay. Si hay una bateria de motherBoard en curso, envia
 // HMI,FTEST,ABORT antes. Idempotente.

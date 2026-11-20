@@ -23,6 +23,8 @@
 
 */
 #include <Arduino.h>
+#include "driver/gpio.h"
+#include "soc/gpio_struct.h"
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
@@ -178,6 +180,12 @@ extern PID humidityControlPID;
 
 #define HEATER_CONSUMPTION_MAX 13
 #define FAN_CONSUMPTION_MAX 0.8
+// Emparejado con PHOTO_TARGET_CURRENT (task_config.h): los dos son el mismo
+// setpoint de corriente, aqui para extrapolar el PWM inicial en actuatorsTest()
+// y alli para regularlo en marcha. Se mueven juntos. 2026-09-21: 0.45 -> 0.27;
+// 2026-09-23: vuelta a 0.45.
+// No confundir con PHOTOTHERAPY_CONSUMPTION_MIN/MAX, que son limites de
+// presencia de hardware medidos al 10 % de PWM y no dependen del setpoint.
 #define PHOTOTHERAPY_CONSUMPTION_DEFAULT 0.45
 #define PHOTOTHERAPY_CONSUMPTION_MAX 3
 #define PHOTOTHERAPY_INITIAL_PWM_PCT 40
@@ -213,6 +221,10 @@ bool initI2C() {
     return false;
   }
 
+  // IO19/IO20 son el I2C2 hacia la placa de sensores por I2C (SHTC3 + STS35)
+  // o el USB hacia la SensorBoard, segun lo que lleve el equipo. En la V19
+  // tambien (antes no se levantaba Wire1 en HW19): initRoomSensor() sondea y,
+  // si no responde ningun sensor, libera los pines para el host USB.
   logI("[HW] -> Initializing I2C2 (SDA=" + String(I2C2_SDA) +
        " SCL=" + String(I2C2_SCL) + ")");
   Wire1.begin(I2C2_SDA, I2C2_SCL, DEFAULT_I2C_SPEED);
@@ -243,6 +255,18 @@ void initPWMGPIO() {
   ledcWrite(FAN_PWM_CHANNEL, 0);
   ledcSetup(FAN_CTL_PWM_CHANNEL, FAN_PWM_FREQUENCY, DEFAULT_PWM_RESOLUTION);
   ledcAttachPin(FAN_CTL, FAN_CTL_PWM_CHANNEL);
+#if (HW_NUM >= 19)
+  // V19 (CHANGELOG, firmware 7 / limitacion 6): IO11 va directo al PWM del
+  // ventilador (J5), que en un ventilador de 4 hilos suele llevar pull-up
+  // interno a 5 V. En push-pull el pin quedaria por encima de 3,6 V: drenador
+  // abierto, y el nivel alto lo pone el pull-up del propio ventilador.
+  //
+  // Solo el bit pad_driver del pad, y NO gpio_set_direction(): en este IDF
+  // (4.4) gpio_set_direction() llama a gpio_output_enable(), que reconecta el
+  // pin a SIG_GPIO_OUT_IDX y lo DESCONECTA del LEDC. Con eso IO11 se quedaba
+  // fijo a 0 y el ventilador parado (banco V19.A, 19/11/2026).
+  GPIO.pin[FAN_CTL].pad_driver = 1;
+#endif
   ledcWrite(FAN_CTL_PWM_CHANNEL, in3.fanCtlPWM);
 
   logI("[HW] -> PWM GPIOs initialized");
@@ -252,7 +276,7 @@ void initGPIO() {
   initI2C();
   logI("[HW] -> Initializing GPIOs");
   pinMode(FAN_SPEED_FEEDBACK, INPUT_PULLUP);
-#if (GPRS_PWRKEY)
+#if GPRS_PWRKEY_PRESENT
   pinMode(GPRS_PWRKEY, OUTPUT);
 #endif
   pinMode(encoderpinA, INPUT_PULLUP);
@@ -279,10 +303,33 @@ void initInterrupts() {
   attachInterrupt(FAN_SPEED_FEEDBACK, fanEncoderISR, CHANGE);
 }
 
+// El equipo va con la SensorBoard por USB: IO19/IO20 dejan de ser I2C2. Se
+// cierra Wire1 y se quitan los pull-up internos que dejo puestos (unos 45k):
+// con ellos en D+/D- el host USB puede no detectar bien la SensorBoard. El
+// enlace USB de la V19 se valido sin Wire1 levantado, y asi queda igual.
+void releaseI2C2ForUsb() {
+  if (wire2 == nullptr) return;
+  Wire1.end();
+  wire2 = nullptr;
+  gpio_pullup_dis((gpio_num_t)I2C2_SDA);
+  gpio_pulldown_dis((gpio_num_t)I2C2_SDA);
+  gpio_pullup_dis((gpio_num_t)I2C2_SCL);
+  gpio_pulldown_dis((gpio_num_t)I2C2_SCL);
+  logI("[HW] -> I2C2 released: IO19/IO20 go to the SensorBoard USB link");
+}
+
 void initRoomSensor() {
   static int16_t room_sensor_error;
   static char errorMessage[64];
 
+  if (wire2 == nullptr) {
+    // I2C2 liberado para el USB de la SensorBoard (releaseI2C2ForUsb()):
+    // no hay sensores de cabina por I2C.
+    for (int i = 0; i < ROOM_SENSOR_POSIBILITIES; i++) {
+      roomSensorPresent[i] = false;
+    }
+    return;
+  }
   // Without an explicit timeout, the ESP32 Wire library blocks ~1s per probe
   // for any address that returns NACK. At 3 sensor possibilities this costs ~3s.
   wire2->setTimeOut(10);
@@ -734,8 +781,24 @@ bool actuatorsTest() {
     logE("[HW] -> Fail -> Phototherapy current too low/high to extrapolate a "
          "reliable intensity (raw PWM=" + String(pwmTargetRaw) + ")");
   } else {
-    in3.phototherapy_intensity = pwmTargetRaw;
-    in3.photoFirstRun = false;
+    // Solo si NO hay ya una semilla mejor. recapVariables() deja
+    // photoFirstRun a false cuando ha cargado de NVS la intensidad a la que
+    // convergio el lazo, y ese valor es MEDIDO sobre la lampara en su punto de
+    // trabajo, mientras que esto es un modelo extrapolado desde una lectura al
+    // 10 % de PWM. En la unidad de banco ese modelo pide el doble de PWM del
+    // necesario, asi que dejarlo pisar el valor convergido es ir a peor.
+    //
+    // Sin esta guarda el orden del arranque lo estropeaba en silencio:
+    // recapVariables() cargaba 47, actuatorsTest() lo sobrescribia con 93 y la
+    // lampara volvia a arrancar al doble y a tardar un minuto en bajar
+    // (medido en banco el 2026-09-23).
+    //
+    // La comprobacion de rango de arriba se mantiene siempre: es un test de
+    // hardware, no una calibracion.
+    if (in3.photoFirstRun) {
+      in3.phototherapy_intensity = pwmTargetRaw;
+      in3.photoFirstRun = false;
+    }
     logI("[HW] -> Phototherapy extrapolated PWM=" + String(pwmTargetRaw) +
          " (" + String(pwmTargetRaw * 100 / PWM_MAX_VALUE) + "%) for " +
          String(PHOTOTHERAPY_CONSUMPTION_DEFAULT, 2) + " A");
@@ -880,37 +943,61 @@ bool GPIORead(uint8_t GPIO) {
   }
 }
 
+static const char *resetReasonName(esp_reset_reason_t r) {
+  switch (r) {
+  case ESP_RST_POWERON:   return "POWERON";
+  case ESP_RST_BROWNOUT:  return "BROWNOUT";
+  case ESP_RST_EXT:       return "EXT";
+  case ESP_RST_SW:        return "SW";
+  case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+  case ESP_RST_PANIC:     return "PANIC";
+  case ESP_RST_INT_WDT:   return "INT_WDT";
+  case ESP_RST_TASK_WDT:  return "TASK_WDT";
+  case ESP_RST_WDT:       return "WDT";
+  case ESP_RST_UNKNOWN:   return "UNKNOWN";
+  default:                return "OTRO";
+  }
+}
+
 void security_check_reboot_cause() {
   in3.resetReason = esp_reset_reason();
-  switch (in3.resetReason) {
-  case ESP_RST_BROWNOUT: // Brownout reset (voltage too low)
-    logI("[HW] -> Brownout reset (voltage too low)");
-    break;
-  case ESP_RST_POWERON: // Power-on reset
-    logI("[HW] -> Power-on reset");
-    break;
-  case ESP_RST_EXT: // Reset by external pin
-    logI("[HW] -> Reset by external pin");
-    break;
-  case ESP_RST_SW: // Software reset via esp_restart
-    logI("[HW] -> Software reset");
-    break;
-  case ESP_RST_DEEPSLEEP: // Reset after exiting deep sleep mode
-    logI("[HW] -> Reset after exiting deep sleep mode");
-    break;
-  case ESP_RST_PANIC:    // Software reset due to exception/panic
-  case ESP_RST_INT_WDT:  // Reset (software or hardware) due to interrupt
-                         // watchdog
-  case ESP_RST_TASK_WDT: // Reset due to task watchdog
-  case ESP_RST_WDT:      // Reset due to other watchdogs
-    logI("[HW] -> Reset due to error");
-    in3.restoreState = true;
-    break;
 
-  // Add any other reset reasons you are interested in
-  default:
-    logI("Reset for another reason");
-  }
+  // Que se recupere el estado de control NO se decide enumerando los
+  // reinicios "malos". Esa era la regla anterior (PANIC + los tres WDT) y
+  // deja fuera POR DEFECTO cada ruta de reinicio que alguien anada despues.
+  // Ya habia tres, todas alcanzables en marcha y ninguna recuperaba:
+  //   - DriveUpload.cpp, esp_restart() cuando el heap queda critico tras una
+  //     subida — justo la condicion de un equipo que se esta quedando sin
+  //     memoria, que es cuando mas falta hace recuperar;
+  //   - GPRS.cpp, el RPC de reinicio desde ThingsBoard;
+  //   - Wifi_OTA.cpp, el reinicio tras actualizar.
+  // Las tres imprimen el mismo `rst:0xc (RTC_SW_CPU_RST)` que un panico en el
+  // bootloader de ROM, asi que desde el log no se distinguian.
+  //
+  // La regla va al reves: se recupera SIEMPRE salvo en los dos arranques que
+  // no son un fallo del firmware.
+  //
+  // El BROWNOUT queda fuera a proposito: es un problema de alimentacion, no
+  // un crash. Ahi se quiere un arranque limpio con el autotest completo, no
+  // volver a meter corriente en el calefactor sobre una red que acaba de
+  // caerse. El POWERON es el encendido normal y tampoco recupera.
+  //
+  // Es la misma regla que ya aplicaba la HMI (Display_HMI/src/main.cpp,
+  // g_hmiRestoreState), de modo que las dos placas dejan de discrepar sobre
+  // que cuenta como recuperacion: hasta ahora un brownout dejaba al display
+  // entrando sin splash mientras la placa arrancaba en frio.
+  in3.restoreState = (in3.resetReason != ESP_RST_POWERON &&
+                      in3.resetReason != ESP_RST_BROWNOUT);
+
+  // ESP_LOGW y no logI(): logI esta detras de LOG_INFORMATION, que es false
+  // (main.h), asi que esta linea se compilaria a nada — y es la unica que
+  // dice, en el arranque siguiente a un crash, si el equipo ha recuperado el
+  // estado o ha vuelto en frio. Sin ella la pregunta no se puede contestar
+  // desde una captura de puerto serie. Mismo criterio que el aviso del corte
+  // termico en EEPROM.cpp.
+  ESP_LOGW("APP", "[BOOT] reset=%s (%d) restoreState=%d",
+           resetReasonName((esp_reset_reason_t)in3.resetReason),
+           in3.resetReason, (int)in3.restoreState);
 }
 
 void initHardware(bool printOutputTest) {
@@ -974,20 +1061,25 @@ void initHardware(bool printOutputTest) {
     // pause (instead of the full ACTUATORS_ALARM_STABILIZATION_MINS a fresh
     // activation waits out) so telemetry/sensors have time to resync after
     // the reboot before alarms can fire again.
-    logI("[BOOT][DEBUG] initHardware: entering restoreState resume block, "
-         "temperatureControl=" + String(in3.temperatureControl) +
-         " humidityControl=" + String(in3.humidityControl) +
-         " controlMode=" + String(in3.controlMode) +
-         " HW_critical_error=" + String(in3.HW_critical_error));
     alarmTimerStart(RESTART_ALARM_GRACE_MINS);
+    // ESP_LOGW: cierra la cadena que empieza en [BOOT] reset=... Con las tres
+    // lineas visibles se puede seguir, desde una sola captura de arranque, si
+    // el equipo decidio recuperar, que habia guardado y si los lazos llegaron
+    // a arrancar de verdad.
+    ESP_LOGW("APP",
+             "[BOOT] resume: temperatureControl=%d humidityControl=%d "
+             "controlMode=%d HW_critical_error=%d graceMin=%d",
+             (int)in3.temperatureControl, (int)in3.humidityControl,
+             (int)in3.controlMode, (int)in3.HW_critical_error,
+             (int)RESTART_ALARM_GRACE_MINS);
     if (in3.temperatureControl) {
       startPID(in3.controlMode);
       turnFans(ON);
-      logI("[HW] -> restoreState: temperature PID restarted, fan ON");
+      ESP_LOGW("APP", "[BOOT] resume: PID de temperatura rearrancado, ventilador ON");
     }
     if (in3.humidityControl) {
       startPID(humidityPID);
-      logI("[HW] -> restoreState: humidity PID restarted");
+      ESP_LOGW("APP", "[BOOT] resume: PID de humedad rearrancado");
     }
   }
   watchdogInit(WDT_TIMEOUT);

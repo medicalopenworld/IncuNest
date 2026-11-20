@@ -24,7 +24,7 @@ cd Firmware/motherBoard && python tools/check_transport_matrix.py
 | Reconexión de red | 10 s | 30 s | `TX_GPRS_RECONNECT_MS` / `TX_WIFI_RECONNECT_MS` |
 | Reconexión a ThingsBoard | 30 s | 30 s | `TX_THINGSBOARD_RECONNECT_MS` |
 | Triangulación por torre | 30 min | — | `GPRS_TRIANGULATION_INTERVAL` |
-| Captura PPG automática | — | 15 min | `PPG_SNAPSHOT_AUTO_INTERVAL_MS` |
+| Captura PPG automática | — (apagada) | **5 min** con señal; reintento a 10 s sin ella | `TX_PPG_AUTOCAPTURE_WIFI_MS` / `PPG_SNAPSHOT_AUTO_RETRY_MS` |
 
 **Por qué GPRS es variable y WiFi no.** Por WiFi la red es gratis y no bloquea,
 así que cadencia fija de 5 s. Por GPRS cada publicación son datos de pago y una
@@ -41,13 +41,13 @@ pero no aparece en el dashboard al instante.
 
 ## 2. Telemetrías, por grupos
 
-87 claves en total. Se agrupan así:
+91 claves en total. Se agrupan así:
 
 | Grupo | Claves | GPRS | WiFi | Motivo |
 |---|---|:--:|:--:|---|
 | **CORE** | 69 | ✅ | ✅ | Constantes vitales, alarmas, actuadores, datos de bebé. Lo clínico. |
 | **CELLULAR** | 4 | ✅ | ❌ | `IMEI`, `APN`, `COP`, `CSQ`. Sin sentido físico por WiFi. |
-| **DIAG** | 8 | ✅ | ❌ | Boot count, heap, uptime, resets del HMI, kills del módem. |
+| **DIAG** | 15 (+1 solo V19) | ✅ | ✅ | Por WiFi desde 2026-10-25. Boot count, heap, uptime, resets del HMI, kills del módem; `svc_heater_h`, `svc_fan_h`, `svc_hum_h`, `svc_photo_h` (horas desde servicio); `charger_comm_fault`; `AFE_diag` y `AFE_stalls` (todas las placas) y, solo en la V19, `GSM_power_cycles`. Recuento a confirmar con `tools/check_transport_matrix.py`. |
 | **CALIBRATION** | 6 | ✅ | ❌ | Referencias y ajuste fino de los sensores de temperatura. |
 
 Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.
@@ -56,7 +56,8 @@ Se cambian con un `0`/`1` en `TX_GROUP_<grupo>_<TRANSPORTE>`.
 
 **CELLULAR es correcta.** Por WiFi esos campos irían vacíos o rancios.
 
-**DIAG y CALIBRATION no se decidieron.** Los dos bloques de montaje de
+**DIAG ya va por los dos transportes (2026-10-25); CALIBRATION sigue sin
+decidirse.** Los dos bloques de montaje de
 telemetría (`addConfigTelemetriesToGPRSJSON` en `GPRS.cpp` y su gemela en
 `Wifi_OTA.cpp`) están escritos **dos veces a mano**, y alguien añadió 14 claves
 solo a la copia de GPRS. Nada en ellas es específico del transporte: un equipo
@@ -92,8 +93,8 @@ documento) o registrar `overflowed()` para saber si está pasando.
 | Triangulación por torre | ✅ | ❌ | No existe equivalente por WiFi |
 | Posición aproximada por IP | ❌ | ✅ | Suple a la de torre cuando no hay fix |
 | Permanencia en la red WiFi | ❌ | ✅ | Cinco atributos de cliente; una unidad en GPRS no tiene nada que contar |
-| Snapshot PPG (RPC `capturePPG`) | ✅ | ✅ | Bajo demanda, ~23 KB por captura |
-| Snapshot PPG, captura automática | ❌ | ✅ | Cada 15 min ≈ 2,2 MB/día: por GPRS va apagado |
+| Snapshot PPG (RPC `capturePPG`) | ✅ | ✅ | Bajo demanda, ~23 KB por captura en 34 trozos de ~800 B |
+| Snapshot PPG, captura automática | ❌ | ✅ | Cada 5 min con sonda y `rsqi==1`. Por GPRS va apagada: ~23 KB × 4/h ≈ 2,2 MB/día de datos de pago |
 
 ### La posición tiene dos fuentes y una sola pareja de claves
 
@@ -168,7 +169,6 @@ espera y muestra *"el equipo no respondió"* aunque el equipo aparezca conectado
 |---|:--:|:--:|
 | `restart` | ✅ | ❌ |
 | `getDiag` | ✅ | ❌ |
-| `wipeBabies` | ✅ | ❌ |
 | `setWifi` | ✅ | ✅ |
 | `checkOta` | ✅ | ✅ |
 | `capturePPG` | ✅ | ✅ |
@@ -176,10 +176,44 @@ espera y muestra *"el equipo no respondió"* aunque el equipo aparezca conectado
 `checkOta` estaba solo en GPRS y por eso el botón del dashboard fallaba en
 equipos por WiFi. Ya está en los dos.
 
-**Quedan tres huecos.** `restart`, `getDiag` y `wipeBabies` no responden por
-WiFi. Significa que **un RPC probado en el banco por WiFi puede no responder en
-campo por GPRS**, y al revés — justo el escenario en el que uno querría
-reiniciar un equipo en remoto.
+**Quedan dos huecos.** `restart` y `getDiag` no responden por WiFi. Significa
+que **un RPC probado en el banco por WiFi puede no responder en campo por
+GPRS**, y al revés — justo el escenario en el que uno querría reiniciar un
+equipo en remoto.
+
+**`wipeBabies` ya no existe por ningún transporte.** Estaba solo en GPRS y se
+retiró a propósito: borraba el historial clínico entero de una unidad, y el
+código de confirmación (`{"confirm":1234}`) evitaba accidentes pero no
+cambiaba quién tenía la capacidad — cualquiera con permiso de RPC sobre el
+dispositivo podía dejar sin registros una incubadora en producción sin
+acercarse a ella. El borrado se conserva solo por la vía de servicio
+`/config,BABY_WIPE,1234` sobre el cable entre placas (`CommTask.cpp`), que
+exige acceso físico. No lo vuelvas a añadir a `rpc_callbacks[]` sin una
+decisión explícita.
+
+### Atributos compartidos de configuración (`mb-remote-config`)
+
+A diferencia de las RPC, **los atributos compartidos de configuración están en
+los dos transportes por construcción**: los dos clientes (`tb` en `GPRS.cpp`,
+`tb_wifi` en `Wifi_OTA.cpp`) llaman al mismo cableado
+(`modules/config/runtime_config_tb.h`).
+
+| Pieza | GPRS | WiFi |
+|---|:--:|:--:|
+| Suscripción a cambios en caliente (una vez por cliente) | ✅ | ✅ |
+| Petición de valores actuales tras cada conexión (solo aplica un valor nuevo; no pisa un cambio local) | ✅ | ✅ |
+| Eco del valor efectivo + `cfg_src_<clave>` como atributo de cliente | ✅ | ✅ |
+| Evento de telemetría `cfg_change` por cada cambio | ✅ | ✅ |
+
+**Claves remotas hoy: solo `gprs_act, gprs_photo, gprs_stby`.** Las otras seis
+(`air_tmax, skin_tmax, heater_amps, fan_supply_pwm, fan_ctl_pwm, fan_pid_en`)
+quedan detrás de `RCFG_REMOTE_SAFETY_PARAMS = 0` mientras el MQTT vaya en claro
+(ver `thingsboard_dashboards.md` §11). Coste por GPRS: ~120 B de petición, su
+respuesta y hasta ~600 B de eco por conexión.
+
+Las RPC de las dos listas siguen registrándose en cada reconexión, lo que las
+duplica en el vector del SDK; la suscripción nueva **no** repite ese defecto
+(se hace una vez por cliente). Deuda anotada, no corregida aquí.
 
 ### Por qué el snapshot PPG no se veía en ThingsBoard
 
@@ -191,6 +225,31 @@ capturaba. El módulo de captura funcionaba bien; nadie le pedía nunca nada.
 
 Ahora la publicación es común (`PpgSnapshotPublish.cpp`) y el RPC está en los
 dos transportes.
+
+### Y por qué, aun así, no llegaba ni un punto por WiFi (2026-09-23)
+
+Con dedo real y FW 18.49.0, dos de tres capturas no llegaron nunca. En el log
+serie, `WiFiClient::write()` daba `errno 11` (EAGAIN) una vez por segundo
+durante ~30 s, luego `BEACON_TIMEOUT` y reconexión MQTT. La placa no se
+reiniciaba y el heap no estaba corto (~90 KB libres).
+
+La causa estaba en la librería: un payload mayor que el buffer del cliente MQTT
+(`MAX_MESSAGE_SIZE`, 1024 B) no se rechaza, se manda **en streaming por un
+`BufferingPrint` de 64 B** (`ThingsBoard.h`, `Serialize_Json`). Cada 64 B es una
+escritura TLS y un segmento TCP. Los 23 KB del snapshot eran ~360 escrituras
+seguidas, que llenaban la cola de segmentos de lwIP (de ahí el EAGAIN) y
+dejaban el envío en ~400 B/s: 38–60 s cuando salía.
+
+Ahora el snapshot sale en trozos de 12 muestras (~800 B), que caben en el buffer
+y van cada uno en una sola escritura, uno por vuelta de la tarea WiFi con
+250 ms entre medias. En banco: **11,9 s** por snapshot, sin un solo `errno`, y
+un RPC en mitad del envío contesta en 0,4 s (antes, 408). Un test de host
+comprueba que el trozo del peor caso cabe, y un `static_assert` lo ata a
+`MAX_MESSAGE_SIZE`.
+
+> Lo mismo le pasa a **toda** publicación mayor de 1024 B, incluida la
+> telemetría periódica (~80 claves). No se ha tocado aquí; es la primera
+> sospechosa si vuelve a verse EAGAIN.
 
 ### Y por qué el botón "Capturar PPG" no hacía nada (fallo distinto)
 
@@ -244,10 +303,11 @@ transportes.
 
 **Dos detalles que también hacen parecer que no funciona:**
 
-- **La primera captura automática tarda 15 minutos.** `lastPpgSnapshotAttempt`
-  arranca en `0`, así que `millis() - 0 > 15 min` no se cumple hasta que el
-  equipo lleva 15 minutos encendido. En una prueba corta no verás nada aunque
-  todo esté bien. Usa el RPC `capturePPG` para no esperar.
+- **La primera captura automática tardaba 15 minutos.** `lastPpgSnapshotAttempt`
+  arrancaba en `0`, así que `millis() - 0 > 15 min` no se cumplía hasta que el
+  equipo llevaba 15 minutos encendido, y un intento sin dedo costaba otro
+  intervalo entero. Desde el 2026-09-24 (`modules/util/ppg_snapshot_plan`) el
+  primer intento es inmediato y sin señal se reintenta a los 10 s.
 - **La gráfica tenía una ventana de 30 segundos.** Un snapshot son 8 s de onda
   publicados cada 15 min: se salía de la ventana casi al instante, así que
   había que estar mirando en el momento exacto. Subida a 30 min.

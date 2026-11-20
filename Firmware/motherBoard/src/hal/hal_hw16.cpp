@@ -30,6 +30,13 @@ const HalPinConfig g_hal_pins = {
   .afeLedAlm        = 0xFF,
   .usbEn            = 5,
   .usbFault         = 6,
+  .afePwdn          = 0xFF,
+  .gsmPwrEn         = 0xFF,
+  .pwr5vEn          = 0xFF,
+  .extWdtWdi        = 0xFF,
+  .mainsOk          = 0xFF,
+  .debugTx          = 0xFF,
+  .debugRx          = 0xFF,
 };
 
 const HalBusConfig g_hal_buses = {

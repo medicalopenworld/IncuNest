@@ -10,6 +10,7 @@
 #include "alarm_policy.h"
 #include "main.h"
 #include "ui.h"
+#include "ui/TelemetryHistory.h"
 
 extern ui_lang_t g_lang;
 extern Alarm     alarmList[MAX_ALARMS];
@@ -228,10 +229,15 @@ uint32_t viewSignature() {
   uint32_t sig = activeIdSignature();
   sig = sig * 31u + ctrl_state_msg.silencedBitmask;
   sig = sig * 31u + (alarmsMuted ? 1u : 0u);
+  // El boton TENDENCIA se apaga con el enlace caido (y con una alarma activa,
+  // que ya entra por activeIdSignature): sin esto la lista no se reconstruia al
+  // perder o recuperar el enlace y el boton quedaba en el estado equivocado.
+  sig = sig * 31u + (Display_IsBoardLinkLost() ? 1u : 0u);
   return sig;
 }
 
 void onRowSilenceTap(lv_event_t *e);
+void onRowResetTap(lv_event_t *e);
 
 void closeScreen() {
   if (s_overlay) lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
@@ -266,6 +272,13 @@ void onAlarmTestClicked(lv_event_t *) {
   Communication_SendAlarmTest();
   UI_ShowToast(TR(STR_TESTING_ALARM_SIGNALS), 3000);
 }
+
+// Entrada a la tendencia (hmi-trend). El boton de graficos de Main esta oculto
+// y el heading no tiene hueco; el centro de alarmas es donde el operador ya
+// piensa en alarmas, y las marcas de la tendencia son justo esas alarmas. La
+// tendencia se abre ENCIMA (este panel queda debajo): al cerrarla, o cuando
+// cede la pantalla por una alarma, se aterriza aqui.
+void onTrendClicked(lv_event_t *) { TelemetryHistory_Open(); }
 
 void onMuteClicked(lv_event_t *) {
   // Se delega en MuteAlarm_cb() en vez de repetir aqui la secuencia
@@ -304,6 +317,7 @@ struct Row {
   uint8_t priority;
   bool    active;    // true = alarma en curso, descripcion ya disponible aqui
   bool    silenced;  // AUDIO PAUSED, tal como lo reporta la placa
+  bool    latched;   // sigue avisando pero su condicion ya se fue: admite reset
   char    title[ALARM_TITLE_MAX_CHARS + 1];
   char    desc[ALARM_DESC_MAX_CHARS + 1];
 };
@@ -338,6 +352,25 @@ void onRowSilenceTap(lv_event_t *e) {
   }
   // El repintado de verdad llega por la firma en AlarmCenter_Poll(): ese rodeo
   // es lo que evita destruir este boton desde dentro de su propio callback.
+}
+
+// Reconocer (reset manual) una alarma ENCLAVADA.
+//
+// Mismo trato que el silencio y por los mismos motivos: se manda el comando,
+// se apaga el boton como acuse, y el repintado llega por la firma de
+// AlarmCenter_Poll() cuando la placa conteste. Aqui no se adivina el
+// resultado, porque la placa PUEDE RECHAZARLO —alarm_machine_reset() se niega
+// si la condicion sigue presente— y pintar la fila como reconocida cuando no
+// lo esta seria decirle al operador que un aviso vivo se ha ido.
+void onRowResetTap(lv_event_t *e) {
+  auto *r = (Row *)lv_event_get_user_data(e);
+  if (!r) return;
+  Communication_SendAlarmReset(r->id);
+  s_silenceWaitUntilMs = millis() + RESP_TIMEOUT_MS;
+  lv_obj_t *btn = lv_event_get_target(e);
+  if (btn) {
+    lv_obj_add_state(btn, LV_STATE_DISABLED);
+  }
 }
 
 void onRowTap(lv_event_t *e) {
@@ -378,6 +411,19 @@ void showList() {
   lv_obj_set_size(test, 130, 44);
   lv_obj_align(test, LV_ALIGN_TOP_LEFT, 0, 0);
 
+  // A la derecha de PROBAR, antes del titulo centrado (120 px: el titulo mas
+  // largo, "Alarmas"/"Alarmes", empieza hacia x=277). La tendencia cede la
+  // pantalla a cualquier alarma activa (mustYield en TelemetryHistory.cpp),
+  // asi que con una en curso el boton se ve apagado en vez de no hacer nada.
+  // La lista se reconstruye al cambiar el conjunto de alarmas (firma), asi que
+  // el estado se refresca solo.
+  lv_obj_t *trend = makeBtn(s_content, TR(STR_TREND_UC), onTrendClicked,
+                            lv_color_hex(0x0075EE));
+  lv_obj_set_size(trend, 120, 44);
+  lv_obj_align(trend, LV_ALIGN_TOP_LEFT, 138, 0);
+  if (UI_IsAnyAlarmActive() || Display_IsBoardLinkLost())
+    lv_obj_add_state(trend, LV_STATE_DISABLED);
+
   // AQUI NO HAY BOTON GLOBAL DE SILENCIO, y es deliberado.
   //
   // Hubo uno en la cabecera ademas del de cada fila. Sobraba por dos motivos.
@@ -412,6 +458,7 @@ void showList() {
     r.priority = alarmList[i].priority;
     r.active = true;
     r.silenced = (ctrl_state_msg.silencedBitmask & (1u << r.id)) != 0;
+    r.latched = (ctrl_state_msg.latchedBitmask & (1u << r.id)) != 0;
     snprintf(r.title, sizeof(r.title), "%s", alarmList[i].type);
     snprintf(r.desc, sizeof(r.desc), "%s", alarmList[i].description);
 
@@ -459,19 +506,39 @@ void showList() {
     // desactivado y diciendo por que: quitarlo dejaria al operador pulsando
     // en el vacio sin entender que pasa. Quien lo impide de verdad es la
     // placa (alarm_machine_silence); esto solo lo explica.
+    // UNA fila, UN boton, y cual sea depende de que le hace falta a ESA
+    // condicion ahora mismo.
+    //
+    // Si la alarma esta ENCLAVADA su condicion ya se ha ido —el corte termico
+    // rearma solo en cuanto baja la temperatura—, asi que silenciarla no tiene
+    // sentido: lo unico que queda por hacer es reconocerla, que es el "reset
+    // manual" que pide 201.15.4.2.1 aa)/bb) y que hasta ahora NO EXISTIA en
+    // ninguna parte del firmware (la unica salida era reiniciar la placa).
+    // Para el resto de condiciones, que siguen vivas, el boton es el de
+    // silencio de siempre.
+    //
+    // Meter los dos a la vez no cabe —la tarjeta son 600 px con icono y
+    // etiqueta— y ademas invitaria a silenciar algo que ya no esta sonando por
+    // su causa.
     const bool canSilence = alarm_is_silenceable((AlarmId)r.id);
-    lv_obj_t *btn = makeBtn(
-        card,
-        !canSilence ? TR(STR_CANNOT_SILENCE)
-        : r.silenced ? TR(STR_RESUME_UC)
-                     : TR(STR_SILENCE_UC), onRowSilenceTap,
-        !canSilence  ? lv_color_hex(0x9E9E9E)
-        : r.silenced ? lv_color_hex(0x2E7D32)
-                     : lv_color_hex(0xE08800),
-        &r);
+    lv_obj_t *btn;
+    if (r.latched) {
+      btn = makeBtn(card, TR(STR_ACK_RESET_UC), onRowResetTap,
+                    lv_color_hex(0x0075EE), &r);
+    } else {
+      btn = makeBtn(
+          card,
+          !canSilence ? TR(STR_CANNOT_SILENCE)
+          : r.silenced ? TR(STR_RESUME_UC)
+                       : TR(STR_SILENCE_UC), onRowSilenceTap,
+          !canSilence  ? lv_color_hex(0x9E9E9E)
+          : r.silenced ? lv_color_hex(0x2E7D32)
+                       : lv_color_hex(0xE08800),
+          &r);
+    }
     lv_obj_set_size(btn, 190, 52);
     lv_obj_align(btn, LV_ALIGN_RIGHT_MID, -4, 0);
-    if (!canSilence) {
+    if (!r.latched && !canSilence) {
       lv_obj_add_state(btn, LV_STATE_DISABLED);
     }
   }

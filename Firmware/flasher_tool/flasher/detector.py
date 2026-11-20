@@ -1,3 +1,4 @@
+import re
 from enum import Enum
 from typing import Optional
 
@@ -136,3 +137,94 @@ def _read_flash_size(port: str) -> str:
         "No se pudo detectar el tamaño de flash. "
         "Comprueba que la placa esté conectada correctamente."
     )
+
+
+# --- Revision de la motherBoard: V18 o V19 ----------------------------------
+#
+# Las dos se ven igual por USB (NATIVE_USB_JTAG_PID) y las dos tienen 8 MB de
+# flash, pero llevan modulos distintos POR BOM: V18 un ESP32-S3-WROOM-1-N8 (sin
+# PSRAM) y V19 un N8R2 (chip ESP32-S3R2, 2 MB de PSRAM dentro del chip). Eso
+# esta grabado en el eFuse PSRAM_CAP de fabrica de Espressif, asi que no depende
+# del firmware que haya en la placa ni de que este vacia.
+#
+# Se lee el eFuse con `read-mem` y no del texto "Features: ... Embedded PSRAM"
+# de flash-id: esptool 4.x no lo imprime para el S3 (get_chip_features devolvia
+# solo WiFi/BLE), y "no sale PSRAM" no distingue "no hay" de "esta version no lo
+# dice". Flashear el firmware de V18 en una V19 deja el display sin 5 V (IO40)
+# y la de V19 en una V18 no arranca bien: por eso un valor desconocido es un
+# error, no una suposicion.
+#
+# PSRAM_CAP: bits [4:3] de la palabra 4 del bloque 1 del eFuse y un bit alto en
+# el bit 19 de la palabra 5 (mismo calculo que ESP32S3ROM.get_psram_cap() de
+# esptool 5.x). 0 = sin PSRAM, 1 = 8 MB, 2 = 2 MB, 3 = 16 MB, 4 = 4 MB.
+MB_HW_V18 = 18
+MB_HW_V19 = 19
+
+_EFUSE_BLK1_WORD4 = 0x60007054
+_EFUSE_BLK1_WORD5 = 0x60007058
+
+_MB_HW_BY_PSRAM_CAP = {
+    0: MB_HW_V18,  # WROOM-1-N8
+    2: MB_HW_V19,  # WROOM-1-N8R2 (ESP32-S3R2)
+}
+
+
+def decode_psram_cap(word4: int, word5: int) -> int:
+    """PSRAM_CAP del ESP32-S3 a partir de las palabras 4 y 5 del bloque 1."""
+    return (((word5 >> 19) & 0x01) << 2) | ((word4 >> 3) & 0x03)
+
+
+def motherboard_hw_from_psram_cap(cap: int) -> int:
+    """Revision de la motherBoard (MB_HW_V18/MB_HW_V19) para ese PSRAM_CAP."""
+    hw = _MB_HW_BY_PSRAM_CAP.get(cap)
+    if hw is None:
+        raise BoardDetectionError(
+            f"motherBoard con un modulo que no es de ninguna revision conocida "
+            f"(PSRAM_CAP={cap}). No se flashea."
+        )
+    return hw
+
+
+def detect_motherboard_hw(port: str) -> int:
+    """Revision de la motherBoard conectada en `port`, leida del eFuse."""
+    word4 = _read_mem(port, _EFUSE_BLK1_WORD4)
+    word5 = _read_mem(port, _EFUSE_BLK1_WORD5)
+    return motherboard_hw_from_psram_cap(decode_psram_cap(word4, word5))
+
+
+def _read_mem(port: str, address: int) -> int:
+    with esptool_io.capture() as cap:
+        try:
+            # --after no-reset por lo mismo que en _read_flash_size: la placa
+            # tiene que quedarse en modo descarga para el write-flash.
+            esptool.main(['--port', port, '--no-stub', '--after', 'no-reset',
+                          'read-mem', hex(address)])
+        except SystemExit as e:
+            if e.code != 0:
+                raise BoardDetectionError(
+                    f"No se pudo leer la revision de la motherBoard en {port}. "
+                    "Comprueba el cable y que no este abierto en otro programa."
+                )
+    m = re.search(rf'{address:#010x}\s*=\s*(0x[0-9a-fA-F]+)', cap.value)
+    if m is None:
+        raise BoardDetectionError(
+            "No se pudo leer la revision de la motherBoard (eFuse). "
+            "Comprueba que la placa este conectada correctamente."
+        )
+    return int(m.group(1), 16)
+
+
+def identify_native_usb(port: str, solo_motherboard: bool = False) -> tuple[Board, Optional[int]]:
+    """Placa (y revision, si es motherBoard) de un puerto USB nativo de Espressif.
+
+    Con solo_motherboard (flasher_config.json) no se mira el tamano de flash:
+    toda placa es motherBoard y solo se lee su revision del eFuse. Una
+    SensorBoard conectada por error no pasa esa lectura (PSRAM_CAP=1, ninguna
+    revision de motherBoard) y no se flashea.
+    """
+    if solo_motherboard:
+        return Board.MOTHERBOARD, detect_motherboard_hw(port)
+    board = detect_board_ambiguous(port)
+    if board == Board.MOTHERBOARD:
+        return board, detect_motherboard_hw(port)
+    return board, None

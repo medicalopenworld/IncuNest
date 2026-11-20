@@ -2,6 +2,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "ui/FactoryTest.h"
+#include "ui/MenuDialog.h"
 #include "ui_helpers.h"
 #include "main.h"
 #include <Arduino.h>
@@ -26,21 +27,27 @@ lv_obj_t *ui_ImageFlagTogo = NULL;
 #if INTRO_FLAG != INTRO_FLAG_NONE
 lv_obj_t *ui_ImageIntroFlag = NULL;
 #endif
+lv_obj_t *ui_IntroHwTestBtn = NULL;
+lv_obj_t *ui_IntroHwTestLabel = NULL;
 
 // Screen Main
 lv_obj_t *ui_ScreenMain = NULL;
 lv_obj_t *ui_ClockTime = NULL;
 lv_obj_t *ui_ClockDate = NULL;
-lv_obj_t *ui_ClockButton = NULL;
-lv_obj_t *ui_HelpButton = NULL;
-lv_obj_t *ui_HelpButtonLabel = NULL;
+lv_obj_t *ui_ClockCont = NULL;
 lv_obj_t *ui_ConnCont = NULL;
 lv_obj_t *ui_ConnIcon = NULL;
 lv_obj_t *ui_ConnBar[4] = {NULL, NULL, NULL, NULL};
-lv_obj_t *ui_Settings = NULL;
+lv_obj_t *ui_MenuButton = NULL;
 lv_obj_t *ui_AlarmButton = NULL;
-lv_obj_t *ui_BabiesButton = NULL;
-lv_obj_t *ui_BabiesButtonLabel = NULL;
+lv_obj_t *ui_HeadingPatientCont = NULL;
+lv_obj_t *ui_HeadingPatientName = NULL;
+lv_obj_t *ui_HeadingPatientDetail = NULL;
+lv_obj_t *ui_TempTotalLabel = NULL;
+lv_obj_t *ui_HumTotalLabel = NULL;
+lv_obj_t *ui_PhotoTotalLabel = NULL;
+lv_obj_t *ui_LockPatientName = NULL;
+lv_obj_t *ui_LockPatientDetail = NULL;
 lv_obj_t *ui_TempCont = NULL;
 lv_obj_t *ui_Panel1 = NULL;
 lv_obj_t *ui_Panel4 = NULL;
@@ -169,6 +176,10 @@ lv_obj_t *ui_MaintConfigCont = NULL;
 lv_obj_t *ui_MaintTitleLabel = NULL;
 lv_obj_t *ui_MaintEnableLabel = NULL;
 lv_obj_t *ui_MaintEnableSwitch = NULL;
+lv_obj_t *ui_WeighEnableLabel = NULL;
+lv_obj_t *ui_WeighEnableSwitch = NULL;
+lv_obj_t *ui_MaintSvcLabel = NULL;
+lv_obj_t *ui_MaintSvcSwitch = NULL;
 lv_obj_t *ui_MaintLevelLabel[3] = {NULL, NULL, NULL};
 lv_obj_t *ui_MaintHintLabel = NULL;
 lv_obj_t *ui_MaintOpenButton = NULL;
@@ -284,6 +295,7 @@ lv_obj_t *ui_LockHeadingClockDate = NULL;
 lv_obj_t *ui_LockHeadingConnCont = NULL;
 lv_obj_t *ui_LockHeadingConnIcon = NULL;
 lv_obj_t *ui_LockHeadingConnBar[4] = {NULL, NULL, NULL, NULL};
+ui_HeadingEnv_t ui_HeadingEnvLock = {};
 lv_obj_t *ui_Container1 = NULL;
 lv_obj_t *ui_AirTempLockCont = NULL;
 lv_obj_t *ui_Label11 = NULL;
@@ -326,13 +338,13 @@ lv_obj_t *ui_AlarmLockCont = NULL;
 lv_obj_t *ui_AlarmLockImg = NULL;
 lv_obj_t *ui_PanelLockAlarm = NULL;
 lv_obj_t *ui_AlarmLockNumLabel = NULL;
-lv_obj_t *ui_ChartLockCont = NULL;
-lv_obj_t *ui_ChartLockImg = NULL;
-lv_obj_t *ui_ChartLockLabel = NULL;
 lv_obj_t *ui_CheckImg = NULL;
+lv_obj_t *ui_LockPulseOxFrame = NULL;
 lv_obj_t *ui_LockPPGChart = NULL;
-lv_obj_t *ui_LockHRCont = NULL;
+lv_obj_t *ui_LockVitCont = NULL;
+lv_obj_t *ui_LockSpO2Label = NULL;
 lv_obj_t *ui_LockHRLabel = NULL;
+lv_obj_t *ui_LockPILabel = NULL;
 
 // --- AUTO AIR UI objects ---
 // --- AUTO AIR range display widgets ---
@@ -369,9 +381,9 @@ void LanguageButton_cb(lv_event_t *e);
 extern void ModesButton_cb(lv_event_t *e);
 extern void MaintButton_cb(lv_event_t *e);
 extern void MaintEnableSwitch_cb(lv_event_t *e);
+extern void WeighEnableSwitch_cb(lv_event_t *e);
+extern void MaintSvcSwitch_cb(lv_event_t *e);
 extern void MaintOpenButton_cb(lv_event_t *e);
-extern void ClockButton_cb(lv_event_t *e);
-extern void HelpButton_cb(lv_event_t *e);
 extern void TextArea_focus_cb(lv_event_t *e);
 extern void TextArea_Change_cb(lv_event_t *e);
 extern void Keyboard_cb(lv_event_t *e);
@@ -398,19 +410,9 @@ extern void PhotoToggleBtn_cb(lv_event_t *e);
 // EVENT HANDLERS
 // ============================================================================
 
-void ui_event_Settings(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_CLICKED) {
-    Settings_cb(e);
-    // Sin envio de estado: entrar en ajustes no cambia nada de la trama.
-  }
-}
-
-void ui_event_BabiesButton(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_CLICKED) {
-    extern void BabyHistory_Open(void);
-    BabyHistory_Open();
+void ui_event_MenuButton(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    MenuDialog_Open();
   }
 }
 
@@ -500,22 +502,6 @@ void ui_event_AlarmLockImg(lv_event_t *e) {
     // emite las senales de alarma.
     extern void AlarmCenter_Open(void);
     AlarmCenter_Open();
-  }
-}
-
-void ui_event_ChartLockImg(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_CLICKED) {
-    extern void TelemetryHistory_Open(void);
-    TelemetryHistory_Open();
-  }
-}
-
-void ui_event_ChartLockCont(lv_event_t *e) {
-  lv_event_code_t event_code = lv_event_get_code(e);
-  if (event_code == LV_EVENT_CLICKED) {
-    extern void TelemetryHistory_Open(void);
-    TelemetryHistory_Open();
   }
 }
 
@@ -626,6 +612,21 @@ void ui_event_HwTestButton(lv_event_t *e) {
   FactoryTest_RequestOpenFromSettings();
 }
 
+void ui_event_IntroHwTestButton(lv_event_t *e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  FactoryTest_RequestOpenFirstTest();
+}
+
+// La bandera de pais ocupa el mismo hueco que el boton: en el primer test de
+// fabrica se oculta, nadie la echa de menos en la linea de montaje.
+void UI_ShowIntroHwTestButton(void) {
+  if (!ui_IntroHwTestBtn) return;
+#if INTRO_FLAG != INTRO_FLAG_NONE
+  if (ui_ImageIntroFlag) lv_obj_add_flag(ui_ImageIntroFlag, LV_OBJ_FLAG_HIDDEN);
+#endif
+  lv_obj_clear_flag(ui_IntroHwTestBtn, LV_OBJ_FLAG_HIDDEN);
+}
+
 void ui_event_MaintButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     MaintButton_cb(e);
@@ -638,21 +639,21 @@ void ui_event_MaintEnableSwitch(lv_event_t *e) {
   }
 }
 
+void ui_event_WeighEnableSwitch(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+    WeighEnableSwitch_cb(e);
+  }
+}
+
+void ui_event_MaintSvcSwitch(lv_event_t *e) {
+  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+    MaintSvcSwitch_cb(e);
+  }
+}
+
 void ui_event_MaintOpenButton(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
     MaintOpenButton_cb(e);
-  }
-}
-
-void ui_event_ClockButton(lv_event_t *e) {
-  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    ClockButton_cb(e);
-  }
-}
-
-void ui_event_HelpButton(lv_event_t *e) {
-  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    HelpButton_cb(e);
   }
 }
 
@@ -898,21 +899,36 @@ void ui_ScreenIntro_screen_init(void) {
   lv_obj_set_style_text_font(ui_IntroFWLabel, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(ui_IntroFWLabel, lv_color_hex(0x555555),
                               LV_PART_MAIN);
+
+  // Primer test de fabrica: oculto hasta que intro_timer_cb() (UITask.cpp)
+  // termina el splash y el test sigue pendiente.
+  ui_IntroHwTestBtn = lv_btn_create(ui_ScreenIntro);
+  lv_obj_set_size(ui_IntroHwTestBtn, 320, 64);
+  lv_obj_align(ui_IntroHwTestBtn, LV_ALIGN_BOTTOM_MID, 0, -40);
+  lv_obj_set_style_bg_color(ui_IntroHwTestBtn, lv_color_hex(0x0075EE),
+                            LV_PART_MAIN);
+  lv_obj_set_style_radius(ui_IntroHwTestBtn, 10, LV_PART_MAIN);
+  lv_obj_add_flag(ui_IntroHwTestBtn, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(ui_IntroHwTestBtn, ui_event_IntroHwTestButton,
+                      LV_EVENT_CLICKED, NULL);
+  ui_IntroHwTestLabel = lv_label_create(ui_IntroHwTestBtn);
+  lv_label_set_text(ui_IntroHwTestLabel, TR(STR_HW_TEST));
+  lv_obj_set_style_text_font(ui_IntroHwTestLabel, &lv_font_montserrat_24,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_IntroHwTestLabel, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN);
+  lv_obj_center(ui_IntroHwTestLabel);
 }
 
 // Slots horizontales del heading (ui_ScreenMain y su replica en
 // ui_ScreenLock), con el boton de bloqueo en el centro exacto de pantalla
-// (offset 0) y el resto repartido a ambos lados. Sin "IncuNest" quedan 3
-// widgets a la izquierda del bloqueo (ayuda, reloj, conectividad) y 3 a la
-// derecha, asi que cada lado usa su propio paso: izquierda con margen 20 y
-// 3 huecos iguales hasta la zona tactil del candado; derecha sin tocar (123
-// px de paso), porque ya estaba al minimo que permite la zona tactil
-// ampliada del bloqueo (TOUCH_EXT_SMALL=40) sin solapar con "Bebes".
+// (offset 0) y el resto repartido a ambos lados: a la izquierda del bloqueo
+// bateria, reloj y conectividad; a la derecha el bebe al mando, alarmas y menu.
 //
 // Reparto de la izquierda (spec hmi-help-center): la zona tactil del candado
 // empieza en 400 - 19 - 40 = 341, asi que
-//   20 + 44 (ayuda) + g + 180 (reloj) + g + 40 (conectividad) + g = 341
-// da g = 19. Ayuda en 20, reloj centrado en 173, conectividad en 282.
+//   20 + 44 (bateria) + g + 180 (reloj) + g + 40 (conectividad) + g = 341
+// da g = 19. Bateria en 20, reloj centrado en 173, conectividad en 282.
 //
 // El reloj se centra con LV_ALIGN_CENTER (offset desde x=400) en vez de
 // anclarse por el borde izquierdo: su texto tiene ancho variable ("9:05" vs
@@ -921,15 +937,31 @@ void ui_ScreenIntro_screen_init(void) {
 // los tres huecos midieran lo mismo sobre el papel. ui_ConnCont sigue en
 // LEFT_MID porque su ancho (40px) es fijo y conocido, no hace falta.
 //
-// La replica de ui_ScreenLock usa los mismos slots de reloj y conectividad
-// (para que no salten al bloquear) pero NO lleva boton de ayuda: la pantalla
-// de bloqueo existe para no reaccionar a toques. Su slot queda vacio ahi.
-#define HEADING_SLOT0_HELP 20         // borde izq.; ui_HelpButton (solo Main)
+// El primer slot era el boton de ayuda, que paso al menu: hoy es el del
+// indicador de bateria, en Main y en el bloqueo (mismo sitio en ambas).
+//
+// A la derecha del candado (limpieza del heading, 2026-10-27): ayuda, ajuste
+// de hora, bebes y ajustes se fueron a MenuDialog, y lo que se puede tocar son
+// SOLO dos cuadrados azules, alarmas y menu. Entre el candado (zona tactil
+// hasta x=459) y alarmas queda el bebe al mando como texto, x=469..639.
+//   alarmas 652..708 (centro 680), 20 de hueco, menu 728..784 (centro 756),
+//   16 de margen al borde derecho.
+#define HEADING_SLOT0_BATTERY 20      // borde izq.; indicador de bateria
 #define HEADING_SLOT1_CLOCK (173 - 400)  // offset centro; ui_ClockTime+Date / replica en Lock
 #define HEADING_SLOT2_CONN 282        // borde izq.; ui_ConnCont / ui_LockHeadingConnCont
-#define HEADING_SLOT4_BABIES 123      // offset desde el centro (solo Main)
-#define HEADING_SLOT5_ALARM 246       // offset desde el centro (solo Main)
-#define HEADING_SLOT6_SETTINGS 369    // offset desde el centro (solo Main)
+#define HEADING_SLOT4_PATIENT 154     // offset desde el centro (solo Main)
+#define HEADING_SLOT4_PATIENT_W 170
+#define HEADING_SLOT5_ALARM 280       // offset desde el centro (solo Main)
+#define HEADING_SLOT6_MENU 356        // offset desde el centro (solo Main)
+#define HEADING_BTN_W 56              // botones cuadrados del heading
+#define HEADING_BTN_H 48
+#define HEADING_ROW_Y (-213)
+// Distintivo de alarmas (numero rojo o check verde) en la esquina inferior
+// derecha del boton: arriba se saldria de la pantalla (el boton empieza en
+// y=3) y abajo no pisa los paneles, que empiezan en y=54.
+#define HEADING_BADGE_D 24
+#define HEADING_BADGE_X (HEADING_SLOT5_ALARM + HEADING_BTN_W / 2 - 4)
+#define HEADING_BADGE_Y (HEADING_ROW_Y + HEADING_BTN_H / 2 - 10)
 
 // Crea el indicador de conectividad del heading (texto WIFI/2G/sin-enlace
 // ENCIMA de 4 barras de cobertura, apiladas en vertical para caber en un
@@ -937,8 +969,15 @@ void ui_ScreenIntro_screen_init(void) {
 // ui_ScreenMain y su replica en ui_ScreenLock (ver
 // "mantener IncuNest/reloj/conectividad en la pantalla de bloqueo"): ambas
 // instancias las refresca connectivity_heading_update() (UITask.cpp).
+//
+// `onDarkBg` solo fija el tono de arranque de las barras vacias, para que la
+// instancia de ui_ScreenLock (fondo 0x242323) no se vea con las 4 llenas
+// durante la ventana que va de crear la pantalla al primer
+// connectivity_heading_update(). A partir de ahi manda esa funcion, que
+// recibe el mismo flag.
 static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
-                                          lv_coord_t y, lv_obj_t **outCont,
+                                          lv_coord_t y, bool onDarkBg,
+                                          lv_obj_t **outCont,
                                           lv_obj_t **outIcon,
                                           lv_obj_t *outBars[4]) {
   lv_obj_t *cont = lv_obj_create(parent);
@@ -959,14 +998,21 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
   lv_label_set_text(icon, "");
   lv_obj_set_style_text_font(icon, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(icon, lv_color_hex(0x888888), LV_PART_MAIN);
+  lv_obj_set_style_text_color(
+      icon, onDarkBg ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x888888),
+      LV_PART_MAIN);
   *outIcon = icon;
 
   // 4 barras estilo "senal de movil", altura creciente, apoyadas en la misma
-  // base, centradas bajo el texto/icono de arriba. Sin fill = gris claro; con
-  // fill = azul si la placa esta en ThingsBoard y negro si no (ver
-  // apply_connectivity_indicator() en UITask.cpp). El nivel a colorear
-  // (linkBars) llega en CTRL,STATE.
+  // base, centradas bajo el texto/icono de arriba. Sobre fondo claro, sin
+  // fill = gris claro y con fill = el color de estado (verde si la placa esta
+  // en ThingsBoard, negro si no); sobre el fondo oscuro del bloqueo, sin fill
+  // = 0x555555 y con fill = blanco. Todo eso lo pinta
+  // apply_connectivity_indicator() en UITask.cpp; aqui solo se deja el
+  // "vacio" que corresponda al fondo. El nivel a colorear (linkBars) llega en
+  // CTRL,STATE.
+  const lv_color_t emptyCol =
+      onDarkBg ? lv_color_hex(0x555555) : lv_color_hex(0xDDDDDD);
   static const lv_coord_t BAR_H[4] = {8, 13, 18, 23};
   for (int i = 0; i < 4; i++) {
     lv_obj_t *bar = lv_obj_create(cont);
@@ -977,10 +1023,113 @@ static void create_heading_conn_indicator(lv_obj_t *parent, lv_coord_t x,
     lv_obj_set_x(bar, 4 + i * 9);
     lv_obj_set_y(bar, -2);
     lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0xDDDDDD), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, emptyCol, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
     outBars[i] = bar;
   }
+}
+
+// Etiqueta de una linea (12 pt) de terapia acumulada, hija de la cabecera de
+// un panel de Main. Oculta y sin texto hasta que patient_therapy_update()
+// tenga algo que decir; no recibe toques ni desplaza nada del panel.
+static lv_obj_t *create_therapy_total_label(lv_obj_t *parent, lv_align_t align,
+                                            lv_coord_t x, lv_coord_t y,
+                                            lv_text_align_t textAlign) {
+  lv_obj_t *lbl = lv_label_create(parent);
+  lv_obj_set_width(lbl, 120);  // "9999h 59m" a 12 pt mide ~65 px
+  lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
+  lv_obj_set_align(lbl, align);
+  lv_obj_set_x(lbl, x);
+  lv_obj_set_y(lbl, y);
+  lv_obj_set_style_text_align(lbl, textAlign, LV_PART_MAIN);
+  lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, LV_PART_MAIN);
+  lv_obj_clear_flag(lbl, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text(lbl, "");
+  lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+  return lbl;
+}
+
+// Objeto "mudo": sin estilo por defecto y sin reaccionar al tacto, para que el
+// toque atraviese el indicador y llegue al widget que tenga debajo.
+static lv_obj_t *env_plain_obj(lv_obj_t *parent) {
+  lv_obj_t *o = lv_obj_create(parent);
+  lv_obj_remove_style_all(o);
+  lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  return o;
+}
+
+static lv_obj_t *env_label(lv_obj_t *parent, const lv_font_t *font) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_width(l, LV_SIZE_CONTENT);
+  lv_obj_set_height(l, LV_SIZE_CONTENT);
+  lv_obj_set_align(l, LV_ALIGN_LEFT_MID);
+  lv_label_set_text(l, "");
+  lv_obj_set_style_text_font(l, font, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  return l;
+}
+
+// Icono del heading (ui_img_heading_*): blanco + alfa, tenido con img_recolor
+// para que el mismo asset sirva en blanco (informativo) y en amarillo
+// (atencion). El color definitivo lo pone el refresco de UITask.
+static lv_obj_t *heading_icon(lv_obj_t *parent, const lv_img_dsc_t *src) {
+  lv_obj_t *img = lv_img_create(parent);
+  lv_img_set_src(img, src);
+  lv_obj_clear_flag(img, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_img_recolor(img, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, LV_PART_MAIN);
+  return img;
+}
+
+// Indicador del entorno de la SensorBoard (ver ui_HeadingEnv_t) en el heading
+// del bloqueo: PUERTA ABIERTA (icono + palabra). Nace oculto;
+// sb_env_heading_update() (UITask.cpp) decide si se ve.
+//
+// Una fila de 90x24. Icono a la izquierda y palabra en montserrat_14 desde
+// x=28; la mas ancha es "Ouverte" (~55 px), 28 + 55 = 83 < 90.
+static void create_heading_env_indicator(lv_obj_t *parent, lv_align_t align,
+                                         lv_coord_t x, lv_coord_t y,
+                                         ui_HeadingEnv_t *out) {
+  out->cont = env_plain_obj(parent);
+  lv_obj_set_size(out->cont, 90, 24);
+  lv_obj_set_align(out->cont, align);
+  lv_obj_set_x(out->cont, x);
+  lv_obj_set_y(out->cont, y);
+  lv_obj_add_flag(out->cont, LV_OBJ_FLAG_HIDDEN);
+
+  out->doorRow = env_plain_obj(out->cont);
+  lv_obj_set_size(out->doorRow, 90, 24);
+  lv_obj_set_align(out->doorRow, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_y(out->doorRow, 0);
+  out->doorIcon = heading_icon(out->doorRow, &ui_img_heading_door);
+  lv_obj_set_align(out->doorIcon, LV_ALIGN_LEFT_MID);
+  lv_obj_set_x(out->doorIcon, 2);
+  out->doorText = env_label(out->doorRow, &lv_font_montserrat_14);
+  lv_obj_set_x(out->doorText, 28);
+}
+
+// Boton del heading de Main: cuadrado azul de accion (0x0075EE, el de los
+// botones de los dialogos) con un simbolo blanco. Todo lo que se toca en el
+// heading tiene este aspecto, y nada mas lo tiene. El simbolo blanco no lo
+// toca el barrido de UI_ApplyTheme() (UI_FLAG_KEEP_TEXT_COLOR).
+static lv_obj_t *heading_square_btn(lv_obj_t *parent, lv_coord_t x,
+                                    const char *symbol) {
+  lv_obj_t *btn = lv_btn_create(parent);
+  lv_obj_add_flag(btn, UI_FLAG_KEEP_TEXT_COLOR);
+  lv_obj_set_size(btn, HEADING_BTN_W, HEADING_BTN_H);
+  lv_obj_set_x(btn, x);
+  lv_obj_set_y(btn, HEADING_ROW_Y);
+  lv_obj_set_align(btn, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(0x0075EE), LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
+  lv_obj_t *sym = lv_label_create(btn);
+  lv_label_set_text(sym, symbol);
+  lv_obj_set_style_text_font(sym, &lv_font_montserrat_28, LV_PART_MAIN);
+  lv_obj_set_style_text_color(sym, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_center(sym);
+  return btn;
 }
 
 void ui_ScreenMain_screen_init(void) {
@@ -991,31 +1140,25 @@ void ui_ScreenMain_screen_init(void) {
   // quito para dejar mas hueco al resto). Hora en grande y fecha debajo en
   // cuerpo menor: son dos labels porque LVGL no admite dos tamanos de fuente
   // dentro de uno solo. El contenido lo refresca clock_update() (UITask).
-  // Pildora visible en vez de zona tactil invisible: sin ningun indicio, el
-  // reloj se veia como texto suelto y nadie descubria que se puede tocar
-  // para ajustar la hora. Azul de accion (0x0075EE, el mismo de
-  // ui_BabiesButton) y sin borde, para que los dos botones tactiles del
-  // heading se lean igual. El btn de LVGL ya oscurece solo al pulsarlo.
+  // Solo texto, sin fondo: en el heading solo es azul lo que se toca, y la
+  // hora se ajusta desde el menu (FECHA Y HORA). El color lo pone el barrido
+  // de UI_ApplyTheme(), como al resto de etiquetas de Main.
   //
   // x/align en HEADING_SLOT1_CLOCK con CENTER (no LEFT_MID x=182 fijo): es
   // el mismo slot horizontal del reloj en el heading redistribuido (ver las
   // constantes HEADING_SLOT* mas abajo en este fichero) — necesario porque
-  // aqui SI importa donde cae el CENTRO del boton, ancho fijo (180px), no
-  // solo que quepa.
-  ui_ClockButton = lv_btn_create(ui_ScreenMain);
-  lv_obj_set_size(ui_ClockButton, 180, 55);
-  lv_obj_set_x(ui_ClockButton, HEADING_SLOT1_CLOCK);
-  lv_obj_set_y(ui_ClockButton, -211);
-  lv_obj_set_align(ui_ClockButton, LV_ALIGN_CENTER);
-  lv_obj_add_flag(ui_ClockButton, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-  lv_obj_clear_flag(ui_ClockButton, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_ClockButton, lv_color_hex(0x0075EE),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_radius(ui_ClockButton, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_border_width(ui_ClockButton, 0,
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  // aqui SI importa donde cae el CENTRO del contenedor, ancho fijo (180px),
+  // no solo que quepa.
+  ui_ClockCont = lv_obj_create(ui_ScreenMain);
+  lv_obj_remove_style_all(ui_ClockCont);
+  lv_obj_set_size(ui_ClockCont, 180, 55);
+  lv_obj_set_x(ui_ClockCont, HEADING_SLOT1_CLOCK);
+  lv_obj_set_y(ui_ClockCont, -211);
+  lv_obj_set_align(ui_ClockCont, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_ClockCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
-  ui_ClockTime = lv_label_create(ui_ClockButton);
+  ui_ClockTime = lv_label_create(ui_ClockCont);
   lv_obj_set_width(ui_ClockTime, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ClockTime, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_ClockTime, 14);
@@ -1024,10 +1167,8 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_ClockTime, "");
   lv_obj_set_style_text_font(ui_ClockTime, &lv_font_montserrat_26,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(ui_ClockTime, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN);
 
-  ui_ClockDate = lv_label_create(ui_ClockButton);
+  ui_ClockDate = lv_label_create(ui_ClockCont);
   lv_obj_set_width(ui_ClockDate, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_ClockDate, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_ClockDate, 14);
@@ -1036,75 +1177,63 @@ void ui_ScreenMain_screen_init(void) {
   lv_label_set_text(ui_ClockDate, "");
   lv_obj_set_style_text_font(ui_ClockDate, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(ui_ClockDate, lv_color_hex(0xD6E6FF),
-                              LV_PART_MAIN);
 
-  // Boton de ayuda (spec hmi-help-center): "?" redondo en el primer slot del
-  // heading, solo en ui_ScreenMain. Es texto sobre un lv_btn, no un asset:
-  // no hace falta imagen nueva y se recolorea con el tema como el resto. Sin
-  // ext_click_area: el hueco hasta el reloj son 19 px y ampliarla acabaria
-  // disparando la ayuda al tocar el borde del reloj.
-  ui_HelpButton = lv_btn_create(ui_ScreenMain);
-  lv_obj_set_size(ui_HelpButton, 44, 44);
-  lv_obj_set_x(ui_HelpButton, HEADING_SLOT0_HELP);
-  lv_obj_set_y(ui_HelpButton, -213);
-  lv_obj_set_align(ui_HelpButton, LV_ALIGN_LEFT_MID);
-  lv_obj_clear_flag(ui_HelpButton, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_radius(ui_HelpButton, 22, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_HelpButton, lv_color_hex(0x0075EE),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_shadow_width(ui_HelpButton, 0,
-                                LV_PART_MAIN | LV_STATE_DEFAULT);
-  ui_HelpButtonLabel = lv_label_create(ui_HelpButton);
-  lv_label_set_text(ui_HelpButtonLabel, "?");
-  lv_obj_set_style_text_font(ui_HelpButtonLabel, &lv_font_montserrat_28,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_color(ui_HelpButtonLabel, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_center(ui_HelpButtonLabel);
+  // Puerta y ruido NO van en Main: el heading esta lleno (huecos de 19 px
+  // entre widgets; ver HEADING_SLOT*). Viven en el heading del bloqueo
+  // (ui_ScreenLock_screen_init). La bateria va en el slot 0 de los dos.
 
   // Indicador de conectividad: boton de bloqueo (ui_ImgButton1, alineado al
   // CENTRO de la pantalla con TOUCH_EXT_SMALL=40 de zona tactil) ocupa el
   // centro exacto del heading; este widget vive en el hueco a su izquierda,
   // justo despues del reloj, sin invadir su zona tactil ni su area visual.
   create_heading_conn_indicator(ui_ScreenMain, HEADING_SLOT2_CONN, -213,
-                                &ui_ConnCont, &ui_ConnIcon, ui_ConnBar);
+                                /*onDarkBg=*/false, &ui_ConnCont, &ui_ConnIcon,
+                                ui_ConnBar);
 
-  ui_Settings = lv_imgbtn_create(ui_ScreenMain);
-  lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_RELEASED, NULL,
-                    &ui_img_296721678, NULL);
-  lv_imgbtn_set_src(ui_Settings, LV_IMGBTN_STATE_PRESSED, NULL,
-                    &ui_img_296721678, NULL);
-  lv_obj_set_width(ui_Settings, 50);
-  lv_obj_set_height(ui_Settings, 48);
-  lv_obj_set_x(ui_Settings, HEADING_SLOT6_SETTINGS);
-  lv_obj_set_y(ui_Settings, -215);
-  lv_obj_set_align(ui_Settings, LV_ALIGN_CENTER);
+  // Menu (tres rayas): fecha y hora, bebes registrados, ajustes y ayuda.
+  ui_MenuButton =
+      heading_square_btn(ui_ScreenMain, HEADING_SLOT6_MENU, LV_SYMBOL_BARS);
 
-  ui_AlarmButton = lv_imgbtn_create(ui_ScreenMain);
-  lv_imgbtn_set_src(ui_AlarmButton, LV_IMGBTN_STATE_RELEASED, NULL,
-                    &ui_img_1007688293, NULL);
-  lv_obj_set_width(ui_AlarmButton, 48);
-  lv_obj_set_height(ui_AlarmButton, 47);
-  lv_obj_set_x(ui_AlarmButton, HEADING_SLOT5_ALARM);
-  lv_obj_set_y(ui_AlarmButton, -212);
-  lv_obj_set_align(ui_AlarmButton, LV_ALIGN_CENTER);
+  // Alarmas: siempre visible, haya o no alarmas, para que el registro este
+  // siempre a un toque. El estado va en el distintivo de su esquina (numero
+  // rojo de activas o check verde de "todo OK", ver ui_Panel10/ui_NumAlarm y
+  // ui_CheckImgMain), que pinta UITask.
+  ui_AlarmButton =
+      heading_square_btn(ui_ScreenMain, HEADING_SLOT5_ALARM, LV_SYMBOL_BELL);
 
-  // "Babies" top-bar button (baby-history-viewer) — plain button + label
-  // (no dedicated image asset), same top row as AlarmButton/Settings.
-  // Independent of the AIR/SKIN switches: works with no control active.
-  ui_BabiesButton = lv_btn_create(ui_ScreenMain);
-  lv_obj_set_width(ui_BabiesButton, 110);
-  lv_obj_set_height(ui_BabiesButton, 44);
-  lv_obj_set_x(ui_BabiesButton, HEADING_SLOT4_BABIES);
-  lv_obj_set_y(ui_BabiesButton, -213);
-  lv_obj_set_align(ui_BabiesButton, LV_ALIGN_CENTER);
-  lv_obj_set_style_radius(ui_BabiesButton, 8, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(ui_BabiesButton, lv_color_hex(0x0075EE),
-                            LV_PART_MAIN);
-  ui_BabiesButtonLabel = lv_label_create(ui_BabiesButton);
-  lv_label_set_text(ui_BabiesButtonLabel, "Bebes");
-  lv_obj_center(ui_BabiesButtonLabel);
+  // Identidad del bebe al mando (spec hmi-patient-identity): dos lineas,
+  // nombre y edad, entre el candado y las alarmas. Solo texto: el visor de
+  // bebes se abre desde el menu. Las rellena patient_identity_update()
+  // (UITask.cpp). El nombre se desplaza en circular si no cabe: truncarlo
+  // con "..." en un nombre propio es justo lo que esta funcion quiere evitar.
+  ui_HeadingPatientCont = lv_obj_create(ui_ScreenMain);
+  lv_obj_remove_style_all(ui_HeadingPatientCont);
+  lv_obj_set_size(ui_HeadingPatientCont, HEADING_SLOT4_PATIENT_W, 44);
+  lv_obj_set_x(ui_HeadingPatientCont, HEADING_SLOT4_PATIENT);
+  lv_obj_set_y(ui_HeadingPatientCont, HEADING_ROW_Y);
+  lv_obj_set_align(ui_HeadingPatientCont, LV_ALIGN_CENTER);
+  lv_obj_clear_flag(ui_HeadingPatientCont,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  ui_HeadingPatientName = lv_label_create(ui_HeadingPatientCont);
+  lv_obj_set_width(ui_HeadingPatientName, HEADING_SLOT4_PATIENT_W);
+  lv_label_set_long_mode(ui_HeadingPatientName, LV_LABEL_LONG_SCROLL_CIRCULAR);
+  lv_obj_set_align(ui_HeadingPatientName, LV_ALIGN_TOP_MID);
+  lv_obj_set_style_text_align(ui_HeadingPatientName, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(ui_HeadingPatientName, &lv_font_montserrat_18,
+                             LV_PART_MAIN);
+  lv_label_set_text(ui_HeadingPatientName, "");
+  lv_obj_add_flag(ui_HeadingPatientName, LV_OBJ_FLAG_HIDDEN);
+  ui_HeadingPatientDetail = lv_label_create(ui_HeadingPatientCont);
+  lv_obj_set_width(ui_HeadingPatientDetail, HEADING_SLOT4_PATIENT_W);
+  lv_label_set_long_mode(ui_HeadingPatientDetail, LV_LABEL_LONG_DOT);
+  lv_obj_set_align(ui_HeadingPatientDetail, LV_ALIGN_BOTTOM_MID);
+  lv_obj_set_style_text_align(ui_HeadingPatientDetail, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(ui_HeadingPatientDetail, &lv_font_montserrat_12,
+                             LV_PART_MAIN);
+  lv_label_set_text(ui_HeadingPatientDetail, "");
+  lv_obj_add_flag(ui_HeadingPatientDetail, LV_OBJ_FLAG_HIDDEN);
 
   ui_TempCont = lv_obj_create(ui_ScreenMain);
   lv_obj_remove_style_all(ui_TempCont);
@@ -1923,28 +2052,29 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_set_align(ui_Label10, LV_ALIGN_CENTER);
   lv_label_set_text(ui_Label10, "ON");
 
+  // Distintivo rojo con el numero de alarmas activas, en la esquina del boton
+  // de alarmas. Sin toque propio: el toque pasa al boton de debajo.
   ui_Panel10 = lv_obj_create(ui_ScreenMain);
-  lv_obj_set_width(ui_Panel10, 24);
-  lv_obj_set_height(ui_Panel10, 27);
-  lv_obj_set_x(ui_Panel10, 275);
-  lv_obj_set_y(ui_Panel10, -228);
+  lv_obj_remove_style_all(ui_Panel10);
+  lv_obj_set_size(ui_Panel10, HEADING_BADGE_D, HEADING_BADGE_D);
+  lv_obj_set_x(ui_Panel10, HEADING_BADGE_X);
+  lv_obj_set_y(ui_Panel10, HEADING_BADGE_Y);
   lv_obj_set_align(ui_Panel10, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_Panel10, lv_color_hex(0xFF0000),
-                            LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_opa(ui_Panel10, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(ui_Panel10, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_Panel10, lv_color_hex(0xE53935), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_Panel10, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_color(ui_Panel10, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN);
+  lv_obj_set_style_border_width(ui_Panel10, 2, LV_PART_MAIN);
+  lv_obj_add_flag(ui_Panel10, UI_FLAG_KEEP_TEXT_COLOR);
 
-  ui_NumAlarm = lv_label_create(ui_ScreenMain);
-  lv_obj_set_width(ui_NumAlarm, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_NumAlarm, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_NumAlarm, 275);
-  lv_obj_set_y(ui_NumAlarm, -228);
-  lv_obj_set_align(ui_NumAlarm, LV_ALIGN_CENTER);
+  ui_NumAlarm = lv_label_create(ui_Panel10);
+  lv_obj_center(ui_NumAlarm);
   lv_label_set_text(ui_NumAlarm, "1");
-  lv_obj_set_style_text_color(ui_NumAlarm, lv_color_hex(0x000000),
+  lv_obj_set_style_text_color(ui_NumAlarm, lv_color_hex(0xFFFFFF),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_opa(ui_NumAlarm, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_NumAlarm, &lv_font_montserrat_18,
+  lv_obj_set_style_text_font(ui_NumAlarm, &lv_font_montserrat_14,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
   ui_SPO2Button = lv_imgbtn_create(ui_ScreenMain);
@@ -2007,22 +2137,31 @@ void ui_ScreenMain_screen_init(void) {
                            LV_PART_INDICATOR | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(ui_LockAutoArc, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  ui_CheckImgMain = lv_img_create(ui_ScreenMain);
-  lv_img_set_src(ui_CheckImgMain, &ui_img_check_png);
-  lv_obj_set_width(ui_CheckImgMain, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_CheckImgMain, LV_SIZE_CONTENT);
-  lv_obj_set_x(ui_CheckImgMain, 259);
-  lv_obj_set_y(ui_CheckImgMain, -212);
+  // Check verde de "todo OK" en el mismo sitio que el numero de alarmas (son
+  // excluyentes). Toque propio hacia el centro de alarmas (CheckImg_cb).
+  ui_CheckImgMain = lv_obj_create(ui_ScreenMain);
+  lv_obj_remove_style_all(ui_CheckImgMain);
+  lv_obj_set_size(ui_CheckImgMain, HEADING_BADGE_D, HEADING_BADGE_D);
+  lv_obj_set_x(ui_CheckImgMain, HEADING_BADGE_X);
+  lv_obj_set_y(ui_CheckImgMain, HEADING_BADGE_Y);
   lv_obj_set_align(ui_CheckImgMain, LV_ALIGN_CENTER);
-  lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_ADV_HITTEST);
   lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_SCROLLABLE);
-  lv_img_set_zoom(ui_CheckImgMain, 200);
+  lv_obj_set_style_radius(ui_CheckImgMain, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(ui_CheckImgMain, lv_color_hex(0x2E9E44),
+                            LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(ui_CheckImgMain, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_color(ui_CheckImgMain, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN);
+  lv_obj_set_style_border_width(ui_CheckImgMain, 2, LV_PART_MAIN);
+  lv_obj_add_flag(ui_CheckImgMain, UI_FLAG_KEEP_TEXT_COLOR);
+  lv_obj_t *checkSym = lv_label_create(ui_CheckImgMain);
+  lv_label_set_text(checkSym, LV_SYMBOL_OK);
+  lv_obj_set_style_text_font(checkSym, &lv_font_montserrat_14, LV_PART_MAIN);
+  lv_obj_set_style_text_color(checkSym, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_center(checkSym);
 
-  lv_obj_add_event_cb(ui_Settings, ui_event_Settings, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_HelpButton, ui_event_HelpButton, LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_MenuButton, ui_event_MenuButton, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_AlarmButton, ui_event_AlarmButton, LV_EVENT_ALL, NULL);
-  lv_obj_add_event_cb(ui_BabiesButton, ui_event_BabiesButton, LV_EVENT_ALL,
-                      NULL);
   lv_obj_add_event_cb(ui_SPO2Button, ui_event_SPO2Button, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_ChartButton, ui_event_ChartButton, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_ImgButton1, ui_event_ImgButton1, LV_EVENT_ALL, NULL);
@@ -2057,8 +2196,10 @@ void ui_ScreenMain_screen_init(void) {
   lv_obj_add_flag(ui_Label6,           LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TempButton,       LV_OBJ_FLAG_HIDDEN);
 
-  lv_obj_set_ext_click_area(ui_Settings, TOUCH_EXT_MEDIUM);
-  lv_obj_set_ext_click_area(ui_AlarmButton, TOUCH_EXT_MEDIUM);
+  // Alarmas y menu ya miden 56x48 y estan a 20 px uno del otro: con
+  // TOUCH_EXT_MEDIUM (30) sus zonas se solaparian. 8 deja aire entre ambas.
+  lv_obj_set_ext_click_area(ui_MenuButton, 8);
+  lv_obj_set_ext_click_area(ui_AlarmButton, 8);
   lv_obj_set_ext_click_area(ui_SPO2Button, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_ChartButton, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_ImgButton1, TOUCH_EXT_SMALL);
@@ -3146,7 +3287,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_height(ui_MaintEnableLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_MaintEnableLabel, 60);
-  lv_obj_set_y(ui_MaintEnableLabel, -95);
+  lv_obj_set_y(ui_MaintEnableLabel, -108);
   lv_obj_set_align(ui_MaintEnableLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_MaintEnableLabel, TR(STR_MAINT_REMINDER));
   lv_obj_set_style_text_font(ui_MaintEnableLabel, &lv_font_montserrat_18,
@@ -3154,10 +3295,53 @@ void ui_ScreenSettings_screen_init(void) {
 
   ui_MaintEnableSwitch = lv_switch_create(ui_MaintConfigCont);
   lv_obj_set_width(ui_MaintEnableSwitch, 90);
-  lv_obj_set_height(ui_MaintEnableSwitch, 35);
+  lv_obj_set_height(ui_MaintEnableSwitch, 30);
   lv_obj_set_x(ui_MaintEnableSwitch, 296);
-  lv_obj_set_y(ui_MaintEnableSwitch, -95);
+  lv_obj_set_y(ui_MaintEnableSwitch, -108);
   lv_obj_set_align(ui_MaintEnableSwitch, LV_ALIGN_CENTER);
+
+  // Segundo interruptor, el del aviso de pesada diaria (no es un nivel de
+  // limpieza, pero comparte panel: es el otro aviso que sale al desbloquear).
+  // Mismas columnas que el de arriba, 40 px mas abajo.
+  ui_WeighEnableLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_WeighEnableLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_WeighEnableLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_WeighEnableLabel, 60);
+  lv_obj_set_y(ui_WeighEnableLabel, -74);
+  lv_obj_set_align(ui_WeighEnableLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_WeighEnableLabel, TR(STR_WEIGH_SETTING));
+  lv_obj_set_style_text_font(ui_WeighEnableLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_WeighEnableSwitch = lv_switch_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_WeighEnableSwitch, 90);
+  lv_obj_set_height(ui_WeighEnableSwitch, 30);
+  lv_obj_set_x(ui_WeighEnableSwitch, 296);
+  lv_obj_set_y(ui_WeighEnableSwitch, -74);
+  lv_obj_set_align(ui_WeighEnableSwitch, LV_ALIGN_CENTER);
+  // Interruptor propio del aviso de SERVICIO por horas de uso (shared-service-
+  // hours-toggle). Fila inmediatamente debajo de AVISOS, mismas x (60 y 296) e
+  // y = -60 (la de AVISOS esta en -95: paso de 35 px). Para hacerle sitio las
+  // tres filas de niveles bajan de y = -40 + 42*i a -15 + 38*i (ver abajo).
+  // Coordenadas de este panel (centro de ui_MaintConfigCont, 770x361):
+  //   titulo -140 | AVISOS -95 | SERVICIO -60 | niveles -15, 23, 61 |
+  //   boton ver recordatorio 105 | pista 152
+  ui_MaintSvcLabel = lv_label_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintSvcLabel, LV_SIZE_CONTENT);
+  lv_obj_set_height(ui_MaintSvcLabel, LV_SIZE_CONTENT);
+  lv_obj_set_x(ui_MaintSvcLabel, 60);
+  lv_obj_set_y(ui_MaintSvcLabel, -40);
+  lv_obj_set_align(ui_MaintSvcLabel, LV_ALIGN_CENTER);
+  lv_label_set_text(ui_MaintSvcLabel, TR(STR_SVC_SWITCH));
+  lv_obj_set_style_text_font(ui_MaintSvcLabel, &lv_font_montserrat_18,
+                             LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  ui_MaintSvcSwitch = lv_switch_create(ui_MaintConfigCont);
+  lv_obj_set_width(ui_MaintSvcSwitch, 90);
+  lv_obj_set_height(ui_MaintSvcSwitch, 30);
+  lv_obj_set_x(ui_MaintSvcSwitch, 296);
+  lv_obj_set_y(ui_MaintSvcSwitch, -40);
+  lv_obj_set_align(ui_MaintSvcSwitch, LV_ALIGN_CENTER);
 
   // Los tres niveles, solo lectura. El texto lo rellena
   // maintenance_panel_refresh() (UITask.cpp) con la cadencia y la fecha.
@@ -3167,7 +3351,8 @@ void ui_ScreenSettings_screen_init(void) {
     lv_obj_set_width(ui_MaintLevelLabel[i], 400);
     lv_obj_set_height(ui_MaintLevelLabel[i], LV_SIZE_CONTENT);
     lv_obj_set_x(ui_MaintLevelLabel[i], 185);
-    lv_obj_set_y(ui_MaintLevelLabel[i], -40 + 42 * i);
+    // Con tres interruptores encima (avisos -108, pesada -74, servicio -40).
+    lv_obj_set_y(ui_MaintLevelLabel[i], -6 + 32 * i);
     lv_obj_set_align(ui_MaintLevelLabel[i], LV_ALIGN_CENTER);
     lv_label_set_text(ui_MaintLevelLabel[i], "");
     lv_obj_set_style_text_font(ui_MaintLevelLabel[i], &lv_font_montserrat_14,
@@ -3178,7 +3363,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintOpenButton, 300);
   lv_obj_set_height(ui_MaintOpenButton, 46);
   lv_obj_set_x(ui_MaintOpenButton, 185);
-  lv_obj_set_y(ui_MaintOpenButton, 105);
+  lv_obj_set_y(ui_MaintOpenButton, 100);
   lv_obj_set_align(ui_MaintOpenButton, LV_ALIGN_CENTER);
   lv_obj_clear_flag(ui_MaintOpenButton, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_color(ui_MaintOpenButton, lv_color_hex(0x0075EE),
@@ -3195,7 +3380,7 @@ void ui_ScreenSettings_screen_init(void) {
   lv_obj_set_width(ui_MaintHintLabel, 400);
   lv_obj_set_height(ui_MaintHintLabel, LV_SIZE_CONTENT);
   lv_obj_set_x(ui_MaintHintLabel, 185);
-  lv_obj_set_y(ui_MaintHintLabel, 152);
+  lv_obj_set_y(ui_MaintHintLabel, 150);
   lv_obj_set_align(ui_MaintHintLabel, LV_ALIGN_CENTER);
   lv_label_set_text(ui_MaintHintLabel, TR(STR_MAINT_SETTINGS_HINT));
   lv_obj_set_style_text_font(ui_MaintHintLabel, &lv_font_montserrat_14,
@@ -3511,8 +3696,6 @@ void ui_ScreenSettings_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_HwTestButton, ui_event_HwTestButton, LV_EVENT_ALL,
                       NULL);
-  lv_obj_add_event_cb(ui_ClockButton, ui_event_ClockButton, LV_EVENT_ALL,
-                      NULL);
   lv_obj_add_event_cb(ui_Switch4, ui_event_Switch4, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_SwitchDarkMode, ui_event_SwitchDarkMode, LV_EVENT_ALL,
                       NULL);
@@ -3531,9 +3714,15 @@ void ui_ScreenSettings_screen_init(void) {
                       NULL);
   lv_obj_add_event_cb(ui_MaintEnableSwitch, ui_event_MaintEnableSwitch,
                       LV_EVENT_ALL, NULL);
+  lv_obj_add_event_cb(ui_WeighEnableSwitch, ui_event_WeighEnableSwitch,
+                      LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(ui_MaintOpenButton, ui_event_MaintOpenButton,
                       LV_EVENT_ALL, NULL);
   lv_obj_set_ext_click_area(ui_MaintEnableSwitch, TOUCH_EXT_NARROW);
+  lv_obj_set_ext_click_area(ui_WeighEnableSwitch, TOUCH_EXT_NARROW);
+  lv_obj_add_event_cb(ui_MaintSvcSwitch, ui_event_MaintSvcSwitch, LV_EVENT_ALL,
+                      NULL);
+  lv_obj_set_ext_click_area(ui_MaintSvcSwitch, TOUCH_EXT_NARROW);
 
   lv_obj_set_ext_click_area(ui_ImgButton2, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_Switch4, TOUCH_EXT_NARROW);
@@ -3589,9 +3778,46 @@ void ui_ScreenLock_screen_init(void) {
                               LV_PART_MAIN);
 
   create_heading_conn_indicator(ui_ScreenLock, HEADING_SLOT2_CONN, -213,
-                                &ui_LockHeadingConnCont,
+                                /*onDarkBg=*/true, &ui_LockHeadingConnCont,
                                 &ui_LockHeadingConnIcon,
                                 ui_LockHeadingConnBar);
+
+  // Replica de la identidad del bebe (spec hmi-patient-identity). A la derecha
+  // de la conectividad: la pantalla de bloqueo no lleva Bebes/alarma/ajustes,
+  // asi que hay sitio para el nombre entero y no hace falta desplazarlo. Mismo
+  // origen de datos que el boton "Bebes" de Main (patient_identity_update()).
+  ui_LockPatientName = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockPatientName, 340);  // x=350..690: deja sitio al entorno
+  lv_label_set_long_mode(ui_LockPatientName, LV_LABEL_LONG_DOT);
+  lv_obj_set_align(ui_LockPatientName, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_x(ui_LockPatientName, 350);
+  lv_obj_set_y(ui_LockPatientName, 6);
+  lv_obj_set_style_text_font(ui_LockPatientName, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_LockPatientName, lv_color_hex(0xFFFFFF),
+                              LV_PART_MAIN);
+  lv_label_set_text(ui_LockPatientName, "");
+  lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+  ui_LockPatientDetail = lv_label_create(ui_ScreenLock);
+  lv_obj_set_width(ui_LockPatientDetail, 340);
+  lv_label_set_long_mode(ui_LockPatientDetail, LV_LABEL_LONG_CLIP);
+  lv_obj_set_align(ui_LockPatientDetail, LV_ALIGN_TOP_LEFT);
+  lv_obj_set_x(ui_LockPatientDetail, 350);
+  lv_obj_set_y(ui_LockPatientDetail, 32);
+  lv_obj_set_style_text_font(ui_LockPatientDetail, &lv_font_montserrat_14,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(ui_LockPatientDetail, lv_color_hex(0xBBBBBB),
+                              LV_PART_MAIN);
+  lv_label_set_text(ui_LockPatientDetail, "");
+  lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+  // Indicador de entorno (puerta abierta / ruido), al final del heading: el
+  // bloqueo no lleva Bebes/Alarmas/Ajustes. x=700..790 (90 px), a la derecha de
+  // la identidad del paciente (x=350..690); centro 745 -> offset 345.
+  create_heading_env_indicator(ui_ScreenLock, LV_ALIGN_CENTER, 345, -213,
+                               &ui_HeadingEnvLock);
+  // El slot 0 (HEADING_SLOT0_BATTERY) lo ocupa el indicador de bateria, que
+  // no cuelga de esta pantalla sino de lv_layer_top() para quedar por encima
+  // del banner de alarma (battery_indicator_init(), UITask.cpp).
 
   ui_Container1 = lv_obj_create(ui_ScreenLock);
   lv_obj_remove_style_all(ui_Container1);
@@ -4018,52 +4244,14 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_text_font(ui_AlarmLockNumLabel, &lv_font_montserrat_18,
                              LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  // Boton de tendencia de telemetria (TelemetryHistory): abre el overlay sin
-  // desbloquear, mismo criterio que ui_AlarmLockImg/AlarmCenter. Reactivado
-  // (ver 3215bc2, que lo oculto porque no se notaba que era pulsable) con
-  // el mismo azul de ui_BabiesButton para que se lea como boton de verdad.
-  // Posicion: centrado en la columna derecha (misma x que Status/Photo,
-  // x=240), por debajo de esa columna (y<=210 absoluto) y por encima de
-  // ui_LockPPGChart (BOTTOM_LEFT, y>=370 absoluto) / ui_LockHRCont
-  // (BOTTOM_RIGHT, ambos ocultos salvo con sonda SpO2 aplicada, pero hay
-  // que dejarles el hueco libre para cuando se muestran).
-  ui_ChartLockCont = lv_obj_create(ui_ScreenLock);
-  lv_obj_remove_style_all(ui_ChartLockCont);
-  lv_obj_set_width(ui_ChartLockCont, 100);
-  lv_obj_set_height(ui_ChartLockCont, 100);
-  lv_obj_set_x(ui_ChartLockCont, 240);
-  lv_obj_set_y(ui_ChartLockCont, 70);
-  lv_obj_set_align(ui_ChartLockCont, LV_ALIGN_CENTER);
-  lv_obj_clear_flag(ui_ChartLockCont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_style_bg_color(ui_ChartLockCont, lv_color_hex(0x0075EE),
-                            LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(ui_ChartLockCont, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_radius(ui_ChartLockCont, 8, LV_PART_MAIN);
-
-  ui_ChartLockImg = lv_imgbtn_create(ui_ChartLockCont);
-  lv_imgbtn_set_src(ui_ChartLockImg, LV_IMGBTN_STATE_RELEASED, NULL,
-                    &ui_img_chart_png, NULL);
-  lv_obj_set_width(ui_ChartLockImg, 48);
-  lv_obj_set_height(ui_ChartLockImg, 48);
-  lv_obj_set_y(ui_ChartLockImg, -12);
-  lv_obj_set_align(ui_ChartLockImg, LV_ALIGN_CENTER);
-  // Blanco sobre el azul del boton, igual que el texto de ui_BabiesButton:
-  // el icono trae sus propios colores pensados para fondo claro.
-  lv_obj_set_style_img_recolor(ui_ChartLockImg, lv_color_hex(0xFFFFFF),
-                                LV_PART_MAIN);
-  lv_obj_set_style_img_recolor_opa(ui_ChartLockImg, LV_OPA_COVER,
-                                    LV_PART_MAIN);
-
-  ui_ChartLockLabel = lv_label_create(ui_ChartLockCont);
-  lv_obj_set_width(ui_ChartLockLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_ChartLockLabel, LV_SIZE_CONTENT);
-  lv_obj_set_y(ui_ChartLockLabel, 28);
-  lv_obj_set_align(ui_ChartLockLabel, LV_ALIGN_CENTER);
-  lv_label_set_text(ui_ChartLockLabel, "TREND");
-  lv_obj_set_style_text_color(ui_ChartLockLabel, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_ChartLockLabel, &lv_font_montserrat_14,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+  // Aqui vivia el boton de tendencia (ui_ChartLockCont/Img/Label, "TREND"),
+  // que abria el overlay de TelemetryHistory sin desbloquear. Retirado por
+  // peticion para la tanda de fabricacion del 2026-09-17: la pantalla de
+  // bloqueo se queda sin esa entrada. Con el se fueron sus dos handlers
+  // (ui_event_ChartLockImg/Cont) y la leccion 9 de enfermeria, que no tenia
+  // ya como completarse. El modulo TelemetryHistory sigue compilando pero
+  // queda sin ninguna via de entrada: si se recupera el boton, hay que
+  // devolver tambien esa leccion.
 
   ui_CheckImg = lv_img_create(ui_ScreenLock);
   lv_img_set_src(ui_CheckImg, &ui_img_check_png);
@@ -4169,16 +4357,42 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_set_style_radius(ui_BorderLeft, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   // --------------------------------------------------------------------------
 
+  // --- Pulse oximetry frame (lock screen, bottom) ---
+  // Border-only box around the PPG chart and the vital signs panel, so the
+  // whole group reads as coming from the SpO2 probe. Created before both so
+  // it is drawn behind them; shown and hidden together with the chart.
+  // Outer box x 4..796, y 362..479: with the 2 px border it leaves a 4 px gap
+  // on every side of the chart (10..470, 368..473) and the panel (..790).
+  ui_LockPulseOxFrame = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_LockPulseOxFrame);
+  lv_obj_set_size(ui_LockPulseOxFrame, 792, 117);
+  lv_obj_set_align(ui_LockPulseOxFrame, LV_ALIGN_BOTTOM_LEFT);
+  lv_obj_set_x(ui_LockPulseOxFrame, 4);
+  lv_obj_set_y(ui_LockPulseOxFrame, -1);
+  lv_obj_set_style_border_color(ui_LockPulseOxFrame, lv_color_hex(0x6A6A6A),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(ui_LockPulseOxFrame, 2,
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_opa(ui_LockPulseOxFrame, 255,
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(ui_LockPulseOxFrame, 8,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_add_flag(ui_LockPulseOxFrame, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_LockPulseOxFrame, LV_OBJ_FLAG_EVENT_BUBBLE);
+  lv_obj_clear_flag(ui_LockPulseOxFrame,
+                    LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
   // --- PPG Chart (lock screen, bottom-left) ---
   ui_LockPPGChart = lv_chart_create(ui_ScreenLock);
-  lv_obj_set_size(ui_LockPPGChart, 665, 105);
+  lv_obj_set_size(ui_LockPPGChart, LOCK_PPG_WIDTH_PX, 105);
   lv_obj_set_align(ui_LockPPGChart, LV_ALIGN_BOTTOM_LEFT);
   lv_obj_set_x(ui_LockPPGChart, 10);
-  lv_obj_set_y(ui_LockPPGChart, -5);
+  lv_obj_set_y(ui_LockPPGChart, -7);  // 4 px inside ui_LockPulseOxFrame
   lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_SCROLLABLE);
   lv_chart_set_type(ui_LockPPGChart, LV_CHART_TYPE_LINE);
-  // 128 puntos a 25 Hz (CTRL,PPG cada 40 ms) = 5,1 s de ventana, como un
-  // monitor clinico. Con 256 se metian 10,2 s y los latidos salian pegados.
+  // Point count from the sweep speed (25 mm/s) and the CTRL,PPG rate, see
+  // LOCK_PPG_POINTS in ElementsCreation.h: 250 points = 5 s at 50 Hz. It
+  // was 128 (5.1 s at 25 Hz, ~17 mm/s) before 4.7.0; 256 crammed the beats.
   lv_chart_set_point_count(ui_LockPPGChart, LOCK_PPG_POINTS);
   // CIRCULAR (barrido con cursor), no SHIFT: en modo SHIFT LVGL hace
   // lv_obj_invalidate() del chart entero en cada muestra (665x105 px, 25
@@ -4198,82 +4412,138 @@ void ui_ScreenLock_screen_init(void) {
                           LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_width(ui_LockPPGChart, 0,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
+  // Concentric with ui_LockPulseOxFrame: its 8 px radius minus the 2 px
+  // border and the 4 px gap, instead of the theme's larger radius.
+  lv_obj_set_style_radius(ui_LockPPGChart, 2,
+                          LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_pad_all(ui_LockPPGChart, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_size(ui_LockPPGChart, 0,
                         LV_PART_INDICATOR | LV_STATE_DEFAULT);
-  lv_obj_set_style_line_color(ui_LockPPGChart, lv_color_hex(0x00FF7F),
+  // Same cyan as the SpO2 value: pleth and SpO2 come from the same sensor,
+  // as on hospital monitors (green is the ECG colour there).
+  lv_obj_set_style_line_color(ui_LockPPGChart, lv_color_hex(0x3CC8E0),
                               LV_PART_ITEMS | LV_STATE_DEFAULT);
   lv_obj_set_style_line_width(ui_LockPPGChart, 2,
                               LV_PART_ITEMS | LV_STATE_DEFAULT);
-  lockPPGSeries = lv_chart_add_series(ui_LockPPGChart, lv_color_hex(0x00FF7F),
+  lockPPGSeries = lv_chart_add_series(ui_LockPPGChart, lv_color_hex(0x3CC8E0),
                                       LV_CHART_AXIS_PRIMARY_Y);
   for (int i = 0; i < lv_chart_get_point_count(ui_LockPPGChart); i++) {
     lockPPGSeries->y_points[i] = LV_CHART_POINT_NONE;
   }
   lv_chart_refresh(ui_LockPPGChart);
-  // Nace oculta, igual que ui_LockHRCont: al arrancar no hay sonda aplicada,
+  // Nace oculta, igual que ui_LockVitCont: al arrancar no hay sonda aplicada,
   // asi que mostrar el recuadro vacio seria un estado inicial falso. La
   // muestra el primer CTRL,PROBE con estado APPLIED.
   lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_LockPPGChart, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-  // --- HR Container (lock screen, bottom-right) ---
-  ui_LockHRCont = lv_obj_create(ui_ScreenLock);
-  lv_obj_remove_style_all(ui_LockHRCont);
-  lv_obj_set_size(ui_LockHRCont, 110, 105);
-  lv_obj_set_align(ui_LockHRCont, LV_ALIGN_BOTTOM_RIGHT);
-  lv_obj_set_x(ui_LockHRCont, -10);
-  lv_obj_set_y(ui_LockHRCont, -5);
-  lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_EVENT_BUBBLE);
-  lv_obj_clear_flag(ui_LockHRCont,
+  // --- Vital signs panel (lock screen, bottom-right) ---
+  // Three rows, each a title on the left and its reading on the right in the
+  // same colour: PR (green), SpO2 (cyan), PI (violet). Rows and not columns
+  // since 4.8.0, so that the chart can take 649 px (5 s). The title says "PR"
+  // and not "HR": the rate comes from the pleth, and monitors keep "HR" for
+  // the one derived from the ECG. Since 4.8.2 PR and SpO2 carry their unit
+  // under the title ("bpm", "%"; PI has had it in its title from the start)
+  // and the titles are 16 px instead of 14.
+  // Hidden until a probe is applied.
+  ui_LockVitCont = lv_obj_create(ui_ScreenLock);
+  lv_obj_remove_style_all(ui_LockVitCont);
+  lv_obj_set_size(ui_LockVitCont, LOCK_VIT_WIDTH_PX, 105);
+  lv_obj_set_align(ui_LockVitCont, LV_ALIGN_BOTTOM_RIGHT);
+  lv_obj_set_x(ui_LockVitCont, -10);
+  lv_obj_set_y(ui_LockVitCont, -7);
+  lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_EVENT_BUBBLE);
+  // Keep the per-vital colours: UI_ApplyTheme() paints every label on the
+  // lock screen white, and this flag stops it at this panel.
+  lv_obj_add_flag(ui_LockVitCont, UI_FLAG_KEEP_TEXT_COLOR);
+  lv_obj_clear_flag(ui_LockVitCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_flex_flow(ui_LockHRCont, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(ui_LockHRCont, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_row(ui_LockHRCont, 2,
-                           LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  lv_obj_t *ui_LockHRImg = lv_img_create(ui_LockHRCont);
-  lv_img_set_src(ui_LockHRImg, &ui_img_heart_red_png);
-  lv_obj_set_width(ui_LockHRImg, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHRImg, LV_SIZE_CONTENT);
-  lv_obj_add_flag(ui_LockHRImg, LV_OBJ_FLAG_ADV_HITTEST);
-  lv_obj_clear_flag(ui_LockHRImg, LV_OBJ_FLAG_SCROLLABLE);
+  static const struct {
+    const char *title;
+    const char *unit;  // under the title, or NULL when the title carries it
+    uint32_t color;
+    const lv_font_t *font;
+    bool title_centred;  // title at mid height of the digits, not on their baseline
+    lv_obj_t **value;
+  } lock_vitals[] = {
+      // The widest row is "SpO2" and "100": 39 + 75 px of the 122.
+      {"PR", "bpm", 0x5CD08A, &ui_font_vitals_value, true, &ui_LockHRLabel},
+      {"SpO2", "%", 0x3CC8E0, &ui_font_vitals_value, true, &ui_LockSpO2Label},
+      {"PI %", NULL, 0xB9A6F5, &ui_font_vitals_small, false, &ui_LockPILabel},
+  };
+  // The line box of these fonts is the ink box of their glyphs
+  // (tools/gen_vitals_fonts.py), so a label is exactly as tall as its digits.
+  // The rows keep 3 px clear of the frame above and below and share what is
+  // left between them: 36 + 36 + 15 px of digits, 6 px in each gap.
+  const lv_coord_t panel_h = 105, margin = 3;
+  lv_coord_t digits_h = 0;
+  for (const auto &v : lock_vitals) digits_h += v.font->line_height;
+  const lv_coord_t row_gap = (panel_h - 2 * margin - digits_h) / 2;
+  lv_coord_t row_y = margin;
+  for (const auto &v : lock_vitals) {
+    *v.value = lv_label_create(ui_LockVitCont);
+    lv_label_set_text(*v.value, "--");
+    lv_obj_set_style_text_color(*v.value, lv_color_hex(v.color),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(*v.value, v.font,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_align(*v.value, LV_ALIGN_TOP_RIGHT);
+    lv_obj_set_pos(*v.value, 0, row_y);
 
-  ui_LockHRLabel = lv_label_create(ui_LockHRCont);
-  lv_obj_set_width(ui_LockHRLabel, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHRLabel, LV_SIZE_CONTENT);
-  lv_label_set_text(ui_LockHRLabel, "--");
-  lv_obj_set_style_text_color(ui_LockHRLabel, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_LockHRLabel, &lv_font_montserrat_48,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+    // Beside the big digits the title is centred on the height of the digits:
+    // on their baseline a small title looked dropped next to a 36 px number.
+    // With a unit, what is centred is the block of the two lines, from the top
+    // of the title's capitals to the baseline of the unit. The PI title stays
+    // on the baseline of its reading, which is hardly taller than the title
+    // itself.
+    lv_obj_t *title = lv_label_create(ui_LockVitCont);
+    lv_label_set_text(title, v.title);
+    lv_obj_set_style_text_color(title, lv_color_hex(v.color),
+                                LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(title, &ui_font_vitals_title,
+                               LV_PART_MAIN | LV_STATE_DEFAULT);
+    // Heights above the baseline: of the digits and of the title's capitals.
+    const lv_coord_t digits_asc = v.font->line_height - v.font->base_line;
+    const lv_coord_t title_asc =
+        ui_font_vitals_title.line_height - ui_font_vitals_title.base_line;
+    // Between the baseline of the title and the top of the unit: the
+    // descender of the "p" of "SpO2", and 2 px clear of it.
+    const lv_coord_t unit_gap = ui_font_vitals_title.base_line + 2;
+    const lv_coord_t unit_asc =
+        ui_font_vitals_unit.line_height - ui_font_vitals_unit.base_line;
+    const lv_coord_t block_asc =
+        title_asc + (v.unit ? unit_gap + unit_asc : 0);
+    const lv_coord_t title_y =
+        row_y + (v.title_centred ? (digits_asc - block_asc) / 2
+                                 : digits_asc - block_asc);
+    lv_obj_set_align(title, LV_ALIGN_TOP_LEFT);
+    lv_obj_set_pos(title, 0, title_y);
 
-  lv_obj_t *ui_LockHRUnit = lv_label_create(ui_LockHRCont);
-  lv_obj_set_width(ui_LockHRUnit, LV_SIZE_CONTENT);
-  lv_obj_set_height(ui_LockHRUnit, LV_SIZE_CONTENT);
-  lv_label_set_text(ui_LockHRUnit, "BPM");
-  lv_obj_set_style_text_color(ui_LockHRUnit, lv_color_hex(0xFFFFFF),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_text_font(ui_LockHRUnit, &lv_font_montserrat_14,
-                             LV_PART_MAIN | LV_STATE_DEFAULT);
+    if (v.unit) {
+      lv_obj_t *unit = lv_label_create(ui_LockVitCont);
+      lv_label_set_text(unit, v.unit);
+      lv_obj_set_style_text_color(unit, lv_color_hex(v.color),
+                                  LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_style_text_font(unit, &ui_font_vitals_unit,
+                                 LV_PART_MAIN | LV_STATE_DEFAULT);
+      lv_obj_set_align(unit, LV_ALIGN_TOP_LEFT);
+      lv_obj_set_pos(unit, 0, title_y + title_asc + unit_gap);
+    }
+
+    row_y += v.font->line_height + row_gap;
+  }
 
   lv_obj_add_event_cb(ui_AlarmLockImg, ui_event_AlarmLockImg, LV_EVENT_ALL,
                       NULL);
   lv_obj_add_event_cb(ui_AlarmLockCont, ui_event_AlarmLockCont, LV_EVENT_ALL,
-                      NULL);
-  lv_obj_add_event_cb(ui_ChartLockImg, ui_event_ChartLockImg, LV_EVENT_ALL,
-                      NULL);
-  lv_obj_add_event_cb(ui_ChartLockCont, ui_event_ChartLockCont, LV_EVENT_ALL,
                       NULL);
   lv_obj_add_event_cb(ui_ScreenLock, ui_event_ScreenLock, LV_EVENT_ALL, NULL);
 
   lv_obj_set_ext_click_area(ui_LockButton, TOUCH_EXT_SMALL);
   lv_obj_set_ext_click_area(ui_AlarmLockImg, TOUCH_EXT_MEDIUM);
   lv_obj_set_ext_click_area(ui_AlarmLockCont, TOUCH_EXT_NARROW);
-  lv_obj_set_ext_click_area(ui_ChartLockImg, TOUCH_EXT_MEDIUM);
-  lv_obj_set_ext_click_area(ui_ChartLockCont, TOUCH_EXT_NARROW);
 }
 
 // ============================================================================
@@ -4464,6 +4734,28 @@ void create_main_toggle_buttons() {
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
   }
+
+  // Terapia acumulada del bebe al mando (spec hmi-patient-identity): una sola
+  // linea de 12 pt ("3h 20m", sin rotulo), DEBAJO del titulo de cada cabecera y
+  // alineada como el: izquierda en humedad y fototerapia (titulo en x=20),
+  // derecha en temperatura (titulo pegado a x=-20). Antes iba entre el titulo
+  // y el boton, y con "100h 5m" bajo el titulo frances ("PHOTOTHERAPIE", ~125
+  // px) la etiqueta lo pisaba: no hay hueco horizontal fiable. Debajo si lo
+  // hay: las cabeceras miden 50-54 px y el titulo (14 pt) ocupa unos 16
+  // centrados, asi que quedan ~14 px libres abajo, justo lo que mide la
+  // linea. Misma solucion en los tres paneles.
+  //
+  // Se crean AQUI, detras de los botones de encendido, para quedar por encima
+  // de los paneles en el orden de dibujo. Las rellena y muestra
+  // patient_therapy_update() (UITask.cpp). ui_HumidityLabel (x=20, y=-98) esta
+  // en la misma fila que su boton (y=-98) y su fondo (Panel6, y=-98): la
+  // etiqueta se cuelga 16 px por debajo de esa fila.
+  ui_TempTotalLabel = create_therapy_total_label(
+      ui_TempCont, LV_ALIGN_RIGHT_MID, -20, -176 + 16, LV_TEXT_ALIGN_RIGHT);
+  ui_HumTotalLabel = create_therapy_total_label(
+      ui_HumCont, LV_ALIGN_LEFT_MID, 20, -98 + 16, LV_TEXT_ALIGN_LEFT);
+  ui_PhotoTotalLabel = create_therapy_total_label(
+      ui_PhotoCont, LV_ALIGN_LEFT_MID, 20, 1 + 16, LV_TEXT_ALIGN_LEFT);
 }
 
 
@@ -4487,7 +4779,9 @@ void ui_init(void) {
   ui_ScreenIntro_screen_init();
 
   ui____initial_actions0 = lv_obj_create(NULL);
-  if (!g_hmiRestoreState) {
+  // Con el primer test pendiente no hay estado que restaurar: el equipo
+  // vuelve siempre a la pantalla de inicio (mismo criterio en UI_Task).
+  if (!g_hmiRestoreState || FactoryTest_FirstTestPending()) {
     lv_scr_load(ui_ScreenIntro);
   }
 }

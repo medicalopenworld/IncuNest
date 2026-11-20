@@ -1,6 +1,7 @@
 #include "UITask.h"
 // #include "AudioManager.h"  // Deshabilitado para migración Arduino 3.x
 #include "CommTask.h"
+#include "state/patient_state.h"
 #include "state/training_mode.h"
 #include "buzzer.h"
 #include "ui/AlarmCenter.h"
@@ -10,11 +11,17 @@
 #include "ui/BabyExitDialog.h"
 #include "ui/TimeDialog.h"
 #include "ui/HelpDialog.h"
+#include "ui/MenuDialog.h"
 #include "ui/training/training.h"
 #include "ui/training/training_progress.h"
 #include "ui/MaintenanceDialog.h"
+#include "modules/service/service_settings.h"
+#include "modules/service/service_state.h"
 #include "ui/BabyWizard.h"
 #include "modules/maintenance/maintenance.h"
+#include "drivers/lcd_recover.h"
+#include "modules/maintenance/weigh_tracker.h"
+#include "modules/trend/trend_policy.h"
 #include "display_config.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -151,6 +158,10 @@ Alarm alarmList[MAX_ALARMS];
 // ==========================================
 static esp_lcd_panel_handle_t lcd_panel = NULL;
 
+// Peticion de reinicio de la transmision del panel (drivers/lcd_recover.h).
+static volatile bool s_lcdRestartPending = false;
+void LCD_RequestRestart(void) { s_lcdRestartPending = true; }
+
 // Bounce buffer: N líneas en SRAM interno desacoplan LCD DMA de PSRAM.
 // N=24 (divisor exacto de las 480 líneas del panel, evita wraps parciales)
 // amplía el margen de "drenaje" frente a jitter de CPU/bus (p.ej. tráfico
@@ -251,6 +262,9 @@ void lcd_diagnostics_log() {
   if (frame_mismatch < 0) frame_mismatch = -frame_mismatch;
 
   if (underruns > 0 || slow_frames > 0 || frame_mismatch > 2) {
+    // Red de seguridad: un ciclo perdido puede dejar la imagen desplazada
+    // para siempre; se rearma la transmision (lcd_recover.h).
+    LCD_RequestRestart();
     ESP_LOGW("LCD_DIAG",
              "GLITCH DETECTED — underruns=%lu  slow_frames=%lu/%lu  "
              "frame_finish=%lu (mismatch=%ld)  worst_frame=%.1fms (%.1f fps)",
@@ -314,6 +328,12 @@ static void intro_timer_cb(lv_timer_t *t) {
     lv_timer_del(intro_timer);
     intro_timer = NULL;
   }
+  // Primer test de fabrica pendiente: el equipo se queda en la pantalla de
+  // inicio con el boton de test (FactoryTest.h).
+  if (FactoryTest_FirstTestPending()) {
+    UI_ShowIntroHwTestButton();
+    return;
+  }
   lv_scr_load(ui_ScreenMain);
   if (!synced)
     ESP_LOGW(TAG, "Intro: no state sync after 10s — proceeding anyway");
@@ -345,6 +365,72 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
       data->state = LV_INDEV_STATE_REL;
     }
   }
+}
+
+// Setters que no tocan LVGL si el valor ya es el pedido.
+//
+// LVGL 8 invalida (repinta) el objeto en lv_obj_clear_flag(HIDDEN) aunque ya
+// estuviera visible, y en cada lv_obj_set_style_* aunque el valor sea el
+// mismo. UI_SyncAll() reafirma cada segundo la visibilidad y los colores de
+// los paneles grandes de Main, y con los setters directos eso eran 60-75 ms de
+// repintado por segundo sin que cambiara nada: el bucle de UI se atascaba, la
+// respuesta al toque se notaba lenta y el chasquido (que apaga ese bucle)
+// duraba hasta medio segundo. Medido en banco con [UIPERF].
+void ui_set_hidden(lv_obj_t *o, bool hidden) {
+  if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) == hidden) return;
+  if (hidden) {
+    lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static bool local_style_is(lv_obj_t *o, lv_style_prop_t prop,
+                           lv_style_selector_t sel, int32_t num) {
+  lv_style_value_t v;
+  return lv_obj_get_local_style_prop(o, prop, &v, sel) == LV_STYLE_RES_FOUND &&
+         v.num == num;
+}
+
+static inline void ui_set_bg_color(lv_obj_t *o, lv_color_t c,
+                                   lv_style_selector_t sel) {
+  lv_style_value_t v;
+  if (lv_obj_get_local_style_prop(o, LV_STYLE_BG_COLOR, &v, sel) ==
+          LV_STYLE_RES_FOUND &&
+      v.color.full == c.full) {
+    return;
+  }
+  lv_obj_set_style_bg_color(o, c, sel);
+}
+
+static inline void ui_set_bg_opa(lv_obj_t *o, lv_opa_t opa,
+                                 lv_style_selector_t sel) {
+  if (local_style_is(o, LV_STYLE_BG_OPA, sel, opa)) return;
+  lv_obj_set_style_bg_opa(o, opa, sel);
+}
+
+static inline void ui_set_opa(lv_obj_t *o, lv_opa_t opa,
+                              lv_style_selector_t sel) {
+  if (local_style_is(o, LV_STYLE_OPA, sel, opa)) return;
+  lv_obj_set_style_opa(o, opa, sel);
+}
+
+static inline void ui_set_text_color(lv_obj_t *o, lv_color_t c,
+                                     lv_style_selector_t sel) {
+  lv_style_value_t v;
+  if (lv_obj_get_local_style_prop(o, LV_STYLE_TEXT_COLOR, &v, sel) ==
+          LV_STYLE_RES_FOUND &&
+      v.color.full == c.full) {
+    return;
+  }
+  lv_obj_set_style_text_color(o, c, sel);
+}
+
+// lv_label_set_text() tambien repinta con el mismo texto.
+static inline void ui_set_label_text(lv_obj_t *o, const char *txt) {
+  const char *cur = lv_label_get_text(o);
+  if (cur && strcmp(cur, txt) == 0) return;
+  lv_label_set_text(o, txt);
 }
 
 // Forward declarations
@@ -481,6 +567,155 @@ void clock_update(void) {
   }
 }
 
+// Identidad del bebe al mando (spec hmi-patient-identity): nombre, edad
+// gestacional corregida y dias de vida, en el boton "Bebes" del heading de
+// Main y en su replica de ui_ScreenLock. Mismo patron que clock_update(): corre
+// en cada pasada, solo escribe en los widgets si algo cambio, y alimenta las
+// dos pantallas a la vez. Va DENTRO de LVGL_Lock (toca widgets); no toca NVS.
+//
+// Solo se muestra con sesion en marcha (BabyWizard_HasAnySession(): bebe conocido
+// Y alguna terapia en marcha). Con la incubadora parada el seq que recuerda el
+// asistente es historia, no "quien esta dentro", y un nombre ajeno en pantalla
+// con la cabina vacia es justo el error que esto quiere evitar.
+void patient_identity_update(void) {
+  if (!ui_HeadingPatientName || !ui_HeadingPatientDetail) {
+    return;
+  }
+
+  // Tres estados (state/patient_state): nada (identidad restaurada que la
+  // placa aun no confirma), confirmada, o -placa antigua con el bebe en su
+  // lista- el nombre en gris con "?" y sin edad. Una identidad sin confirmar
+  // NUNCA se pinta como cierta: podria ser otro bebe.
+  PatientDisplay disp = PATIENT_DISPLAY_HIDDEN;
+  BabyWizardSession s = {};
+  if (BabyWizard_HasAnySession()) {
+    BabyWizard_GetSession(&s);
+    disp = PatientState_GetDisplay(s.seq);
+  }
+  const bool live = (disp != PATIENT_DISPLAY_HIDDEN);
+  const bool confirmed = (disp == PATIENT_DISPLAY_CONFIRMED);
+
+  char name[28] = "";
+  char detail[48] = "";
+  if (live) {
+    if (confirmed) {
+      snprintf(name, sizeof(name), "%s", s.name[0] ? s.name : "--");
+      const PatientAge age = PatientState_GetAge(s.seq, s.gest);
+      char days[8];
+      patient_fmt_life_days(age.lifeDays, days, sizeof(days));
+      if (age.hasCorrected) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_AGE_FMT),
+                 (unsigned)age.corrWeeks, (unsigned)age.corrDays, days);
+      } else if (s.gest > 0) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_GEST_ONLY_FMT),
+                 (unsigned)s.gest);
+      } else if (age.hasLifeDays) {
+        snprintf(detail, sizeof(detail), TR(STR_PATIENT_DAYS_ONLY_FMT), days);
+      }
+    } else {
+      // Sin edad ni semanas: lo unico que se puede decir es que el HMI cree
+      // que es este bebe.
+      snprintf(name, sizeof(name), "%s ?", s.name[0] ? s.name : "--");
+    }
+  }
+
+  static bool lastLive = false;
+  static bool lastConfirmed = false;
+  static char lastName[sizeof(name)] = {0};
+  static char lastDetail[sizeof(detail)] = {0};
+  static int lastLang = -1;
+  // El tema tambien: el barrido de UI_ApplyTheme() repinta las etiquetas de
+  // Main con el color del tema y se llevaria el gris de "sin confirmar".
+  static int lastDark = -1;
+  const bool langChanged = lastLang != (int)g_lang;
+  const bool darkChanged = lastDark != (darkMode ? 1 : 0);
+  const bool nameChanged = strcmp(name, lastName) != 0;
+  const bool detailChanged = strcmp(detail, lastDetail) != 0;
+  if (live == lastLive && confirmed == lastConfirmed && !nameChanged &&
+      !detailChanged && !langChanged && !darkChanged && lastLang != -1) {
+    return;
+  }
+  lastLive = live;
+  lastConfirmed = confirmed;
+  lastLang = (int)g_lang;
+  lastDark = darkMode ? 1 : 0;
+  snprintf(lastName, sizeof(lastName), "%s", name);
+  snprintf(lastDetail, sizeof(lastDetail), "%s", detail);
+
+  if (live) {
+    // Gris cuando no esta confirmada; confirmada, el texto del tema en Main
+    // (fondo claro u oscuro) y blanco sobre el fondo oscuro del bloqueo.
+    const lv_color_t mainText = darkMode ? COLOR_TEXT_DARK : lv_color_hex(0x000000);
+    const lv_color_t mainSub = darkMode ? lv_color_hex(0xBBBBBB) : lv_color_hex(0x555555);
+    const lv_color_t mainName = confirmed ? mainText : lv_color_hex(0x8C8C8C);
+    const lv_color_t mainDetail = confirmed ? mainSub : lv_color_hex(0x8C8C8C);
+    const lv_color_t lockName = confirmed ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x8C8C8C);
+    const lv_color_t lockDetail = confirmed ? lv_color_hex(0xBBBBBB) : lv_color_hex(0x8C8C8C);
+    lv_obj_set_style_text_color(ui_HeadingPatientName, mainName, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_HeadingPatientDetail, mainDetail, LV_PART_MAIN);
+    if (ui_LockPatientName) lv_obj_set_style_text_color(ui_LockPatientName, lockName, LV_PART_MAIN);
+    if (ui_LockPatientDetail) lv_obj_set_style_text_color(ui_LockPatientDetail, lockDetail, LV_PART_MAIN);
+    lv_label_set_text(ui_HeadingPatientName, name);
+    lv_label_set_text(ui_HeadingPatientDetail, detail);
+    lv_obj_clear_flag(ui_HeadingPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_HeadingPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientName) {
+      lv_label_set_text(ui_LockPatientName, name);
+      lv_obj_clear_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (ui_LockPatientDetail) {
+      lv_label_set_text(ui_LockPatientDetail, detail);
+      lv_obj_clear_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    }
+  } else {
+    lv_obj_add_flag(ui_HeadingPatientName, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_HeadingPatientDetail, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientName) lv_obj_add_flag(ui_LockPatientName, LV_OBJ_FLAG_HIDDEN);
+    if (ui_LockPatientDetail) lv_obj_add_flag(ui_LockPatientDetail, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Pone `txt` en una etiqueta de terapia acumulada solo si cambio; un texto
+// vacio la oculta. `last` es la copia de lo ultimo escrito.
+static void therapy_label_set(lv_obj_t *label, char *last, size_t lastSize,
+                              const char *txt) {
+  if (!label || strcmp(txt, last) == 0) return;
+  snprintf(last, lastSize, "%s", txt);
+  if (txt[0] == '\0') {
+    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(label, "");
+  } else {
+    lv_label_set_text(label, txt);
+    lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Terapia acumulada del bebe al mando en la cabecera de cada panel de Main
+// (una linea, "3h 20m", bajo el titulo). Mismo contrato que patient_identity_update():
+// dentro de LVGL_Lock, escribe solo si cambia, y solo con sesion viva, identidad
+// confirmada y minutos conocidos. Los
+// minutos los cuenta state/patient_state a 1 Hz; esto solo los pinta.
+void patient_therapy_update(void) {
+  static char lastTemp[24] = {0};
+  static char lastHum[24] = {0};
+  static char lastPhoto[24] = {0};
+
+  char temp[24] = "";
+  char hum[24] = "";
+  char photo[24] = "";
+  PatientMinutes m;
+  if (BabyWizard_HasLiveSession() &&
+      PatientState_IsConfirmed(BabyWizard_GetActiveSeq()) &&
+      PatientState_GetTherapy(BabyWizard_GetActiveSeq(), &m)) {
+    patient_fmt_minutes(m.thermo, temp, sizeof(temp));
+    patient_fmt_minutes(m.humidity, hum, sizeof(hum));
+    patient_fmt_minutes(m.photo, photo, sizeof(photo));
+  }
+  therapy_label_set(ui_TempTotalLabel, lastTemp, sizeof(lastTemp), temp);
+  therapy_label_set(ui_HumTotalLabel, lastHum, sizeof(lastHum), hum);
+  therapy_label_set(ui_PhotoTotalLabel, lastPhoto, sizeof(lastPhoto), photo);
+}
+
 static char s_lastMbStatus[80] = {0};
 static char s_lastHmiStatus[80] = {0};
 
@@ -559,9 +794,19 @@ static void wifi_link_status_invalidate(void) {
 // es el cache de "no cambio nada desde la ultima pasada" de ESA instancia:
 // cada llamador pasa su propia estatica, para que la primera pintura de una
 // instancia no se salte solo porque la otra ya estaba al dia.
+//
+// `onDarkBg` es lo UNICO que cambia entre las dos instancias: ui_ScreenLock
+// tiene fondo 0x242323, donde el negro del caso "sin servidor" no se lee, asi
+// que ahi el acromatico es blanco en vez de negro (el verde de "hay servidor"
+// no cambia: se lee igual sobre los dos fondos).
+//
+// EL INDICADOR ENTERO VA DE UN SOLO COLOR: el texto de arriba (el simbolo
+// WIFI, "2G" o la X) y las barras llenas de abajo son UNA pieza visual, no
+// dos, y pintarlas de colores distintos las hacia parecer dos cosas sin
+// relacion. Un solo tono, el del estado, para todo.
 static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
                                           int status, int linkBars,
-                                          int *lastSignature) {
+                                          bool onDarkBg, int *lastSignature) {
   if (!icon) return;
 
   const int signature = status * 100 + (linkBars + 1);
@@ -572,17 +817,27 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
       (status == COMM_STATUS_WIFI_SERVER || status == COMM_STATUS_GPRS_SERVER);
   const bool hasTransport = (status != COMM_STATUS_NONE);
 
-  // Azul (el acento de marca, 0x0075EE) SOLO cuando la placa esta hablando
-  // con ThingsBoard; en cuanto no hay servidor el indicador se queda
-  // acromatico (negro con transporte, gris sin transporte ni dato fresco).
-  // Antes era verde/naranja: el naranja se leia como aviso cuando "WiFi sin
-  // servidor" no es una alarma, y el verde competia con los verdes de estado
-  // del resto del HMI. Lo unico que hace falta distinguir de un vistazo es
-  // "sube telemetria" / "no sube", y un color unico para el caso bueno lo
-  // dice sin gastar la semantica de alarma.
-  const lv_color_t color = !hasTransport ? lv_color_hex(0x888888)
-                            : onServer   ? lv_color_hex(0x0075EE)
-                                         : lv_color_hex(0x000000);
+  // Verde (0x2E9E4F) SOLO cuando la placa esta hablando con ThingsBoard, y da
+  // igual por que transporte: WIFI_SERVER y GPRS_SERVER pintan los dos verde.
+  // Sin servidor el indicador se queda acromatico — negro sobre fondo claro,
+  // blanco sobre el oscuro del bloqueo — y sin transporte ni dato fresco, un
+  // gris apagado (que en el bloqueo tambien sube a blanco: ahi el gris se
+  // hunde en el fondo).
+  //
+  // Antes el caso bueno era el azul de marca 0x0075EE, y sobre 0x242323 no se
+  // leia: el indicador se ve mucho mas rato bloqueado que desbloqueado, asi
+  // que el color del caso bueno lo manda esa pantalla. El verde es ademas el
+  // mismo 0x2E9E4F que ya usa "MB: ..." en Ajustes/WiFi
+  // (wifi_link_status_update) para decir exactamente esto — hay servidor —,
+  // con lo que las dos lecturas de "sube telemetria" del HMI quedan en el
+  // mismo tono.
+  const lv_color_t achromatic =
+      onDarkBg ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x000000);
+  const lv_color_t color = onServer ? lv_color_hex(0x2E9E4F)
+                            : !hasTransport
+                                ? (onDarkBg ? lv_color_hex(0xFFFFFF)
+                                            : lv_color_hex(0x888888))
+                                : achromatic;
 
   const char *iconTxt;
   switch (status) {
@@ -613,12 +868,20 @@ static void apply_connectivity_indicator(lv_obj_t *icon, lv_obj_t *bars[4],
       continue;
     }
     lv_obj_clear_flag(bars[i], LV_OBJ_FLAG_HIDDEN);
-    // Las barras vacias van en gris CLARO, no oscuro: con el indicador
-    // acromatico (sin servidor) las llenas son negras, y un vacio 0x404040
-    // era casi el mismo tono, con lo que no se distinguia el nivel.
-    lv_obj_set_style_bg_color(
-        bars[i], (i < fillCount) ? color : lv_color_hex(0xDDDDDD),
-        LV_PART_MAIN);
+    // Las llenas SIEMPRE con el color de estado, el mismo que el texto de
+    // arriba (ver la cabecera de la funcion): el indicador se lee de una
+    // pieza, verde entero con ThingsBoard.
+    //
+    // Lo unico que depende del fondo son las vacias. Sobre fondo claro, gris
+    // CLARO y no oscuro: con el indicador acromatico las llenas son negras y
+    // un vacio 0x404040 era casi el mismo tono, con lo que no se distinguia
+    // el nivel. Sobre el fondo del bloqueo, 0x555555, que es el equivalente
+    // de aquel 0xDDDDDD: se adivina el hueco sin leerse como barra llena (el
+    // propio 0xDDDDDD sobre 0x242323 parecia llena, que era el problema).
+    const lv_color_t emptyCol =
+        onDarkBg ? lv_color_hex(0x555555) : lv_color_hex(0xDDDDDD);
+    lv_obj_set_style_bg_color(bars[i], (i < fillCount) ? color : emptyCol,
+                              LV_PART_MAIN);
   }
 }
 
@@ -639,11 +902,273 @@ void connectivity_heading_update(void) {
 
   static int lastSignatureMain = -999;
   apply_connectivity_indicator(ui_ConnIcon, ui_ConnBar, status, linkBars,
-                                &lastSignatureMain);
+                                /*onDarkBg=*/false, &lastSignatureMain);
 
   static int lastSignatureLock = -999;
   apply_connectivity_indicator(ui_LockHeadingConnIcon, ui_LockHeadingConnBar,
-                                status, linkBars, &lastSignatureLock);
+                                status, linkBars, /*onDarkBg=*/true,
+                                &lastSignatureLock);
+}
+
+// Indicador del entorno de la SensorBoard en el heading: puerta ABIERTA, solo
+// en el heading del bloqueo (en Main no hay hueco). Solo informativo.
+//
+// Que se pinta lo decide sbenv_view() (sb_env.cpp, con test de host): nada si el
+// equipo no tiene SensorBoard (nunca llega CTRL,ENV), si el dato esta rancio o
+// si el enlace con la placa esta caido; la puerta solo si esta ABIERTA (cerrada
+// es lo normal, y en fallo lo senaliza ALARM_SENSORBOARD_DOOR_FAULT, no esto).
+// NUNCA se pinta un numero de dB ni de lux: el microfono y el ALS no estan
+// calibrados.
+//
+// Mismo patron que clock_update(): se calcula una firma de lo que hay que
+// pintar y solo se toca LVGL cuando cambia. La firma incluye el idioma, para
+// que el cambio de idioma redibuje los textos.
+static constexpr uint32_t kEnvSigInvalid = 0xFFFFFFFFu;
+static uint32_t s_sbEnvSigLock = kEnvSigInvalid;
+
+// UI_ApplyTheme() barre TODAS las etiquetas con un color unico y se llevaria por
+// delante el amarillo de "atencion": la firma se invalida y la proxima pasada
+// vuelve a pintar (mismo motivo que wifi_link_status_invalidate()).
+static void sb_env_heading_invalidate(void) {
+  s_sbEnvSigLock = kEnvSigInvalid;
+}
+
+static void apply_heading_env(const ui_HeadingEnv_t *w, const SbEnvView &v,
+                              uint32_t *lastSig) {
+  if (!w->cont) return;
+
+  // El ruido ya no se pinta (2026-10-27): lo vigila la alarma BAJA
+  // ALARM_NOISE_HIGH de la motherBoard, y un indicador permanente de
+  // Bajo/Medio/Alto era informacion que nadie tenia que mirar.
+  const bool showDoor = v.doorOpen;
+
+  const uint32_t sig = (showDoor ? 1u : 0u) | (((uint32_t)g_lang & 0xFu) << 4);
+  if (sig == *lastSig) return;
+  *lastSig = sig;
+
+  if (!showDoor) {
+    lv_obj_add_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_obj_clear_flag(w->cont, LV_OBJ_FLAG_HIDDEN);
+
+  // Amarillo = merece atencion, sobre el fondo oscuro del bloqueo. El texto
+  // lleva siempre la palabra: el color solo no basta. El icono es blanco +
+  // alfa y se tine con img_recolor.
+  static const lv_color_t ALERT = lv_color_hex(0xFFD400);
+  lv_label_set_text(w->doorText, TR(STR_ENV_DOOR_OPEN));
+  lv_obj_set_style_text_color(w->doorText, ALERT, LV_PART_MAIN);
+  lv_obj_set_style_img_recolor(w->doorIcon, ALERT, LV_PART_MAIN);
+}
+
+static void sb_env_heading_update(void) {
+  const SbEnvView v = Display_GetSbEnvView();
+  apply_heading_env(&ui_HeadingEnvLock, v, &s_sbEnvSigLock);
+}
+
+// Algun dialogo abierto sobre ui_ScreenMain. Todos tapan el heading: lo que se
+// pinta en su franja (chip de enlace perdido, indicador de bateria) se oculta
+// mientras tanto, o flotaria encima del dialogo.
+static bool main_heading_covered(void) {
+  return AlarmCenter_IsOpen() || FactoryTest_IsOpen() ||
+         TelemetryHistory_IsOpen() || BabyHistory_IsOpen() ||
+         BabyExitDialog_IsOpen() || TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
+         MenuDialog_IsOpen() || Training_IsOpen() || TrainingSelector_IsOpen() ||
+         MaintenanceDialog_IsOpen() || BabyWizard_IsOpen();
+}
+
+// Indicador de bateria: pila de 4 rayas en el slot 0 del heading de Main y
+// del bloqueo.
+//
+// Cuelga de lv_layer_top() y se crea DESPUES del banner de alarma, asi que se
+// pinta encima de el: con un corte de red el banner ocupa la franja del
+// heading justo cuando la bateria mas importa. Sin fondo propio: solo el
+// dibujo, en el color que se lee sobre lo que tiene debajo (el del texto del
+// banner si esta visible, el del texto del heading si no). No recibe toques:
+// el toque pasa al banner de debajo.
+//
+// Fuente: CTRL,BATT (Display_GetBattView). Sin esa linea (MB antigua) pero con
+// el bit de ALARM_MAINS_INTERRUPTION, se pinta la pila vacia en ambar: se sabe
+// que va a bateria, no cuanta le queda. Solo en Main y en el bloqueo, y no con
+// un dialogo encima.
+//
+//   descarga: rayas del color de primer plano; sin banner, 1 raya en ambar y
+//             0 en rojo (contorno incluido). Sobre el banner todo va en su
+//             color de texto: el ambar y el rojo se perderian en su fondo.
+//   cargando: rayo, rayas fijas por cada cuarto ya cargado y la siguiente
+//             parpadeando (el nivel lo integra la MB con la corriente de carga).
+//   lleno:    rayo y las 4 rayas.
+//
+// Corre en cada pasada del bucle de UI, dentro del bloqueo de LVGL, y solo
+// toca widgets cuando cambia la firma de lo que hay que pintar.
+#define BATT_IND_X 14
+#define BATT_IND_Y 7
+#define BATT_IND_W 64
+#define BATT_IND_H 40
+#define BATT_BODY_W 38
+#define BATT_BODY_H 20
+#define BATT_CHARGE_BLINK_MS 600u
+
+static lv_obj_t *s_battInd = NULL;
+static lv_obj_t *s_battBody = NULL;
+static lv_obj_t *s_battTip = NULL;
+static lv_obj_t *s_battBar[PROTO_BATT_LEVEL_MAX] = {NULL, NULL, NULL, NULL};
+static lv_obj_t *s_battBolt = NULL;
+static int32_t s_battSig = -1;
+
+static bool alarm_banner_text_color(lv_color_t *out);
+
+void battery_indicator_init(void) {
+  // Apagado con PROTO_BATT_ENABLED = 0 (ver protocol.h). Sin crear el objeto,
+  // _update() y _raise() no hacen nada; tampoco sale la pila ambar de reserva
+  // con la alarma de red, que en un equipo con adaptador de 12 V en los
+  // bornes de la bateria seria falsa.
+  if (!PROTO_BATT_ENABLED) return;
+  s_battInd = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(s_battInd);
+  lv_obj_set_size(s_battInd, BATT_IND_W, BATT_IND_H);
+  lv_obj_set_pos(s_battInd, BATT_IND_X, BATT_IND_Y);
+  lv_obj_clear_flag(s_battInd, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_battInd, LV_OBJ_FLAG_HIDDEN);
+
+  s_battBody = lv_obj_create(s_battInd);
+  lv_obj_remove_style_all(s_battBody);
+  lv_obj_set_size(s_battBody, BATT_BODY_W, BATT_BODY_H);
+  lv_obj_align(s_battBody, LV_ALIGN_LEFT_MID, 5, 0);
+  lv_obj_set_style_radius(s_battBody, 3, LV_PART_MAIN);
+  lv_obj_set_style_border_width(s_battBody, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(s_battBody, lv_color_hex(0xFFFFFF),
+                                LV_PART_MAIN);
+  lv_obj_clear_flag(s_battBody, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  s_battTip = lv_obj_create(s_battInd);
+  lv_obj_remove_style_all(s_battTip);
+  lv_obj_set_size(s_battTip, 3, 8);
+  lv_obj_align(s_battTip, LV_ALIGN_LEFT_MID, 5 + BATT_BODY_W, 0);
+  lv_obj_set_style_bg_color(s_battTip, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_battTip, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(s_battTip, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  // 4 rayas de 6x12 con 2 px de hueco dentro del cuerpo (borde de 2 + 2 de
+  // aire): 4 + 4*6 + 3*2 = 34 = 38 - 4.
+  for (int i = 0; i < PROTO_BATT_LEVEL_MAX; i++) {
+    lv_obj_t *bar = lv_obj_create(s_battBody);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_size(bar, 6, 12);
+    lv_obj_align(bar, LV_ALIGN_LEFT_MID, 2 + i * 8, 0);
+    lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    s_battBar[i] = bar;
+  }
+
+  s_battBolt = lv_label_create(s_battInd);
+  lv_label_set_text(s_battBolt, LV_SYMBOL_CHARGE);
+  lv_obj_set_style_text_font(s_battBolt, &lv_font_montserrat_16, LV_PART_MAIN);
+  lv_obj_align(s_battBolt, LV_ALIGN_RIGHT_MID, -4, 0);
+  lv_obj_add_flag(s_battBolt, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Lo llaman quienes suben el banner al frente: la bateria va siempre encima.
+// Solo si esta visible (subir un objeto oculto no hace falta e invalida).
+static void battery_indicator_raise(void) {
+  if (s_battInd && !lv_obj_has_flag(s_battInd, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_battInd);
+  }
+}
+
+static void battery_indicator_paint(lv_color_t frame, int bars,
+                                    lv_color_t barColor, bool bolt) {
+  lv_obj_set_style_border_color(s_battBody, frame, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_battTip, frame, LV_PART_MAIN);
+  for (int i = 0; i < PROTO_BATT_LEVEL_MAX; i++) {
+    lv_obj_set_style_bg_color(s_battBar[i], barColor, LV_PART_MAIN);
+    if (i < bars) {
+      lv_obj_clear_flag(s_battBar[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(s_battBar[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  if (bolt) {
+    lv_obj_set_style_text_color(s_battBolt, frame, LV_PART_MAIN);
+    lv_obj_clear_flag(s_battBolt, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(s_battBolt, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void battery_indicator_update(void) {
+  if (!s_battInd) return;
+
+  const lv_obj_t *scr = lv_scr_act();
+  const bool onHeadingScreen = (scr == ui_ScreenMain || scr == ui_ScreenLock);
+  const bool covered = (scr == ui_ScreenMain) && main_heading_covered();
+
+  BattRepView v = Display_GetBattView();
+  const uint32_t mask = ctrl_state_msg.alarmBitmask;
+  const bool mainsAlarm = !Display_IsBoardLinkLost() && mask != (uint32_t)-1 &&
+                          ((mask >> ALARM_MAINS_INTERRUPTION) & 1u) != 0;
+  // MB sin CTRL,BATT: a bateria, nivel desconocido.
+  const bool unknownDischarge = (v.show == BATTREP_SHOW_NONE) && mainsAlarm;
+
+  // Primer plano: el del texto del banner si esta visible (lo deja
+  // alarm_banner_update(), que corre antes en la misma pasada); si no, el del
+  // texto del heading: el bloqueo es siempre oscuro y Main sigue al tema.
+  lv_color_t fg;
+  const bool onBanner = alarm_banner_text_color(&fg);
+  if (!onBanner) {
+    fg = (scr == ui_ScreenLock || darkMode) ? lv_color_hex(0xFFFFFF)
+                                            : lv_color_hex(0x000000);
+  }
+
+  // Firma: visible, modo, nivel, color de primer plano y, cargando, la fase
+  // del parpadeo de la raya que se esta llenando.
+  int32_t sig = 0;
+  int32_t blinkOn = 0;
+  if (onHeadingScreen && !covered &&
+      (v.show != BATTREP_SHOW_NONE || unknownDischarge)) {
+    const int32_t mode = unknownDischarge ? 9 : (int32_t)v.show;
+    if (v.show == BATTREP_SHOW_CHARGING) {
+      blinkOn = (int32_t)((millis() / BATT_CHARGE_BLINK_MS) & 1u);
+    }
+    sig = 1 + mode * 32 + v.level * 2 + blinkOn +
+          ((int32_t)lv_color_to16(fg) << 9) + (onBanner ? (1 << 25) : 0);
+  }
+  if (sig == s_battSig) return;
+  const bool wasHidden = (s_battSig <= 0);
+  s_battSig = sig;
+
+  if (sig == 0) {
+    lv_obj_add_flag(s_battInd, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  // Ambar algo mas oscuro que el del banner: sobre el heading blanco el claro
+  // apenas se ve.
+  const lv_color_t AMBER = onBanner ? fg : lv_color_hex(0xE69500);
+  const lv_color_t RED = onBanner ? fg : lv_color_hex(0xE53935);
+  if (unknownDischarge) {
+    battery_indicator_paint(AMBER, 0, AMBER, false);
+  } else if (v.show == BATTREP_SHOW_DISCHARGING) {
+    if (v.level <= 0) {
+      battery_indicator_paint(RED, 0, RED, false);
+    } else if (v.level == 1) {
+      battery_indicator_paint(fg, 1, AMBER, false);
+    } else {
+      battery_indicator_paint(fg, v.level, fg, false);
+    }
+  } else if (v.show == BATTREP_SHOW_CHARGING) {
+    // Rayas fijas = cuartos ya cargados; la siguiente aparece y desaparece.
+    battery_indicator_paint(fg, v.level + blinkOn, fg, true);
+  } else {
+    battery_indicator_paint(fg, PROTO_BATT_LEVEL_MAX, fg, true);
+  }
+
+  if (wasHidden) {
+    lv_obj_clear_flag(s_battInd, LV_OBJ_FLAG_HIDDEN);
+    // Por encima del banner aunque algo lo haya subido despues de crearse.
+    lv_obj_move_foreground(s_battInd);
+  }
 }
 
 void link_lost_blank_update(void) {
@@ -690,22 +1215,22 @@ void update_labels() {
   if (abs(airTempValue - l_airDesired) > TEMP_LABEL_UPDATE_THRESHOLD) {
     l_airDesired = airTempValue;
     snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValue);
-    lv_label_set_text(ui_TempAirDesired, buffer);
-    lv_label_set_text(ui_TargetAirTempNumLabel, buffer);
+    ui_set_label_text(ui_TempAirDesired, buffer);
+    ui_set_label_text(ui_TargetAirTempNumLabel, buffer);
   }
 
   if (abs(skinTempValue - l_skinDesired) > TEMP_LABEL_UPDATE_THRESHOLD) {
     l_skinDesired = skinTempValue;
     snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValue);
-    lv_label_set_text(ui_TempSkinDesired, buffer);
-    lv_label_set_text(ui_TargetSkinTempNumLabel, buffer);
+    ui_set_label_text(ui_TempSkinDesired, buffer);
+    ui_set_label_text(ui_TargetSkinTempNumLabel, buffer);
   }
 
   if (humValue != l_humDesired) {
     l_humDesired = humValue;
     snprintf(buffer, sizeof(buffer), "%d%%", humValue);
-    lv_label_set_text(ui_HumDesired, buffer);
-    lv_label_set_text(ui_Label24, buffer);
+    ui_set_label_text(ui_HumDesired, buffer);
+    ui_set_label_text(ui_Label24, buffer);
   }
 
   // Con el enlace caido NO se pintan medidas, y la guarda va AQUI DENTRO.
@@ -741,16 +1266,16 @@ void update_labels() {
     if (abs(airTempValueDetected - l_airDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
       l_airDet = airTempValueDetected;
       snprintf(buffer, sizeof(buffer), "%.1f°C", airTempValueDetected);
-      lv_label_set_text(ui_TempAirDetected, buffer);
-      lv_label_set_text(ui_TempAirDetectedRight, buffer);
-      lv_label_set_text(ui_Label18, buffer);
+      ui_set_label_text(ui_TempAirDetected, buffer);
+      ui_set_label_text(ui_TempAirDetectedRight, buffer);
+      ui_set_label_text(ui_Label18, buffer);
     }
   } else if (!airDead) {
     airDead = true;
     l_airDet = -1.0;  // fuerza repintado cuando el sensor vuelva
-    lv_label_set_text(ui_TempAirDetected, NO_DATA);
-    lv_label_set_text(ui_TempAirDetectedRight, NO_DATA);
-    lv_label_set_text(ui_Label18, NO_DATA);
+    ui_set_label_text(ui_TempAirDetected, NO_DATA);
+    ui_set_label_text(ui_TempAirDetectedRight, NO_DATA);
+    ui_set_label_text(ui_Label18, NO_DATA);
   }
 
   if (skinOk) {
@@ -758,16 +1283,16 @@ void update_labels() {
     if (abs(skinTempValueDetected - l_skinDet) > TEMP_LABEL_UPDATE_THRESHOLD) {
       l_skinDet = skinTempValueDetected;
       snprintf(buffer, sizeof(buffer), "%.1f°C", skinTempValueDetected);
-      lv_label_set_text(ui_TempSkinDetected, buffer);
-      lv_label_set_text(ui_TempSkinDetectedRight, buffer);
-      lv_label_set_text(ui_Label14, buffer);
+      ui_set_label_text(ui_TempSkinDetected, buffer);
+      ui_set_label_text(ui_TempSkinDetectedRight, buffer);
+      ui_set_label_text(ui_Label14, buffer);
     }
   } else if (!skinDead) {
     skinDead = true;
     l_skinDet = -1.0;
-    lv_label_set_text(ui_TempSkinDetected, NO_DATA);
-    lv_label_set_text(ui_TempSkinDetectedRight, NO_DATA);
-    lv_label_set_text(ui_Label14, NO_DATA);
+    ui_set_label_text(ui_TempSkinDetected, NO_DATA);
+    ui_set_label_text(ui_TempSkinDetectedRight, NO_DATA);
+    ui_set_label_text(ui_Label14, NO_DATA);
   }
 
   if (humOk) {
@@ -775,16 +1300,16 @@ void update_labels() {
     if (humValueDetected != l_humDet) {
       l_humDet = humValueDetected;
       snprintf(buffer, sizeof(buffer), "%d%%", humValueDetected);
-      lv_label_set_text(ui_HumDetected, buffer);
-      lv_label_set_text(ui_HumDetectedRight, buffer);
-      lv_label_set_text(ui_Label20, buffer);
+      ui_set_label_text(ui_HumDetected, buffer);
+      ui_set_label_text(ui_HumDetectedRight, buffer);
+      ui_set_label_text(ui_Label20, buffer);
     }
   } else if (!humDead) {
     humDead = true;
     l_humDet = -1;
-    lv_label_set_text(ui_HumDetected, NO_DATA);
-    lv_label_set_text(ui_HumDetectedRight, NO_DATA);
-    lv_label_set_text(ui_Label20, NO_DATA);
+    ui_set_label_text(ui_HumDetected, NO_DATA);
+    ui_set_label_text(ui_HumDetectedRight, NO_DATA);
+    ui_set_label_text(ui_Label20, NO_DATA);
   }
 
   int airBar =
@@ -815,7 +1340,7 @@ void update_labels() {
     snprintf(buf, sizeof(buf), "%d:%02d",
              photoTimerMinutes / SECONDS_PER_MINUTE,
              photoTimerMinutes % SECONDS_PER_MINUTE);
-    lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+    ui_set_label_text(ui_PhotoTimeValueLabel, buf);
   }
 
   // Derive skin probe presence from detected temperature and update switch
@@ -834,13 +1359,13 @@ void update_labels() {
         lv_obj_clear_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
       const char *text = TR(STR_SKIN_MODE);
       if (ui_SkinOptionLabel)
-        lv_label_set_text(ui_SkinOptionLabel, text);
+        ui_set_label_text(ui_SkinOptionLabel, text);
     } else {
       if (ui_Switch4)
         lv_obj_add_flag(ui_Switch4, LV_OBJ_FLAG_HIDDEN);
       const char *text = TR(STR_NO_SKIN_PROBE);
       if (ui_SkinOptionLabel)
-        lv_label_set_text(ui_SkinOptionLabel, text);
+        ui_set_label_text(ui_SkinOptionLabel, text);
       if (skinPanelEnabled) {
         skin_mode_force_off();
       } else if (ui_SkinPanelCont) {
@@ -927,20 +1452,20 @@ static void update_main_toggle_buttons() {
   lv_color_t red  = lv_color_hex(0xFF4040);
   lv_obj_t  *lbl;
 
-  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
+  ui_set_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  ui_set_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, t ? "TURN OFF" : "TURN ON");
+  if (lbl) ui_set_label_text(lbl, t ? "TURN OFF" : "TURN ON");
 
-  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
+  ui_set_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  ui_set_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, h ? "TURN OFF" : "TURN ON");
+  if (lbl) ui_set_label_text(lbl, h ? "TURN OFF" : "TURN ON");
 
-  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
+  ui_set_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
+  ui_set_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
-  if (lbl) lv_label_set_text(lbl, p ? "TURN OFF" : "TURN ON");
+  if (lbl) ui_set_label_text(lbl, p ? "TURN OFF" : "TURN ON");
 }
 
 void UI_ApplyLanguage(ui_lang_t lang) {
@@ -983,6 +1508,8 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_ModesLabel, L(STR_MODES));
   lv_label_set_text(ui_ModesTitleLabel, L(STR_MODES));
   if (ui_HwTestLabel) lv_label_set_text(ui_HwTestLabel, L(STR_HW_TEST));
+  if (ui_IntroHwTestLabel)
+    lv_label_set_text(ui_IntroHwTestLabel, L(STR_HW_TEST));
   if (ui_HwTestSubLabel)
     lv_label_set_text(ui_HwTestSubLabel, L(STR_HW_TEST_SUB));
   lv_label_set_text(ui_HumidityModeLabel, L(STR_HUMIDITY_CONTROL));
@@ -1012,9 +1539,16 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_MaintLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintTitleLabel, L(STR_MAINT_UC));
   lv_label_set_text(ui_MaintEnableLabel, L(STR_MAINT_REMINDER));
+  lv_label_set_text(ui_WeighEnableLabel, L(STR_WEIGH_SETTING));
   lv_label_set_text(ui_MaintOpenLabel, L(STR_MAINT_OPEN_UC));
   lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
   ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
+  ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
+  lv_label_set_text(ui_MaintSvcLabel, L(STR_SVC_SWITCH));
+  lv_label_set_text(ui_MaintOpenLabel, L(STR_MAINT_OPEN_UC));
+  lv_label_set_text(ui_MaintHintLabel, L(STR_MAINT_SETTINGS_HINT));
+  ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
+  ui_set_switch_state_silent(ui_MaintSvcSwitch, ServiceState_IsEnabled());
 
   // lv_btnmatrix NO copia el mapa: se queda con el puntero. Por eso el array
   // es `static` y las cadenas vienen del catalogo, que es memoria estatica.
@@ -1055,14 +1589,6 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   // Phototherapy Timer
   if (ui_PhotoLockLabel)
     lv_label_set_text(ui_PhotoLockLabel, L(STR_PHOTO_LOCK));
-
-  // Boton de tendencia de telemetria (pantalla de bloqueo)
-  if (ui_ChartLockLabel)
-    lv_label_set_text(ui_ChartLockLabel, L(STR_TREND_UC));
-
-  // Babies history button (baby-history-viewer)
-  if (ui_BabiesButtonLabel)
-    lv_label_set_text(ui_BabiesButtonLabel, L(STR_BABIES));
 
   photo_safety_apply_language(lang);
   TelemetryHistory_ApplyLanguage();
@@ -1116,8 +1642,8 @@ lv_chart_series_t *configure_temp_chart(lv_obj_t *chart, lv_palette_t pal,
 
 void temp_chart_show_for_selected_panel(void) {
   if (!tempSwitched) {
-    lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_AirTempChartCont, true);
+    ui_set_hidden(ui_SkinTempChartCont, true);
     return;
   }
   if (selectedPanel != AIR_PANEL_SELECTED &&
@@ -1126,13 +1652,11 @@ void temp_chart_show_for_selected_panel(void) {
     lastSelectedPanel = selectedPanel;
     hmi_msg.controlMode = CONTROL_AIR;
   }
-  lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
-  if (selectedPanel == AIR_PANEL_SELECTED) {
-    lv_obj_clear_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_clear_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
-  }
+  // Sin ocultar-y-mostrar: corre cada segundo desde UI_SyncAll() y eso
+  // repintaba la grafica entera cada vez.
+  const bool air = (selectedPanel == AIR_PANEL_SELECTED);
+  ui_set_hidden(ui_AirTempChartCont, !air);
+  ui_set_hidden(ui_SkinTempChartCont, air);
 }
 
 void chart_add_air_temp(float v) {
@@ -1152,10 +1676,10 @@ void set_active_panel(lv_obj_t *active, lv_obj_t *inactive) {
   lv_color_t active_col = darkMode ? COLOR_PANEL_GRAY : COLOR_PANEL_WHITE;
   lv_color_t inactive_col = darkMode ? COLOR_PANEL_DARK : COLOR_PANEL_GRAY;
 
-  lv_obj_set_style_bg_color(active, active_col, LV_PART_MAIN);
-  lv_obj_set_style_opa(active, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(inactive, inactive_col, LV_PART_MAIN);
-  lv_obj_set_style_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
+  ui_set_bg_color(active, active_col, LV_PART_MAIN);
+  ui_set_opa(active, LV_OPA_COVER, LV_PART_MAIN);
+  ui_set_bg_color(inactive, inactive_col, LV_PART_MAIN);
+  ui_set_opa(inactive, LV_OPA_COVER, LV_PART_MAIN);
 }
 
 void updateButtonVisibility() {
@@ -1287,6 +1811,12 @@ static void maintenance_panel_refresh(void) {
   if (ui_MaintEnableSwitch) {
     ui_set_switch_state_silent(ui_MaintEnableSwitch, Maintenance_IsEnabled());
   }
+  if (ui_WeighEnableSwitch) {
+    ui_set_switch_state_silent(ui_WeighEnableSwitch, WeighTracker_IsEnabled());
+  }
+  if (ui_MaintSvcSwitch) {
+    ui_set_switch_state_silent(ui_MaintSvcSwitch, ServiceState_IsEnabled());
+  }
   for (int i = 0; i < MNT_LEVEL_COUNT; i++) {
     if (!ui_MaintLevelLabel[i]) continue;
     char last[64];
@@ -1320,6 +1850,34 @@ void MaintEnableSwitch_cb(lv_event_t *e) {
                                           LV_STATE_CHECKED));
 }
 
+// Interruptor del aviso de pesada diaria. Persiste en NVS (`wgh_en`, via
+// WeighTracker_Flush() fuera del lock), asi que en formacion se rechaza como
+// cualquier otro ajuste que escriba NVS (ADR-0002) y el interruptor vuelve a
+// su posicion real.
+void WeighEnableSwitch_cb(lv_event_t *e) {
+  lv_obj_t *sw = lv_event_get_target(e);
+  if (Training_IsActive()) {
+    ui_set_switch_state_silent(sw, WeighTracker_IsEnabled());
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  WeighTracker_SetEnabled(lv_obj_has_state(sw, LV_STATE_CHECKED));
+}
+
+// Interruptor propio del aviso de servicio por horas. Escribe NVS, asi que en
+// formacion se rechaza (ADR-0002) y se devuelve el interruptor a su sitio.
+void MaintSvcSwitch_cb(lv_event_t *e) {
+  lv_obj_t *sw = lv_event_get_target(e);
+  if (Training_IsActive()) {
+    ui_set_switch_state_silent(sw, ServiceState_IsEnabled());
+    UI_ShowToast(TR(STR_NOT_IN_TRAINING), 2500);
+    return;
+  }
+  ServiceSettings_SetEnabled(lv_obj_has_state(sw, LV_STATE_CHECKED));
+  // Si la escritura en NVS fallo el valor no cambia: que el interruptor lo diga.
+  ui_set_switch_state_silent(sw, ServiceState_IsEnabled());
+}
+
 // Abrir el recordatorio sin esperar a que toque: es la via para registrar una
 // limpieza hecha por iniciativa propia. Los tres botones HECHO viven en el
 // pop-up, no aqui, para no tener dos sitios donde registrar lo mismo.
@@ -1327,21 +1885,6 @@ void MaintOpenButton_cb(lv_event_t *e) {
   (void)e;
   MaintenanceDialog_Open();
 }
-
-// Disparado al tocar la hora de cabecera (ui_ClockButton, ui_ScreenMain), no
-// desde Settings: el reloj vive ahi, asi que no hace falta ocultar ningun
-// panel de la pantalla de ajustes (son pantallas distintas, LVGL no las
-// muestra a la vez).
-//
-// Todo el dialogo vive en TimeDialog.cpp: es un pop-up modal con teclado
-// numerico y la mascara en blanco, no los 5 spinboxes prefijados que habia
-// aqui antes.
-void ClockButton_cb(lv_event_t *e) { TimeDialog_Open(); }
-
-// Boton "?" del heading (ui_HelpButton). Todo el menu vive en HelpDialog.cpp
-// (spec hmi-help-center): tutorial guiado, QR del video tutorial y contacto
-// con soporte.
-void HelpButton_cb(lv_event_t *e) { HelpDialog_Open(); }
 
 void LanguageButton_cb(lv_event_t *e) {
   lv_obj_add_flag(ui_WifiConfigCont, LV_OBJ_FLAG_HIDDEN);
@@ -1511,15 +2054,15 @@ void temp_content_set_visible(bool visible) {
       ui_ArrowUpTemp,   ui_ImgArrowDownTemp, ui_ImgArrowUpTemp,
       ui_Label6,        ui_TempButton
   };
+  // ui_set_hidden(): lo llama Display_ApplyCtrlState() con cada CTRL,STATE
+  // (1 Hz), y reafirmar el panel visible lo repintaba entero cada segundo
+  // (55-110 ms de bucle de UI bloqueado, medido en banco).
   for (auto w : widgets) {
     if (!w) continue;
-    if (visible) lv_obj_clear_flag(w, LV_OBJ_FLAG_HIDDEN);
-    else         lv_obj_add_flag(w, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(w, !visible);
   }
   if (ui_SkinPanelCont) {
-    bool showSkin = visible && skinPanelEnabled;
-    if (showSkin) lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
-    else          lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_SkinPanelCont, !(visible && skinPanelEnabled));
   }
 }
 
@@ -1587,6 +2130,15 @@ bool UI_IsAnyAlarmActive() {
     if (alarmList[i].state) return true;
   }
   return false;
+}
+
+uint32_t UI_ActiveAlarmMask() {
+  static_assert(MAX_ALARMS <= 32, "la mascara de alarmas es de 32 bits");
+  uint32_t mask = 0;
+  for (int i = 0; i < MAX_ALARMS; i++) {
+    if (alarmList[i].state) mask |= (1u << i);
+  }
+  return mask;
 }
 
 // "Is the incubator doing something to a baby right now?" — the single
@@ -2217,6 +2769,9 @@ void blink_cb(void *obj, int32_t v) {
 }
 
 void start_alarm_blink(lv_obj_t *obj) {
+  // update_alarm_panels() la llama con cada CTRL,ALM: si ya parpadea, no se
+  // reinicia (lv_anim_start() borraria la animacion y la arrancaria de cero).
+  if (lv_anim_get(obj, blink_cb)) return;
   lv_anim_t a;
   lv_anim_init(&a);
   lv_anim_set_var(&a, obj);
@@ -2254,6 +2809,18 @@ static lv_obj_t *s_alarmBannerLabel = NULL;
 static int s_bannerPriority = -1;  // -1 = ninguna, para no reiniciar la anim
 static lv_color_t s_bannerHi;      // color pleno de la prioridad
 static lv_color_t s_bannerLo;      // el mismo, oscurecido
+static lv_color_t s_bannerFg;  // el de su etiqueta, segun prioridad
+
+// Color del texto del banner si esta visible; false si no. Lo usa el
+// indicador de bateria, que se pinta encima.
+static bool alarm_banner_text_color(lv_color_t *out) {
+  if (!s_alarmBanner || lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN) ||
+      s_bannerPriority < 0) {
+    return false;
+  }
+  *out = s_bannerFg;
+  return true;
+}
 
 #define BANNER_HEIGHT_PX 52
 // Medio periodo: 250 ms -> 2,0 Hz (ALTA), 750 ms -> 0,66 Hz (MEDIA). Ambos
@@ -2274,10 +2841,15 @@ static void AlarmBanner_cb(lv_event_t *e) {
   AlarmCenter_Open();
 }
 
+// Encendido/apagado, no fundido. Con fundido cada refresco pedia un color
+// intermedio y repintaba la franja entera (>40 ms cada vez en este panel): con
+// una alarma en el bloqueo el bucle de UI no hacia otra cosa, y silenciarla
+// iba a tirones. Asi son dos repintados por ciclo, con el mismo periodo y un
+// ciclo de trabajo del 50 % (Tabla 2 pide 20-60 %). ui_set_bg_color() no toca
+// LVGL si el color no cambia.
 static void banner_blink_cb(void *obj, int32_t v) {
-  lv_obj_set_style_bg_color((lv_obj_t *)obj,
-                            lv_color_mix(s_bannerHi, s_bannerLo, (uint8_t)v),
-                            LV_PART_MAIN);
+  ui_set_bg_color((lv_obj_t *)obj, v >= 128 ? s_bannerHi : s_bannerLo,
+                  LV_PART_MAIN);
 }
 
 void alarm_banner_init(void) {
@@ -2311,6 +2883,112 @@ void alarm_banner_init(void) {
                              LV_PART_MAIN);
 }
 
+// Chip de "sin enlace" en el heading de ui_ScreenMain.
+//
+// Con el enlace caido el banner se pintaba tambien fuera del bloqueo, y en
+// ui_ScreenMain tapaba el heading entero justo al desbloquear: reloj,
+// conectividad, bebe y menu. En esa pantalla el aviso va aqui, encima del
+// bebe al mando y del boton de alarmas, sin tapar el menu.
+//
+// Tapa a proposito el boton y el contador de alarmas: con la placa callada
+// ese contador es informacion vieja, igual que las medidas (que ya salen como
+// "--"). Pulsarlo hace lo mismo que el banner y que ese boton: abre el centro
+// de alarmas.
+//
+// Mismos colores y el mismo parpadeo que el banner a prioridad MEDIA, que es
+// la que lleva la condicion (ver alarm_banner_update()): una sola senal para
+// el operador, cambie la pantalla o no.
+//
+// Cuelga de ui_ScreenMain y no de lv_layer_top(): asi solo existe donde esta
+// el heading y el centro de alarmas, que es un overlay, lo tapa sin mas.
+static lv_obj_t *s_linkLostChip = NULL;
+static lv_obj_t *s_linkLostChipLabel = NULL;
+static const char *s_linkLostChipText = NULL;  // puntero de TR(); cambia con g_lang
+
+// De x=+108 a x=+320 desde el centro: tapa el final del bebe al mando
+// (+69..+239), el boton de alarmas (+252..+308) y su distintivo (hasta +316);
+// el menu empieza en +328.
+#define LINK_LOST_CHIP_W 212
+#define LINK_LOST_CHIP_H 44
+#define LINK_LOST_CHIP_X 214
+
+// Encendido/apagado por lo mismo que banner_blink_cb().
+static void link_lost_chip_blink_cb(void *obj, int32_t v) {
+  ui_set_bg_color((lv_obj_t *)obj,
+                  v >= 128 ? lv_color_hex(0xFFB436) : lv_color_hex(0x6A4810),
+                  LV_PART_MAIN);
+}
+
+static void link_lost_chip_init(void) {
+  if (!ui_ScreenMain) {
+    return;
+  }
+  s_linkLostChip = lv_obj_create(ui_ScreenMain);
+  lv_obj_remove_style_all(s_linkLostChip);
+  lv_obj_set_size(s_linkLostChip, LINK_LOST_CHIP_W, LINK_LOST_CHIP_H);
+  lv_obj_set_x(s_linkLostChip, LINK_LOST_CHIP_X);
+  lv_obj_set_y(s_linkLostChip, -212);  // la fila del heading
+  lv_obj_set_align(s_linkLostChip, LV_ALIGN_CENTER);
+  lv_obj_set_style_radius(s_linkLostChip, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_linkLostChip, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_linkLostChip, lv_color_hex(0xFFB436),
+                            LV_PART_MAIN);
+  lv_obj_clear_flag(s_linkLostChip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_linkLostChip, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_linkLostChip, AlarmBanner_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+
+  s_linkLostChipLabel = lv_label_create(s_linkLostChip);
+  lv_obj_set_align(s_linkLostChipLabel, LV_ALIGN_CENTER);
+  lv_label_set_long_mode(s_linkLostChipLabel, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(s_linkLostChipLabel, LINK_LOST_CHIP_W - 10);
+  lv_obj_set_style_text_align(s_linkLostChipLabel, LV_TEXT_ALIGN_CENTER,
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(s_linkLostChipLabel, &lv_font_montserrat_20,
+                             LV_PART_MAIN);
+  lv_obj_set_style_text_color(s_linkLostChipLabel, lv_color_hex(0x1A1208),
+                              LV_PART_MAIN);
+}
+
+// Corre en cada pasada desde alarm_banner_update(): solo toca LVGL cuando
+// cambia la visibilidad o el idioma, por lo mismo que el banner.
+static void link_lost_chip_set(bool show) {
+  if (!s_linkLostChip) {
+    return;
+  }
+  const bool shown = !lv_obj_has_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+  if (!show) {
+    if (shown) {
+      lv_anim_del(s_linkLostChip, link_lost_chip_blink_cb);
+      lv_obj_add_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+
+  const char *want = TR(STR_LINK_LOST_SHORT);
+  if (want != s_linkLostChipText) {
+    s_linkLostChipText = want;
+    lv_label_set_text(s_linkLostChipLabel, want);
+  }
+  if (shown) {
+    return;
+  }
+  lv_obj_clear_flag(s_linkLostChip, LV_OBJ_FLAG_HIDDEN);
+  // Por encima de ui_AlarmButton, ui_Panel10 y ui_NumAlarm, que comparten
+  // pantalla con el chip y estan en su mismo hueco.
+  lv_obj_move_foreground(s_linkLostChip);
+
+  lv_anim_t a;
+  lv_anim_init(&a);
+  lv_anim_set_var(&a, s_linkLostChip);
+  lv_anim_set_values(&a, 255, 0);
+  lv_anim_set_time(&a, BANNER_HALF_PERIOD_MS_MEDIUM);
+  lv_anim_set_playback_time(&a, BANNER_HALF_PERIOD_MS_MEDIUM);
+  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+  lv_anim_set_exec_cb(&a, link_lost_chip_blink_cb);
+  lv_anim_start(&a);
+}
+
 // --- Chasquido de confirmacion al pulsar ---------------------------------
 //
 // Se engancha al feedback_cb del driver de entrada de LVGL, que es el punto
@@ -2321,13 +2999,13 @@ void alarm_banner_init(void) {
 //
 // NO BLOQUEANTE a proposito. hmi_audio_module_beep() existe pero hace
 // delay(): llamarlo desde aqui congelaria el despacho de eventos de LVGL
-// durante todo el pitido. Aqui se enciende y se apaga desde el bucle de UI.
+// durante todo el pitido. Aqui se enciende, y lo apaga una tarea aparte
+// (click_beep_off_task).
 // 12 ms: un tic seco. Estuvo en 25 y el chasquido competia en protagonismo con
 // las senales de alarma, que es justo al reves de lo que debe ser — y en este
 // equipo, ademas, el zumbador del display se oye MAS que el de la placa (ver
 // docs/alarms.md §9: pendiente de medida acustica).
 #define CLICK_BEEP_MS 12u
-static uint32_t s_clickBeepUntilMs = 0;
 
 // --- Senal acustica del enlace perdido -----------------------------------
 //
@@ -2459,25 +3137,41 @@ static void link_audio_service(void) {
   }
 }
 
+// El apagado va en una tarea propia y no en el bucle de UI: el toque suele
+// disparar un repintado grande (cambio de pantalla, dialogo) y el bucle no
+// vuelve hasta que termina. Apagado desde ahi, el chasquido de 12 ms duraba
+// lo que el repintado: medido en banco entre 40 y 490 ms. Wire es seguro
+// entre tareas (Arduino-ESP32 3.x lo protege con su mutex; AudioManager ya
+// lo usa desde otra tarea).
+static TaskHandle_t s_clickBeepTask = NULL;
+
+static void click_beep_off_task(void *) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    vTaskDelay(pdMS_TO_TICKS(CLICK_BEEP_MS));
+    // Si la rafaga ha arrancado durante estos 12 ms, el zumbador ya no es
+    // nuestro: apagarlo aqui truncaria su primer pulso.
+    if (!link_audio_burst_in_progress()) {
+      buzzerOff();
+    }
+  }
+}
+
 static void click_beep_start(void) {
   // El chasquido cede: comparten el unico zumbador del display, y lo cosmetico
   // no interrumpe a lo normativo.
   if (link_audio_burst_in_progress()) {
     return;
   }
-  buzzerOn();
-  s_clickBeepUntilMs = millis() + CLICK_BEEP_MS;
-}
-
-static void click_beep_service(void) {
-  if (s_clickBeepUntilMs && (int32_t)(millis() - s_clickBeepUntilMs) >= 0) {
-    // Si la rafaga ha arrancado durante estos 12 ms, el zumbador ya no es
-    // nuestro: apagarlo aqui truncaria su primer pulso.
-    if (!link_audio_burst_in_progress()) {
-      buzzerOff();
-    }
-    s_clickBeepUntilMs = 0;
+  if (s_clickBeepTask == NULL &&
+      xTaskCreatePinnedToCore(click_beep_off_task, "beep", 3072, NULL,
+                              UI_TASK_PRIORITY + 1, &s_clickBeepTask,
+                              CORE_ID_FREERTOS) != pdPASS) {
+    s_clickBeepTask = NULL;
+    return;  // sin tarea que lo apague, mejor sin chasquido
   }
+  buzzerOn();
+  xTaskNotifyGive(s_clickBeepTask);
 }
 
 // Si tocar este objeto HACE algo. Es la definicion util de "control".
@@ -2673,6 +3367,7 @@ void UI_ReassertAlarmOverlays(void) {
       !lv_obj_has_flag(s_audioPausedTimer, LV_OBJ_FLAG_HIDDEN)) {
     lv_obj_move_foreground(s_audioPausedTimer);
   }
+  battery_indicator_raise();
 }
 
 // Boton de SILENCIAR mientras el enlace esta caido.
@@ -2778,10 +3473,37 @@ void alarm_banner_update(void) {
   // pasada, asi que se lee sobre la tarjeta sin ocultar lo que importa.
   const bool suppressed = onAlarmsScreen && !testing && !linkLost;
 
+  // En ui_ScreenMain la perdida de enlace se avisa desde el propio heading
+  // (link_lost_chip_set()) y no con el banner, que lo tapaba entero al
+  // desbloquear. Con el centro de alarmas abierto sigue mandando el banner:
+  // el chip queda debajo del overlay y esa es la vista que hay que tapar.
+  //
+  // Sale antes de mirar `testing` a proposito: con la placa callada el campo
+  // de la prueba es tan viejo como lo demas y podria quedarse "en curso"
+  // para siempre, pintando otra vez el banner encima del heading.
+  //
+  // Lo mismo con cualquier otro dialogo abierto sobre ui_ScreenMain: todos
+  // tapan el heading, y el chip debajo no avisaria de nada. Varios se cierran
+  // solos al caer el enlace (su mustYield()), pero no todos, y fiar la senal
+  // a que el cierre ocurra primero es dejarla media pasada sin verse.
+  const bool mainHeadingCovered = main_heading_covered();
+  const bool linkLostInHeading = linkLost && ui_ScreenMain &&
+                                 lv_scr_act() == ui_ScreenMain &&
+                                 !mainHeadingCovered;
+  link_lost_chip_set(linkLostInHeading);
+  if (linkLostInHeading) {
+    lv_anim_del(s_alarmBanner, banner_blink_cb);
+    lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
+    s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
+    return;
+  }
+
   if ((topIdx < 0 && !testing && !linkLost) || suppressed) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
     lv_obj_add_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     s_bannerPriority = -1;
+    s_bannerText[0] = '\0';
     return;
   }
 
@@ -2800,6 +3522,9 @@ void alarm_banner_update(void) {
   // pantalla. El operador la lanza desde ajustes y tiene que ver alli mismo
   // que la senal visual responde; obligarle a bloquear la pantalla para
   // comprobarlo haria inservible la prueba.
+  //
+  // Y la perdida de enlace tambien, salvo en ui_ScreenMain, donde ya ha
+  // salido por el chip del heading (mas arriba).
   const bool onLockScreen = (ui_ScreenLock && lv_scr_act() == ui_ScreenLock);
   if (!onLockScreen && !testing && !linkLost) {
     lv_anim_del(s_alarmBanner, banner_blink_cb);
@@ -2808,7 +3533,11 @@ void alarm_banner_update(void) {
     s_bannerText[0] = '\0';
     return;
   }
-  lv_obj_set_align(s_alarmBanner, LV_ALIGN_TOP_MID);
+  // Sin lv_obj_set_align() aqui: la alineacion (arriba) se fija al crearlo y
+  // no cambia. Reafirmarla en cada pasada invalidaba el banner cada vez
+  // (LVGL 8 repinta en cualquier set de estilo, aunque el valor sea el mismo):
+  // con una alarma en pantalla se repintaba sin parar, >40 ms cada vez, y la
+  // UI entera iba a tirones. Medido en banco: 12180 repintados en 5 min.
 
   const char *wantText;
   if (linkLost) {
@@ -2832,11 +3561,30 @@ void alarm_banner_update(void) {
   // franja y reordenaba lv_layer_top() sin parar, y arrastraba toda la
   // interfaz. No se noto al escribirlo porque el banner solo salia en la
   // pantalla de bloqueo, donde no hay nada mas compitiendo por el redibujado.
-  if (strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0) {
+  const bool textChanged =
+      strncmp(s_bannerText, wantText, sizeof(s_bannerText) - 1) != 0;
+  if (textChanged) {
     snprintf(s_bannerText, sizeof(s_bannerText), "%s", wantText);
     lv_label_set_text(s_alarmBannerLabel, s_bannerText);
+  }
+
+  // PERO EL DES-OCULTADO NO PUEDE COLGAR DE ESE MISMO `if`.
+  //
+  // Colgaba, y el efecto era una alarma que SONABA SIN VERSE: la misma
+  // condicion que se retira y vuelve (el caso de banco fue BOARD LINK LOST)
+  // deja `wantText` identico al `s_bannerText` de la vez anterior, asi que el
+  // strncmp daba 0 y nadie quitaba LV_OBJ_FLAG_HIDDEN que habia puesto la
+  // salida temprana. Media senal de alarma, que es justo la mitad que
+  // 60601-1-8 no deja omitir.
+  //
+  // Se mira el estado REAL del objeto en vez del texto. lv_obj_has_flag() es
+  // una lectura de un bit: no invalida ni repinta nada, asi que la razon por
+  // la que existe la guarda de arriba —no tocar LVGL en cada pasada— se
+  // mantiene intacta.
+  if (lv_obj_has_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN) || textChanged) {
     lv_obj_clear_flag(s_alarmBanner, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_alarmBanner);
+    battery_indicator_raise();
   }
 
   if (topPrio == s_bannerPriority) {
@@ -2868,6 +3616,7 @@ void alarm_banner_update(void) {
       break;
   }
   lv_obj_set_style_text_color(s_alarmBannerLabel, textColor, LV_PART_MAIN);
+  s_bannerFg = textColor;
 
   if (halfPeriodMs == 0) {
     lv_obj_set_style_bg_color(s_alarmBanner, s_bannerHi, LV_PART_MAIN);
@@ -2927,7 +3676,7 @@ void update_alarm_panels() {
   // Limpiar descripción de alarma si ya no está activa (Casos A y C)
   if (g_selectedAlarmId != -1 && !selectedStillActive) {
     if (ui_AlarmDetailLabel)
-      lv_label_set_text(ui_AlarmDetailLabel, "");
+      ui_set_label_text(ui_AlarmDetailLabel, "");
     g_selectedAlarmId = -1;
   }
 
@@ -2935,73 +3684,71 @@ void update_alarm_panels() {
   hmi_msg.muteAlarm = alarmActive ? (alarmsMuted ? 1 : 0) : 0;
 
   if (activeCount > NUM_ALARM_0) {
-    lv_obj_clear_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_Alarm1Cont, false);
     int idx = alarmSlotToIndex[0];
-    lv_label_set_text(ui_Alarm1Label, alarmList[idx].type);
+    ui_set_label_text(ui_Alarm1Label, alarmList[idx].type);
     start_alarm_blink(ui_Alarm1Panel);
   }
   if (activeCount > NUM_ALARM_1) {
-    lv_obj_clear_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_Alarm2Cont, false);
     int idx = alarmSlotToIndex[1];
-    lv_label_set_text(ui_Alarm2Label, alarmList[idx].type);
+    ui_set_label_text(ui_Alarm2Label, alarmList[idx].type);
     start_alarm_blink(ui_Alarm2Panel);
   }
   if (activeCount > NUM_ALARM_2) {
-    lv_obj_clear_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_Alarm3Cont, false);
     int idx = alarmSlotToIndex[2];
-    lv_label_set_text(ui_Alarm3Label, alarmList[idx].type);
+    ui_set_label_text(ui_Alarm3Label, alarmList[idx].type);
     start_alarm_blink(ui_Alarm3Panel);
   }
   if (activeCount > NUM_ALARM_3) {
-    lv_obj_clear_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_Alarm4Cont, false);
     int idx = alarmSlotToIndex[3];
-    lv_label_set_text(ui_Alarm4Label, alarmList[idx].type);
+    ui_set_label_text(ui_Alarm4Label, alarmList[idx].type);
     start_alarm_blink(ui_Alarm4Panel);
   }
 
   int pos = activeCount;
   if (pos < MAX_ALARM_DISPLAY) {
     if (pos <= NUM_ALARM_0)
-      lv_obj_add_flag(ui_Alarm1Cont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_Alarm1Cont, true);
     if (pos <= NUM_ALARM_1)
-      lv_obj_add_flag(ui_Alarm2Cont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_Alarm2Cont, true);
     if (pos <= NUM_ALARM_2)
-      lv_obj_add_flag(ui_Alarm3Cont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_Alarm3Cont, true);
     if (pos <= NUM_ALARM_3)
-      lv_obj_add_flag(ui_Alarm4Cont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_Alarm4Cont, true);
   }
 
   bool anyAlarm = (totalActiveAlarms > 0) || fanHeaterAlarm;
   if (totalActiveAlarms > 0) {
     char buf[10];
     itoa(totalActiveAlarms, buf, 10);
-    // Main screen
-    lv_obj_clear_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(ui_NumAlarm, buf);
-    lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
+    // Main screen: el boton de alarmas esta siempre; cambia su distintivo.
+    ui_set_hidden(ui_Panel10, false);
+    ui_set_hidden(ui_NumAlarm, false);
+    ui_set_label_text(ui_NumAlarm, buf);
+    ui_set_hidden(ui_CheckImgMain, true);
     // Lock screen
-    lv_obj_clear_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(ui_AlarmLockNumLabel, buf);
-    lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_AlarmLockCont, false);
+    ui_set_label_text(ui_AlarmLockNumLabel, buf);
+    ui_set_hidden(ui_CheckImg, true);
   } else {
     // Main screen — hide alarm button; OK only if no fan/heater alarm either,
     // y solo si la placa sigue hablando: "OK" es una afirmacion, no un valor
     // por defecto.
-    lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_Panel10, true);
+    ui_set_hidden(ui_NumAlarm, true);
     if (fanHeaterAlarm || linkLost)
-      lv_obj_add_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_CheckImgMain, true);
     else
-      lv_obj_clear_flag(ui_CheckImgMain, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_CheckImgMain, false);
     // Lock screen
-    lv_obj_add_flag(ui_AlarmLockCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_AlarmLockCont, true);
     if (fanHeaterAlarm || linkLost)
-      lv_obj_add_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_CheckImg, true);
     else
-      lv_obj_clear_flag(ui_CheckImg, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_CheckImg, false);
   }
 
   if (!anyAlarm) {
@@ -3025,24 +3772,27 @@ void update_alarm_panels() {
   // (justo arriba) o cuando llega una alarma nueva (CommTask).
   if (ui_MuteAlarm) {
     if (alarmActive && !alarmsMuted) {
-      lv_obj_clear_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_MuteAlarm, false);
     } else {
-      lv_obj_add_flag(ui_MuteAlarm, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_MuteAlarm, true);
     }
   }
 
   // Warning overlays always hidden (replaced by TempCont visibility)
   if (ui_HeaterErrorTempCont)
-    lv_obj_add_flag(ui_HeaterErrorTempCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_HeaterErrorTempCont, true);
   if (ui_HeaterErrorHumCont)
-    lv_obj_add_flag(ui_HeaterErrorHumCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_HeaterErrorHumCont, true);
 
   // Hide the entire temperature control container when fan/heater alarm is active
+  // Esta funcion corre con cada CTRL,ALM (1 Hz): con lv_obj_clear_flag() el
+  // contenedor de temperatura, ya visible, se repintaba entero cada segundo
+  // (~57 ms de bucle de UI). Por eso ui_set_hidden() en toda la funcion.
   if (ui_TempCont) {
     if (fanHeaterAlarm)
-      lv_obj_add_flag(ui_TempCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_TempCont, true);
     else
-      lv_obj_clear_flag(ui_TempCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_TempCont, false);
   }
 }
 
@@ -3307,6 +4057,9 @@ static void enter_lock_screen(void) {
   lv_scr_load(ui_ScreenLock);
   show_targets_for_mode();
   lv_disp_trig_activity(NULL);
+  // Pide el volcado de la tendencia (solo una bandera: la E/S la hace
+  // TelemetryHistory_PersistService, fuera del lock).
+  TelemetryHistory_NoteLockEntered();
 }
 
 void ImgButton1_Lock_cb(lv_event_t *e) {
@@ -3407,15 +4160,18 @@ void inactivity_timer_cb(lv_timer_t *timer) {
   // tocar). La ayuda, la formacion y el aviso de mantenimiento gestionan su
   // propia exencion con tope (mas abajo); el resumen del test se cierra solo
   // a los 10 min para no dejar el banner de alarma inalcanzable.
-  if (lv_scr_act() == ui_ScreenAlarms || FactoryTest_IsOpen()) {
+  // La pantalla de inicio tambien: en el primer test de fabrica el equipo se
+  // queda en ella esperando al operario, y bloquearla lo sacaria de ahi.
+  if (lv_scr_act() == ui_ScreenAlarms || lv_scr_act() == ui_ScreenIntro ||
+      FactoryTest_IsOpen()) {
     lv_disp_trig_activity(NULL);
     update_autolock_ring(0);
     return;
   }
   // Ayuda, formacion y aviso de mantenimiento: exentos del bloqueo, pero SIN
-  // reiniciar el contador de inactividad de LVGL. Sus _Poll() lo leen (o, en
-  // el caso de MaintenanceDialog, su propio lv_tick_elaps()) para cerrarse
-  // solos a su tope (HELP_IDLE_TIMEOUT_MS / MNT_IDLE_TIMEOUT_MS); si aqui se
+  // reiniciar el contador de inactividad de LVGL. Sus _Poll() lo leen
+  // (lv_disp_get_inactive_time()) para cerrarse solos a su tope
+  // (HELP_IDLE_TIMEOUT_MS / MNT_IDLE_TIMEOUT_MS); si aqui se
   // hiciera lv_disp_trig_activity() cada 200 ms, esos topes no llegarian
   // nunca (defecto real detectado en review, ya colado dos veces:
   // TelemetryHistory, HelpDialog/HelpTour).
@@ -3431,6 +4187,7 @@ void inactivity_timer_cb(lv_timer_t *timer) {
       locked = true;
       lv_scr_load(ui_ScreenLock);
       show_targets_for_mode();
+      TelemetryHistory_NoteLockEntered();  // ver enter_lock_screen()
     }
   }
 }
@@ -3625,6 +4382,7 @@ void UI_RaiseAlarmIndicators(void) {
   if (s_alarmBanner) lv_obj_move_foreground(s_alarmBanner);
   if (s_audioPausedIcon) lv_obj_move_foreground(s_audioPausedIcon);
   if (s_audioPausedTimer) lv_obj_move_foreground(s_audioPausedTimer);
+  battery_indicator_raise();
 }
 
 void Settings_cb(lv_event_t *e) {
@@ -4074,7 +4832,13 @@ void UI_Task(void *pvParameters) {
   // Antes de UI_ApplyLanguage(): es quien rellena el desplegable del
   // intervalo, y necesita el valor ya leido de NVS para marcar la opcion
   // correcta. Solo toca NVS, no LVGL, asi que puede ir aqui.
+  // El bebe al mando se restaura ANTES que el recordatorio de mantenimiento:
+  // Maintenance_Tick() compara BabyWizard_GetActiveSeq() con el ultimo seq que
+  // vio, y un reinicio con seq 0 de por medio se leeria como un alta.
+  PatientState_Restore();
   Maintenance_Init();
+  WeighTracker_Init();
+  ServiceSettings_Init();  // svc_en, defecto ON
 
   UI_ApplyLanguage(g_lang);
   ui_set_switch_state_silent(ui_SwitchDarkMode, darkMode);
@@ -4185,10 +4949,12 @@ void UI_Task(void *pvParameters) {
   // --- Babies history screen (baby-history-viewer spec) ---
   BabyHistory_Init(ui_ScreenMain);
   BabyExitDialog_Init(ui_ScreenMain);
-  // Ajuste manual de la hora, abierto desde ui_ClockButton.
+  // Ajuste manual de la hora y ayuda: los abre el menu del heading.
   TimeDialog_Init(ui_ScreenMain);
-  // Menu de ayuda, abierto desde ui_HelpButton (mismo criterio de parent).
   HelpDialog_Init(ui_ScreenMain);
+  // Menu del heading (ui_MenuButton): solo un selector hacia lo de arriba,
+  // los bebes y los ajustes.
+  MenuDialog_Init(ui_ScreenMain);
   // Cursos de formacion: selector (modal sobre Main) y motor de lecciones (en
   // lv_layer_top() porque recorre Main y Ajustes; ANTES del banner de alarma
   // para quedar por debajo). El progreso se lee de NVS aqui, en el arranque.
@@ -4209,8 +4975,10 @@ void UI_Task(void *pvParameters) {
   // la fila "Test de hardware" de ui_ScreenSettings
   // (hmi-factory-test-settings-only).
   FactoryTest_Init();
-  // --- Tendencia de telemetria (aire/piel/humedad), accesible desde el
-  // bloqueo (ui_ChartLockImg). Mismo criterio de parent que AlarmCenter. ---
+  // --- Tendencia de telemetria (aire/piel/humedad). Mismo criterio de parent
+  // que AlarmCenter. Desde que se retiro el boton TREND de la pantalla de
+  // bloqueo (tanda de fabricacion 2026-09-17) la unica via de entrada es el
+  // boton TENDENCIA de la cabecera de AlarmCenter (hmi-trend). ---
   TelemetryHistory_Init();
   // El check de "todo OK" es lo unico visible en el sitio de las alarmas
   // cuando no hay ninguna; hacerlo pulsable es lo que deja el registro
@@ -4229,9 +4997,13 @@ void UI_Task(void *pvParameters) {
   // En lv_layer_top(), no colgado de una pantalla: la senal de alarma
   // tiene que sobrevivir a lv_scr_load().
   alarm_banner_init();
+  // Este si cuelga de ui_ScreenMain: es parte de su heading.
+  link_lost_chip_init();
+  // Despues del banner: misma capa, y encima de el.
+  battery_indicator_init();
   audio_paused_icon_init();
 
-  if (g_hmiRestoreState) {
+  if (g_hmiRestoreState && !FactoryTest_FirstTestPending()) {
     // Skip 5-second splash and go straight to lock screen on crash recovery
     lv_scr_load(ui_ScreenMain);
     enter_lock_screen();
@@ -4324,7 +5096,6 @@ void UI_Task(void *pvParameters) {
 
   lv_obj_add_flag(ui_NumAlarm, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_Panel10, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_AlarmButton, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
@@ -4469,6 +5240,13 @@ void UI_Task(void *pvParameters) {
       }
     }
 
+    // Reinicio pedido tras una operacion de flash o un glitch detectado:
+    // fuera de LVGL_Lock, se aplica en el siguiente VSYNC.
+    if (s_lcdRestartPending && lcd_panel) {
+      s_lcdRestartPending = false;
+      esp_lcd_rgb_panel_restart(lcd_panel);
+    }
+
     // Heap/stack high-water mark — every 60 s
     {
       static uint32_t s_diag_last_ms = 0;
@@ -4489,10 +5267,11 @@ void UI_Task(void *pvParameters) {
                    (unsigned long)heap_psram,
                    (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
         } else {
-          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B",
+          ESP_LOGW("DIAG", "heap_int=%lu heap_int_min=%lu heap_psram=%lu ui_hwm=%lu B comm_hwm=%lu B ppg_dropped=%u",
                    (unsigned long)heap_int, (unsigned long)heap_int_min,
                    (unsigned long)heap_psram,
-                   (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b);
+                   (unsigned long)ui_hwm_b, (unsigned long)comm_hwm_b,
+                   (unsigned)ctrl_ppg_fifo.dropped);
         }
       }
     }
@@ -4510,6 +5289,8 @@ void UI_Task(void *pvParameters) {
       // HMI se perdiera una transicion, el siguiente CTRL,PROBE (la placa lo
       // repite cada 2 s mientras no hay contacto) recolocaria la pantalla.
       // add_flag/clear_flag son idempotentes.
+      if (ui_LockPulseOxFrame)
+        ui_set_hidden(ui_LockPulseOxFrame, !applied);
       if (applied) {
         if (ui_LockPPGChart)
           lv_obj_clear_flag(ui_LockPPGChart, LV_OBJ_FLAG_HIDDEN);
@@ -4529,17 +5310,21 @@ void UI_Task(void *pvParameters) {
             lv_chart_set_all_value(ui_LockPPGChart, lockPPGSeries,
                                    LV_CHART_POINT_NONE);
         }
-        if (ui_LockHRCont)
-          lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
+        if (ui_LockVitCont)
+          lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_HIDDEN);
       }
       spo2ProbeAttached = applied;
     }
 
     // --- Lock screen: PPG waveform ---
-    if (ui_LockPPGChart && lockPPGSeries && ctrl_ppg_msg.updated) {
-      float ppg_val = (float)ctrl_ppg_msg.ppg;
-      ctrl_ppg_msg.updated = false;
-      if (locked && spo2ProbeAttached) {
+    // Drain every sample that arrived since the last pass (50 Hz, one per
+    // 20 ms; a slow repaint can leave several queued). Drawing them back to
+    // back keeps the trace continuous; the chart spaces points evenly, so a
+    // burst only shifts the trace by at most one refresh.
+    if (ui_LockPPGChart && lockPPGSeries) {
+      uint8_t ppg_val;
+      while (ctrlPpgFifoPop(&ppg_val)) {
+        if (!(locked && spo2ProbeAttached)) continue;  // drain, do not draw
         lv_chart_set_next_value(ui_LockPPGChart, lockPPGSeries,
                                 (lv_coord_t)ppg_val);
         // Modo CIRCULAR: mantener un hueco por delante del cursor. Solo hace
@@ -4556,22 +5341,40 @@ void UI_Task(void *pvParameters) {
       }
     }
 
-    // --- Lock screen: HR value ---
+    // --- Lock screen: SpO2, HR and PI values ---
     if (locked && ctrl_vit_msg.updated) {
       ctrl_vit_msg.updated = false;
       if (!spo2ProbeAttached) {
-        if (ui_LockHRCont) lv_obj_add_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-      } else {
-        if (ui_LockHRCont) {
-          lv_obj_clear_flag(ui_LockHRCont, LV_OBJ_FLAG_HIDDEN);
-          if (ui_LockHRLabel) {
-            if (ctrl_vit_msg.hr > 0) {
-              char hr_buf[8];
-              snprintf(hr_buf, sizeof(hr_buf), "%u", ctrl_vit_msg.hr);
-              lv_label_set_text(ui_LockHRLabel, hr_buf);
-            } else {
-              lv_label_set_text(ui_LockHRLabel, "--");
-            }
+        if (ui_LockVitCont) lv_obj_add_flag(ui_LockVitCont, LV_OBJ_FLAG_HIDDEN);
+      } else if (ui_LockVitCont) {
+        ui_set_hidden(ui_LockVitCont, false);
+        char buf[8];
+        if (ui_LockSpO2Label) {
+          if (ctrl_vit_msg.spo2 > 0) {
+            snprintf(buf, sizeof(buf), "%u", ctrl_vit_msg.spo2);
+            ui_set_label_text(ui_LockSpO2Label, buf);
+          } else {
+            ui_set_label_text(ui_LockSpO2Label, "--");
+          }
+        }
+        if (ui_LockHRLabel) {
+          if (ctrl_vit_msg.hr > 0) {
+            snprintf(buf, sizeof(buf), "%u", ctrl_vit_msg.hr);
+            ui_set_label_text(ui_LockHRLabel, buf);
+          } else {
+            ui_set_label_text(ui_LockHRLabel, "--");
+          }
+        }
+        if (ui_LockPILabel) {
+          // "pi > 0" also rejects the NaN the motherBoard sends when the
+          // library has no PI. Two decimals below 1 %, one from 1 % up
+          // (0.995 so that a value rounding to "1.00" shows as "1.0").
+          float pi = ctrl_vit_msg.pi;
+          if (pi > 0.0f) {
+            snprintf(buf, sizeof(buf), pi < 0.995f ? "%.2f" : "%.1f", pi);
+            ui_set_label_text(ui_LockPILabel, buf);
+          } else {
+            ui_set_label_text(ui_LockPILabel, "--");
           }
         }
       }
@@ -4680,9 +5483,19 @@ void UI_Task(void *pvParameters) {
             !linkLost && !PROTO_TEL_TEMP_IS_UNAVAILABLE(snapSkin);
         const bool humOkHist =
             !linkLost && snapHum != PROTO_TEL_HUM_UNAVAILABLE;
-        TelemetryHistory_RecordSample((float)snapAir, airOkHist,
-                                       (float)snapSkin, skinOkHist,
-                                       (float)snapHum, humOkHist);
+        // Consignas: las del ECO de la placa (lo que de verdad persigue), y
+        // solo las de las magnitudes bajo control. Con el enlace caido o antes
+        // del primer CTRL,STATE no hay eco fiable: sin dato.
+        const bool stateKnown = !linkLost && Display_BoardEverSeen();
+        const TrendSetpointValidity spOk = trend_setpoint_validity(
+            stateKnown ? ctrl_state_msg.actuation : -1,
+            ctrl_state_msg.controlMode != 0);
+        TelemetryHistory_RecordSample(
+            (float)snapAir, airOkHist, (float)snapSkin, skinOkHist,
+            (float)snapHum, humOkHist,
+            (float)ctrl_state_msg.desiredAirTemperature, spOk.air,
+            (float)ctrl_state_msg.desiredSkinTemperature, spOk.skin,
+            (float)ctrl_state_msg.desiredHumidity, spOk.hum);
       }
     }
 
@@ -4717,6 +5530,15 @@ void UI_Task(void *pvParameters) {
     // motherBoard. Mismo contrato de polling, sin peticion de cierre por
     // alarma critica: es la pantalla de montaje, se usa con el equipo vacio.
     FactoryTest_Poll();
+    // Primer test de fabrica pendiente: terminado el splash, ninguna otra
+    // pantalla es alcanzable (salvo la de alarmas, para poder atender una).
+    // Cualquier camino que cargue otra — un toque en el banner, un aviso que
+    // navega — acaba de vuelta en la pantalla de inicio con el boton.
+    if (FactoryTest_FirstTestPending() && intro_timer == NULL &&
+        !FactoryTest_IsOpen() && lv_scr_act() != ui_ScreenIntro &&
+        lv_scr_act() != ui_ScreenAlarms) {
+      lv_scr_load(ui_ScreenIntro);
+    }
     // hmi-factory-test-settings-entry: fila "Test de hardware" de
     // ui_ScreenSettings. Gateada internamente para no repintar si el estado
     // no cambio; se llama en cada pasada mientras esa pantalla esta activa
@@ -4726,10 +5548,11 @@ void UI_Task(void *pvParameters) {
       FactoryTest_RefreshSettingsRow();
     }
 
-    // Ajuste manual de hora (se abre tocando la hora de cabecera,
-    // ClockButton_cb): mismo contrato de polling que el wizard — consume el
-    // CTRL,TIME_ACK y aplica la regla de "una alarma critica se lleva la
-    // pantalla por delante".
+    // Menu del heading: cierre por inactividad o al cambiar de pantalla.
+    MenuDialog_Poll();
+    // Ajuste manual de hora (se abre desde el menu, FECHA Y HORA): mismo
+    // contrato de polling que el wizard — consume el CTRL,TIME_ACK y aplica
+    // la regla de "una alarma critica se lleva la pantalla por delante".
     TimeDialog_Poll();
     // Ayuda: resultado del envio a soporte (lo deja la tarea WiFi/OTA) y la
     // misma regla de alarma critica, para el menu y para el tutorial.
@@ -4755,12 +5578,13 @@ void UI_Task(void *pvParameters) {
     // Y estos dos por el motivo opuesto: dependen de que NO llegue nada.
     link_lost_blank_update();
     clock_update();
+    patient_identity_update();
+    patient_therapy_update();
     wifi_link_status_update();
     connectivity_heading_update();
+    sb_env_heading_update();
+    battery_indicator_update();
     link_audio_mute_button_update();
-    // Apaga el chasquido de la ultima pulsacion cuando le toca. Va aqui, y no
-    // con un delay() dentro del callback, para no congelar LVGL.
-    click_beep_service();
     // Baby-exit dialog: only the transition to a fully idle incubator
     // (no temperature, no humidity, no phototherapy) means the baby
     // actually came out; dropping one therapy among several does not.
@@ -4789,6 +5613,10 @@ void UI_Task(void *pvParameters) {
     // bordes de los pulsos.
     link_audio_service();
 
+    // Bebe al mando (identidad capturada por el asistente): la NVS se toca
+    // aqui, fuera de LVGL_Lock, y solo cuando algo cambio.
+    PatientState_Service();
+
     // NVS writes run outside LVGL_Lock — avoids blocking the renderer during
     // wear-leveling erasure (~30ms worst case). Same pattern as AlarmSound_Update.
     if (doNVSWrite) {
@@ -4810,12 +5638,26 @@ void UI_Task(void *pvParameters) {
       ESP_LOGW(TAG, "LCD_DIAG: training Preferences write tomó %lu ms",
                (unsigned long)(millis() - t0));
     }
+    // Sello de pesada del recordatorio diario: el tracker solo marca "sucio"
+    // dentro del lock y escribe aqui, fuera. No hace nada si no hay cambios.
+    WeighTracker_Flush();
 
     // AlarmSound_Update uses I2C (Wire.endTransmission) — must run outside
     // LVGL_Lock to avoid blocking the LVGL mutex for ~50 ms (Fix: ARQ-LOCK-001)
     if (doAlarmSound) {
       AlarmSound_Update();
     }
+
+    // Persistencia de la tendencia (hmi-trend): restauracion tras la primera
+    // hora y volcado a LittleFS. E/S de flash, asi que FUERA de LVGL_Lock
+    // (ARQ-LOCK-001), y la ULTIMA de la pasada: lo urgente (sonido de alarma,
+    // pulsos del enlace perdido) ya se atendio. Cada llamada hace como mucho UN
+    // tramo (reserva, serializacion, CRC, restauracion y escritura van por
+    // tramos acotados; la escritura, 4 KB cada >= 50 ms), y el servicio NO hace
+    // E/S mientras haya una alarma activa o el enlace este caido (aborta limpio
+    // un volcado a medias): una escritura de flash para la cache y no debe
+    // competir con el banner ni con el sonido de alarma.
+    TelemetryHistory_PersistService();
   }
 }
 
@@ -4854,133 +5696,133 @@ void UI_SyncAll() {
 
     if (selectedPanel == AIR_PANEL_SELECTED) {
       set_active_panel(ui_AirPanel, ui_SkinPanel);
-      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_AirTempBarCont, false);
+      ui_set_hidden(ui_SkinTempBarCont, true);
 
       // Target Screen Visibility
       if (ui_TargetAirTempCont)
-        lv_obj_clear_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_TargetAirTempCont, false);
       if (ui_ArrowAirLock)
-        lv_obj_clear_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_ArrowAirLock, false);
       if (ui_TargetSkinTempCont)
-        lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_TargetSkinTempCont, true);
       if (ui_ArrowSkinLock)
-        lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_ArrowSkinLock, true);
 
       hmi_msg.controlMode = CONTROL_AIR;
     } else {
       set_active_panel(ui_SkinPanel, ui_AirPanel);
-      lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_SkinTempBarCont, false);
+      ui_set_hidden(ui_AirTempBarCont, true);
 
       // Target Screen Visibility
       if (ui_TargetSkinTempCont)
-        lv_obj_clear_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_TargetSkinTempCont, false);
       if (ui_ArrowSkinLock)
-        lv_obj_clear_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_ArrowSkinLock, false);
       if (ui_TargetAirTempCont)
-        lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_TargetAirTempCont, true);
       if (ui_ArrowAirLock)
-        lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_ArrowAirLock, true);
 
       hmi_msg.controlMode = CONTROL_SKIN;
     }
 
     // First Column (Detected Values) ALWAYS VISIBLE
     if (ui_AirTempLockCont)
-      lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_AirTempLockCont, false);
     if (ui_SkinTempLockCont)
-      lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_SkinTempLockCont, false);
     if (humidityEnabled && ui_HumLockCont)
-      lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_HumLockCont, false);
 
     // Enable arrows
     arrowsActive = true;
     lv_obj_add_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowDownTemp, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowUpTemp, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
 
     // Temperature Panel background
-    lv_obj_set_style_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_Panel1, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
 
     temp_chart_show_for_selected_panel();
   } else {
     selectedPanel = NO_PANEL_SELECTED;
     arrowsActive = false;
-    lv_obj_add_flag(ui_AirTempChartCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_SkinTempChartCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_AirTempChartCont, true);
+    ui_set_hidden(ui_SkinTempChartCont, true);
     lv_obj_clear_flag(ui_ImgArrowDownTemp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_ImgArrowUpTemp, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownTemp, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpTemp, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel1, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_AirPanel, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_SkinPanel, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowDownTemp, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowDownTemp, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowUpTemp, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowUpTemp, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_Panel1, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_Panel1, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_AirPanel, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_AirPanel, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_SkinPanel, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_SkinPanel, LV_OPA_COVER, LV_PART_MAIN);
 
     // Visually show labels and thermometer of the last selected panel even if
     // OFF
     if (lastSelectedPanel == SKIN_PANEL_SELECTED) {
-      lv_obj_clear_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_SkinTempBarCont, false);
+      ui_set_hidden(ui_AirTempBarCont, true);
     } else {
-      lv_obj_clear_flag(ui_AirTempBarCont, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(ui_SkinTempBarCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_AirTempBarCont, false);
+      ui_set_hidden(ui_SkinTempBarCont, true);
     }
 
     // Lock Screen hide targets but keep detected values visible
     if (ui_TargetAirTempCont)
-      lv_obj_add_flag(ui_TargetAirTempCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_TargetAirTempCont, true);
     if (ui_TargetSkinTempCont)
-      lv_obj_add_flag(ui_TargetSkinTempCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_TargetSkinTempCont, true);
     if (ui_ArrowAirLock)
-      lv_obj_add_flag(ui_ArrowAirLock, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_ArrowAirLock, true);
     if (ui_ArrowSkinLock)
-      lv_obj_add_flag(ui_ArrowSkinLock, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_ArrowSkinLock, true);
 
     if (ui_AirTempLockCont)
-      lv_obj_clear_flag(ui_AirTempLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_AirTempLockCont, false);
     if (ui_SkinTempLockCont)
-      lv_obj_clear_flag(ui_SkinTempLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_SkinTempLockCont, false);
     if (humidityEnabled && ui_HumLockCont)
-      lv_obj_clear_flag(ui_HumLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_HumLockCont, false);
   }
 
   // 3. Humidity Logic
   if (switchHum) {
-    lv_obj_clear_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_HumPanelCont, false);
+    ui_set_hidden(ui_Panel3, false);
+    ui_set_hidden(ui_HumChartCont, false);
+    ui_set_hidden(ui_HumLockDesiredCont, false);
     lv_obj_add_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownHum, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpHum, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowDownHum, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowUpHum, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_Panel3, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
   } else {
-    lv_obj_add_flag(ui_HumPanelCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_Panel3, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_HumChartCont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ui_HumLockDesiredCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_HumPanelCont, true);
+    ui_set_hidden(ui_Panel3, true);
+    ui_set_hidden(ui_HumChartCont, true);
+    ui_set_hidden(ui_HumLockDesiredCont, true);
     lv_obj_clear_flag(ui_ImgArrowDownHum, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_ImgArrowUpHum, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(ui_ArrowDownHum, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_ArrowUpHum, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_Panel3, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowDownHum, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowDownHum, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_ArrowUpHum, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_ArrowUpHum, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_Panel3, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_Panel3, LV_OPA_COVER, LV_PART_MAIN);
   }
 
   // 4. Phototherapy Logic (Switch 3)
@@ -4988,68 +5830,68 @@ void UI_SyncAll() {
 
   if (photoOn) {
     // Normal state
-    lv_obj_set_style_bg_color(ui_PhotoTimerPanel, active_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_PhotoTimerPanel, active_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_add_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
 
     // Restore button colors
-    lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE),
+    ui_set_bg_color(ui_PhotoTimeMinusBtn, lv_color_hex(0x0075EE),
                               LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE),
+    ui_set_bg_color(ui_PhotoTimePlusBtn, lv_color_hex(0x0075EE),
                               LV_PART_MAIN);
 
     if (photoTimerActive) {
       // Update visual running state
       if (ui_PhotoStartLabel)
-        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_RUNNING));
+        ui_set_label_text(ui_PhotoStartLabel, TR(STR_PHOTO_RUNNING));
       if (ui_PhotoStartBtn)
-        lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
+        ui_set_bg_color(ui_PhotoStartBtn, lv_color_hex(0x888888),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
 
       // Ensure cancel button is visible
       if (ui_PhotoCancelBtn)
-        lv_obj_clear_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_PhotoCancelBtn, false);
 
       // Ensure lock screen is visible if we are in lock screen
       if (ui_PhotoLockCont)
-        lv_obj_clear_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_PhotoLockCont, false);
     } else {
       // Setup state
       if (ui_PhotoStartLabel)
-        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
+        ui_set_label_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
       if (ui_PhotoStartBtn)
-        lv_obj_set_style_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
+        ui_set_bg_color(ui_PhotoStartBtn, lv_color_hex(0x00AA00),
                                   LV_PART_MAIN | LV_STATE_DEFAULT);
 
       // Ensure cancel button is hidden
       if (ui_PhotoCancelBtn)
-        lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_PhotoCancelBtn, true);
 
       if (ui_PhotoLockCont)
-        lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(ui_PhotoLockCont, true);
 
       // Restore normal minutes display if not active
       char buf[16];
       snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
       if (ui_PhotoTimeValueLabel)
-        lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+        ui_set_label_text(ui_PhotoTimeValueLabel, buf);
     }
   } else {
     // Grayed out state
-    lv_obj_set_style_bg_color(ui_PhotoTimerPanel, inactive_col, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
+    ui_set_bg_color(ui_PhotoTimerPanel, inactive_col, LV_PART_MAIN);
+    ui_set_bg_opa(ui_PhotoTimerPanel, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(ui_PhotoTimeMinusBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_PhotoTimePlusBtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(ui_PhotoStartBtn, LV_OBJ_FLAG_CLICKABLE);
 
     // Buttons to light gray as requested
-    lv_obj_set_style_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY,
+    ui_set_bg_color(ui_PhotoTimeMinusBtn, COLOR_PANEL_LIGHT_GRAY,
                               LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY,
+    ui_set_bg_color(ui_PhotoTimePlusBtn, COLOR_PANEL_LIGHT_GRAY,
                               LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY,
+    ui_set_bg_color(ui_PhotoStartBtn, COLOR_PANEL_LIGHT_GRAY,
                               LV_PART_MAIN);
 
     // Reset visual values
@@ -5057,30 +5899,30 @@ void UI_SyncAll() {
       char buf[16];
       snprintf(buf, sizeof(buf), "%d min", photoTimerMinutes);
       if (ui_PhotoTimeValueLabel)
-        lv_label_set_text(ui_PhotoTimeValueLabel, buf);
+        ui_set_label_text(ui_PhotoTimeValueLabel, buf);
 
       if (ui_PhotoStartLabel)
-        lv_label_set_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
+        ui_set_label_text(ui_PhotoStartLabel, TR(STR_PHOTO_START));
     }
 
     if (ui_PhotoCancelBtn)
-      lv_obj_add_flag(ui_PhotoCancelBtn, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_PhotoCancelBtn, true);
     if (ui_PhotoLockCont)
-      lv_obj_add_flag(ui_PhotoLockCont, LV_OBJ_FLAG_HIDDEN);
+      ui_set_hidden(ui_PhotoLockCont, true);
     photoTimerActive = false; // Safety
   }
 
   // Panel 2 is now handled above based on photoOn state
-  // lv_obj_set_style_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
-  lv_obj_set_style_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
+  // ui_set_bg_color(ui_Panel2, active_col, LV_PART_MAIN);
+  ui_set_opa(ui_Panel2, LV_OPA_COVER, LV_PART_MAIN);
 
   // 5. Skin Block (Switch 4). Same condition as temp_content_set_visible():
   // the baby-temperature controller belongs to a running thermal control, so
   // the skin block alone must not put it on screen.
   if (skinPanelEnabled && tempSwitched) {
-    lv_obj_clear_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_SkinPanelCont, false);
   } else {
-    lv_obj_add_flag(ui_SkinPanelCont, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_SkinPanelCont, true);
   }
 
   // 6. TabView Management
@@ -5093,38 +5935,41 @@ void UI_SyncAll() {
   }
 
   if (!switchTemp && !switchHum) {
-    lv_obj_add_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_TabView1, true);
   } else {
-    lv_obj_clear_flag(ui_TabView1, LV_OBJ_FLAG_HIDDEN);
+    ui_set_hidden(ui_TabView1, false);
     if (temp_tab_btn) {
       if (switchTemp)
-        lv_obj_clear_flag(temp_tab_btn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(temp_tab_btn, false);
       else
-        lv_obj_add_flag(temp_tab_btn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(temp_tab_btn, true);
     }
     if (hum_tab_btn) {
       if (switchHum)
-        lv_obj_clear_flag(hum_tab_btn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(hum_tab_btn, false);
       else
-        lv_obj_add_flag(hum_tab_btn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(hum_tab_btn, true);
     }
     if ((switchTemp && !switchHum) || (!switchTemp && switchHum)) {
       if (tab_btns_cont)
-        lv_obj_add_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(tab_btns_cont, true);
       lv_obj_clear_flag(
           lv_tabview_get_content(ui_TabView1),
           LV_OBJ_FLAG_SCROLLABLE); // Bloquear swipe si solo hay uno
     } else {
       if (tab_btns_cont)
-        lv_obj_clear_flag(tab_btns_cont, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(tab_btns_cont, false);
       lv_obj_add_flag(lv_tabview_get_content(ui_TabView1),
                       LV_OBJ_FLAG_SCROLLABLE); // Permitir swipe si hay dos
     }
 
-    if (switchTemp && !switchHum)
-      lv_tabview_set_act(ui_TabView1, 0, LV_ANIM_OFF);
-    else if (!switchTemp && switchHum)
-      lv_tabview_set_act(ui_TabView1, 1, LV_ANIM_OFF);
+    // Solo si cambia: lv_tabview_set_act() repinta la pestana aunque ya sea
+    // la activa.
+    const int wantTab =
+        (switchTemp && !switchHum) ? 0 : ((!switchTemp && switchHum) ? 1 : -1);
+    if (wantTab >= 0 && (int)lv_tabview_get_tab_act(ui_TabView1) != wantTab) {
+      lv_tabview_set_act(ui_TabView1, wantTab, LV_ANIM_OFF);
+    }
   }
 
   hmi_msg.language = (int)g_lang;
@@ -5134,6 +5979,9 @@ void UI_SyncAll() {
 
 static void UI_ApplyStyleToLabelsRecursive(lv_obj_t *obj, lv_color_t color) {
   if (!obj)
+    return;
+  // Texto con color propio (simbolos de los botones del heading, etc.).
+  if (lv_obj_has_flag(obj, UI_FLAG_KEEP_TEXT_COLOR))
     return;
 
   // Check if the object is a label.
@@ -5227,6 +6075,8 @@ void UI_ApplyTheme() {
     // de arriba se los acaba de llevar por delante.
     wifi_link_status_invalidate();
   }
+  // Mismo barrido: se lleva el amarillo del indicador de entorno del heading.
+  sb_env_heading_invalidate();
 
   // Images recoloring for Dark Mode (Originals are black, we want white)
   lv_color_t img_recolor =

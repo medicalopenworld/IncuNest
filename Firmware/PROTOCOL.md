@@ -108,8 +108,32 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
 > quedaba congelado con el valor del arranque. **Los campos de este mensaje son
 > estado vivo, no una instantánea de sincronización** — cualquier campo nuevo
 > debe poder asumir la cadencia de 1 Hz.
-**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars`
+**Formato**: `CTRL,STATE,act,mode,airSet,skinSet,humSet,photo,mute,sn,hwNum,hwRev,fwVer,numAlarms,skinE,commStatus,photoTimeRem,lang,probeState,alarmBitmask,silencedBitmask,almTest,silenceLeftS,linkBars,latchedBitmask,activeSeq`
 
+> 24 campos. Hasta 2026-10-25 esta tabla listaba 22 y el código mandaba 23:
+> `latchedBitmask` viajaba sin documentar desde que se implementó el reset
+> manual de los cortes térmicos (`HMI,ALM_RESET`). `activeSeq` (campo 24) se
+> añadió el mismo día para confirmar la identidad del paciente.
+
+- `photo`: estado **real** de la lámpara de fototerapia en la placa
+  (`in3.phototherapy`, lo aplicado), no el eco de la última orden del display.
+  *(Cambio 2026-10-25, `known_issues.md` #20: hasta entonces la placa devolvía
+  `g_last_cmd.phototherapyMode`, así que cualquier desacuerdo entre lo pedido y
+  lo aplicado se pintaba mal.)* **Única excepción**: durante una prueba de
+  fototerapia de depuración (`PHOTO,1`, §consola) emite la **orden del
+  display**, no el ON forzado, para que el display no lo adopte (ver allí por
+  qué). El display ADOPTA este campo
+  (`Display_ApplyCtrlState`) y lo devuelve en su keepalive; entre que el
+  operador toca el switch y la placa aplica la orden, una trama puede salir con
+  el valor anterior, y el display mantiene su valor local hasta que la placa lo
+  confirma. `act`, `mode`, `airSet`, `skinSet`, `humSet` y `skinE` **siguen
+  siendo el eco** de la última orden del display: no tienen un valor «real»
+  equivalente de una línea (la placa guarda una única consigna según el modo).
+  La placa descarta una trama `HMI,...` cuyo `photo` no sea 0 o 1.
+  **Despliegue**: junto con esto la placa puede declarar `ALARM_PHOTO_LAMP_FAULT`
+  (id 20 en `alarmBitmask`); un display anterior descarta la línea `CTRL,ALM`
+  de ese id (`id >= ALARM_COUNT`) y el aviso no se vería en pantalla. **Flashear
+  el HMI antes que la motherBoard.**
 - `commStatus`: transporte activo y si llega a servidor (`CommStatus` enum: `0`=ninguno,
   `1`=GPRS sin servidor, `2`=GPRS+servidor, `3`=WiFi sin servidor, `4`=WiFi+servidor).
   Alimenta el icono WIFI/2G/sin enlace del heading del display, además de la
@@ -149,6 +173,28 @@ Enviado **cada 1 segundo** (intercalado con `CTRL,TEL`) y además bajo petición
   próxima y no una por condición porque esa es la pregunta que contesta —
   cuándo vuelve el sonido—; el estado silenciada/no de cada condición ya viaja
   en `silencedBitmask`.
+- `latchedBitmask`: (Hexadecimal) un bit por `AlarmId` con las condiciones
+  **enclavadas** esperando reconocimiento: su condición física ya se ha ido
+  pero siguen señalizando porque 60601-2-19 201.15.4.2.1 aa)/bb) exige que los
+  cortes térmicos operen hasta un reset manual. El display usa este campo para
+  ofrecer el botón de reset **solo cuando sirve de algo**; la decisión sigue
+  siendo de la placa (`HMI,ALM_RESET` pasa por `alarm_machine_reset()`, que
+  rechaza lo que no proceda). Campo añadido después de `linkBars`: una placa
+  antigua que no lo mande hace que el HMI asuma `0` (nada enclavado) y no
+  ofrezca el botón.
+- `activeSeq` (campo 24, `%u`): `seq` del perfil de bebé que la placa tiene **al
+  mando** (`babyStore_getActiveSeq()`), o `0` si no tiene ninguno. La placa lo
+  fija en el flanco de encendido de cualquier terapia, con el bebé del último
+  `PROFILE_NEW`/`PROFILE_SELECT`, y lo borra al apagarse todas; sobrevive a un
+  reinicio de la placa. Es lo que permite al HMI **contrastar** la identidad que
+  restauró de su NVS (`hmi-patient-identity`): un `seq` solo identifica a un
+  bebé dentro de una placa, y los `seq` de dos placas colisionan.
+  - **Compatibilidad**: campo final y opcional, como `linkBars`. Una placa
+    anterior no lo manda y el HMI lo interpreta como **desconocido**, no como
+    `0`: `0` significa «la placa no tiene bebé al mando», que es información, y
+    confundirlos haría borrar una identidad válida. Un HMI anterior ignora el
+    campo que le sobra. No exige actualizar las dos placas a la vez.
+  - Otras ramas añadirán campos detrás: el 24 queda reservado para `activeSeq`.
 
 #### CTRL,TEL (Telemetría en tiempo real)
 Enviado cada 1 segundo (intercalado con STATE).
@@ -170,43 +216,235 @@ Enviado cada 1 segundo (intercalado con STATE).
   presentación no cambia el control.
 
 #### CTRL,PROBE (Estado de contacto de la sonda SpO2)
-Enviado cada 2 segundos **mientras el estado no sea `2` (APPLIED)**, y una vez
-de forma inmediata en la transición a `2`. Mientras hay contacto válido no se
-repite: en su lugar viaja `CTRL,VIT`.
+Enviado de forma inmediata **en cada cambio de estado**, y además cada
+2 segundos **mientras el estado no sea `2` (APPLIED)**. Mientras hay contacto
+válido no se repite: en su lugar viaja `CTRL,VIT`.
+
+También se envía, sea cual sea el estado, **cuando el display pide el estado**
+(`HMI,UI_READY` al arrancar y `HMI,REQ,STATE`), desde la motherBoard 18.63.0.
+Sin esto, un display que arrancaba con la sonda ya colocada no recibía nunca el
+estado `2` y dejaba oculto el panel de pulsioximetría hasta que la sonda se
+quitaba y se volvía a poner.
+
+Hasta la motherBoard 18.62.0 solo era inmediata la transición a `2`. Las demás
+esperaban al bloque de 1 Hz: hasta 1 s al retirar la sonda y hasta 2 s entre
+dos estados sin contacto. La librería filtra los cambios de estado (0,2 s), así
+que el aviso inmediato no puede inundar el enlace. La repetición de 2 s se
+cuenta desde el último aviso enviado.
 **Formato**: `CTRL,PROBE,state`
 
 - `state` es el valor crudo del enum `ProbeState` de la librería
-  `incunest_afe4490`. **El rango no es 0–2**:
+  `incunest_afe4490` (anclada en `motherBoard/platformio.ini`, hoy `#v0.124`).
+  **El rango no es 0–2, y desde la v0.90 de la librería tampoco es 0–3**:
 
   | `state` | Significado |
   |---|---|
   | `0` | `DISCONNECTED` — sonda o conector sin enchufar |
-  | `1` | `NOT_APPLIED` — sonda conectada, sin tejido en el camino óptico |
+  | `1` | `OT_HIGH` (antes `NOT_APPLIED`; mismo valor, renombrado en v0.90) — sonda conectada, los dos canales superan el umbral de transmitancia óptica: no hay tejido en el camino óptico |
   | `2` | `APPLIED` — sonda sobre el paciente, medida normal |
-  | `3` | `SATURATING` — canal saturado por exceso de luz; la presencia de tejido es **desconocida**, así que **no** implica `APPLIED` |
+  | `3` | `AMB_SATURATING` (antes `SATURATING`; mismo valor, renombrado en v0.90) — satura también el canal ambiente (luz externa, p. ej. la lámpara de fototerapia); la presencia de tejido es **desconocida**, así que **no** implica `APPLIED` |
+  | `4` | `ONLY_LED_SATURATING` (nuevo en v0.90) — satura solo la fase LED, el ambiente queda limpio: la luz del propio LED llega al fotodiodo sin nada que la atenúe |
 
-- `3` es el estado habitual justo al **retirar** la sonda: queda expuesta a la
-  luz ambiente y el ADC se va al raíl positivo. Un receptor que solo acepte
-  `0..2` descarta ese mensaje y se queda con el último `APPLIED` (fallo real
-  corregido: la gráfica PPG no se ocultaba al quitar la sonda).
+- **En esta placa `4` es el estado habitual de "sonda retirada"**, no `3`. Con
+  el HGAC encendido, sin dedo los dos canales LED se van al raíl positivo del
+  ADC con el ambiente limpio, que es exactamente la firma de `4`; `3` exige
+  además que sature el ambiente. Con la librería v0.81 ese mismo caso físico
+  se reportaba como `1`.
+- Receptores anteriores al `Display_HMI` 4.3.0 validaban `0..3` y convertían
+  cualquier otro valor —incluido el `4`— en `1`. Lo que se pinta no cambia
+  (todo lo que no es `2` es "sin contacto válido"); lo que se pierde es poder
+  distinguir sonda retirada (`4`) de sonda deslumbrada (`3`). Desde la 4.3.0 el
+  display tiene su propio tipo espejo del de la librería
+  (`Display_HMI/include/protocol/spo2_probe.h`, con test de host).
+- Un receptor que solo acepte un rango cerrado y **descarte** el resto se queda
+  con el último `APPLIED` (fallo real corregido: la gráfica PPG no se ocultaba
+  al quitar la sonda, cuando el `3` llegaba fuera de `0..2`).
+- **`0` también significa "sin señal del AFE"** (motherBoard desde mb-hw19, todas
+  las revisiones). Si el AFE4490 deja de entregar muestras durante más de 1 s,
+  la motherBoard **sintetiza `probe_state = 0` (`DISCONNECTED`)**: el último dato
+  (incluido un `2` anterior) está congelado y no debe seguir pintándose como
+  constante vital en vivo. El efecto sobre el enlace es el que ya tiene cualquier
+  estado distinto de `2`: se deja de emitir `CTRL,VIT` y `CTRL,PPG` y pasa a
+  emitirse `CTRL,PROBE,0` cada 2 s, que el HMI ya trata como "sin contacto
+  válido". El receptor no distingue "sonda sin enchufar" de "AFE parado"; la
+  causa va al log de la motherBoard y a la telemetría (`AFE_stalls`, a los
+  10 s). Al volver las muestras el estado real se restablece solo.
 - **Regla fail-safe para el receptor**: solo `2` habilita mostrar traza y HR.
   Cualquier otro valor parseable —incluido uno que esta versión no conozca—
   debe tratarse como "sin contacto válido"; nunca descartarse. Si la librería
-  añade un estado, hay que reflejarlo aquí y en `Display_HMI`'s `CommTask.h`.
+  añade un estado, hay que reflejarlo aquí y en `spo2_probe.h`.
+
+#### CTRL,ENV (Entorno de la SensorBoard: puerta, luz y ruido)
+Enviado **solo por equipos con SensorBoard** (los antiguos, con el bus I2C2, no
+lo emiten y el display no pinta nada): **al instante** si cambia `link` o `door`
+y **cada 5 s** (`PROTO_ENV_PERIOD_MS`) si no hay cambios. También se re-envía
+al recibir `HMI,REQ,STATE`, para que un display recién arrancado no espere un
+periodo. No va a 1 Hz a propósito: es dato lento y no hay motivo para cargar la
+UART. No es un campo de `CTRL,STATE` porque esa línea va al filo de su buffer
+(`msg[192]`) y porque todo campo de `STATE` debe aguantar 1 Hz.
+
+**Formato**: `CTRL,ENV,link,door,lux,dbA`
+
+| campo | valores |
+|---|---|
+| `link` | `1` enlace USB con la SensorBoard vivo (heartbeat < 90 s); `0` caído |
+| `door` | `0` cerrada, `1` abierta, `2` fallo del hall (la condición de `ALARM_SENSORBOARD_DOOR_FAULT`), `-1` desconocida |
+| `lux` | entero ≥ 0, o `-1` |
+| `dbA` | entero ≥ 0, o `-1` |
+
+- **No disponible = `-1`, nunca `0`** (mismo criterio que `CTRL,TEL`: `0` es un
+  valor plausible y se lee como medida). Con `link=0` los tres viajan como `-1`
+  (`CTRL,ENV,0,-1,-1,-1`): no se manda la última lectura buena. Un `lux` o `dbA`
+  rancio (más viejo que `SB_ENV_STALE_MS`/`SB_SOUND_STALE_MS`) o marcado no
+  válido también es `-1`; una puerta sin evento reciente
+  (`SB_DOOR_STALE_MS`) es `-1`, y `door=2` manda sobre el último estado.
+- **`lux` y `dbA` van sin calibrar** (`SensorBoard_v2/ESTADO.md`: el micrófono da
+  ~60 dB en reposo y el ALS no tiene conversión a lux fiable). El display **no
+  los pinta como medida**: clasifica el ruido en Bajo/Medio/Alto con umbrales
+  provisionales (`<65`, `65..74`, `>=75` dBA crudos, en `sb_env.h`) y no usa la
+  luz. Al calibrar hay que sustituir esos umbrales.
+- Constantes compartidas en `shared/include/protocol.h` (`PROTO_ENV_*`). La línea
+  mide como mucho `PROTO_ENV_LINE_MAX` (39) caracteres más el `\n`.
+- **Compatibilidad**: un display que no conozca el mensaje ignora la línea (cae
+  al final de la cadena de `parse_message`); un display nuevo con una placa que no
+  lo envíe no pinta nada. El parser del HMI es estricto con los cuatro primeros
+  campos y tolera campos extra al final. Un `CTRL,ENV` rancio (> 15 s) se ignora
+  en el display.
+- Es solo informativo: la puerta **no** entra en el lazo térmico ni genera alarmas
+  nuevas. El fallo del hall ya lo señaliza `ALARM_SENSORBOARD_DOOR_FAULT`.
+
+#### CTRL,BATT (Indicador de batería)
+> **Desactivado hoy** (`PROTO_BATT_ENABLED 0` en `shared/include/protocol.h`,
+> 2026-10-28): la motherBoard no envía la línea y el display no crea el
+> indicador hasta que la batería entre en fabricación. Hay equipos con un
+> adaptador de 12 V en los bornes de la batería, donde el cargador ve una
+> "batería" sin red. Lo que sigue describe el comportamiento con el flag a 1.
+
+Enviado **solo por equipos con cargador BQ25730** (HW ≥ 17) y solo cuando el
+estado es conocido: **al instante** si cambia `state` o `level`, **cada 5 s**
+(`PROTO_BATT_PERIOD_MS`) si no, y de nuevo al recibir `HMI,REQ,STATE`. Lo estima
+la motherBoard (`modules/control/battery_gauge.h`) con cada lectura completa
+del cargador (1 Hz).
+
+**Formato**: `CTRL,BATT,state,level,pct`
+
+| campo | valores |
+|---|---|
+| `state` | `1` descargando (sin red), `2` cargando (con red, absorción), `3` lleno (con red, flotación). `0` (desconocido) no se envía |
+| `level` | rayas `0..4` según `pct` (≥75/50/25/10). En `3` vale `4` |
+| `pct` | `0..100`. Cargando, como mucho `99` |
+
+- **Sin red, estimación por tensión**: tensión de la batería corregida por la
+  caída resistiva (`Idescarga × 50 mΩ`), media móvil de ~8 s y curva de reposo
+  de una batería de plomo de 12 V. Al empezar la descarga se toma el menor entre
+  eso y el último porcentaje conocido; durante la descarga solo baja.
+- **Con red, por la carga que entra**: desde el último porcentaje conocido se
+  suma la corriente de carga integrada sobre 9 Ah con un 85 % de rendimiento,
+  con tope en 99 % hasta la flotación (100 %). El último porcentaje se guarda en
+  NVS (`batt`/`pct`) cada 5 puntos y sobrevive a un apagado; sin nada guardado
+  se parte de 0. El display pinta, cargando, una raya fija por cada cuarto
+  completo (`pct / 25`, como mucho 3) y hace parpadear la siguiente.
+- Error típico de 10–20 puntos.
+- Constantes en `shared/include/protocol.h` (`PROTO_BATT_*`). La línea mide como
+  mucho `PROTO_BATT_LINE_MAX` (24) caracteres más el `\n`.
+- **Compatibilidad**: un display que no lo conozca ignora la línea; un display
+  nuevo con una placa que no lo envíe pinta la pila vacía en ámbar mientras esté
+  activa `ALARM_MAINS_INTERRUPTION`, y nada en otro caso. El parser del HMI es
+  estricto con los tres primeros campos y tolera campos extra al final. Un
+  `CTRL,BATT` rancio (> 15 s) se ignora.
+- Solo informativo: la alarma de corte de red es `ALARM_MAINS_INTERRUPTION` y no
+  depende de esta línea.
 
 #### CTRL,PPG (Onda pletismográfica)
-Enviado a 25 Hz (cada 40 ms) **solo** cuando el estado de sonda es `2`.
+Enviado a **50 Hz** (cada 20 ms) **solo** cuando el estado de sonda es `2`.
+Hasta la motherBoard 18.53.0 iba a 25 Hz (un número redondo del primer
+`CTRL,PPG`, nunca revisado); desde la 18.57.0 va a 50 Hz para que el Nyquist
+del transporte (25 Hz) quede por encima del paso banda de display de la
+librería (0,5–20 Hz), el frente sistólico tenga 5–7 muestras y, a 25 mm/s, cada
+muestra ocupe 2,6 px. **La tasa es una constante del contrato**: el HMI deriva
+su número de puntos de ella y de la velocidad de barrido (desde el HMI 4.8.0,
+250 puntos = 5 s a 25 mm/s en el chart de 649 px; en el 4.7.0, 177 puntos =
+3,5 s en 460 px; antes 128 puntos a 25 Hz = 5,1 s a ~17 mm/s). Una pareja
+desparejada no rompe nada, solo muestra una
+ventana de tiempo equivocada (MB nueva + HMI viejo: 2,6 s; MB vieja + HMI
+nuevo: 7 s). El HMI 4.7.0 encola las muestras (FIFO de 32) entre el parser y
+la interfaz; hasta la 4.5.0 era un buzón de una plaza que perdía una muestra
+cada vez que un repintado duraba más que un periodo.
+Desde la motherBoard 18.59.0 la cadencia la marca `SPO2_Task`, que lee la
+librería 50 veces por segundo: sale una línea por cada muestra leída. Hasta la
+18.58.0 `CommTask` llevaba su propio reloj de 20 ms. La tasa en el cable es la
+misma.
 **Formato**: `CTRL,PPG,value`
-- `value`: muestra normalizada `0..255`, escala fija (128 = línea base). No va
-  condicionada a la validez de SpO2: la librería reinicia un calentamiento de
-  SpO2 de ~18 s en cada aplicación de sonda, y condicionar la traza a eso la
-  dejaba plana 19 s.
+- `value`: muestra `0..255` (128 = línea base). Es una muestra de `ppg_disp`
+  de cada diez (la librería las produce a 500 Hz), sin promediar y con unos
+  20 ms de retraso (hasta la 18.58.0, la última muestra en el instante del
+  envío): el filtro de display de la librería es quien limita la banda
+  (regla del consumidor de la
+  spec §5.9 de `incunest_afe4490` v0.119, con el lado alto de 5.º orden:
+  `f_high ≤ 0,4 × tasa de transporte` da ≥ 10 dB en el Nyquist del transporte,
+  `≤ 0,3 ×` da ≥ 20 dB; con 20 Hz a 50 Hz, −10 dB a 25 Hz y −41 dB a 50 Hz;
+  el contenido medido de la PPG neonatal por encima de 25 Hz es despreciable
+  con cualquiera de los dos). Desde la motherBoard 18.57.0
+  (`incunest_afe4490` v0.119, modo `NORM_PI`) la escala la pone la librería:
+  `ppg_disp` llega en `[-1, +1]`, centrado y escalado por su propio seguidor de
+  envolvente, con la amplitud en función del índice de perfusión (tamaño
+  completo con PI ≥ 2 %, la mitad con PI ≤ 0,5 %, logarítmico entre medias), y
+  la motherBoard solo hace `128 + ppg_disp × 127`. Con el 15 % de margen que
+  deja la librería un latido normal ocupa ~17..239; vale 128 mientras la sonda
+  no está aplicada o durante el primer segundo tras aplicarla (la traza queda a
+  media altura hasta que la librería publica el PI, 6 s después). Hasta la 18.53.0
+  era una escala fija en A/A (`1,6e-8` por LSB, nunca medida en banco). El HMI
+  no cambia: dibuja `0..255` en un rango fijo. No va condicionada a la validez
+  de SpO2: la librería reinicia un calentamiento de SpO2 de ~18 s en cada
+  aplicación de sonda, y condicionar la traza a eso la dejaba plana 19 s.
 
 #### CTRL,VIT (Constantes vitales fusionadas)
 Enviado cada 1 segundo **solo** cuando el estado de sonda es `2`.
 **Formato**: `CTRL,VIT,hr,spo2,pi`
-- `hr`: `0` = sin valor válido (el HMI muestra `--`).
+
+Desde la motherBoard 18.59.0 los tres campos son los **valores de pantalla** de
+`incunest_afe4490` v0.124 (`hr_disp`, `spo2_disp`, `pi_disp`; su
+especificación, §2.1.2): el número que un monitor debe enseñar, finito, o NaN
+si hay que pintar guiones. El formato de la línea y lo que hace el HMI no
+cambian. El estado que acompaña a cada valor en la librería (sin sonda,
+adquiriendo, actual, mantenido, señal inadecuada) todavía no viaja en el
+protocolo.
+- `hr`: lpm, entero. `0` = sin valor válido (el HMI muestra `--`). El rango lo
+  decide `incunest_afe4490` (hoy 30–260); desde la motherBoard 18.57.0 y el HMI
+  4.7.0 pueden pasar valores mayores que 255. Es `hr_disp`: HR2 y HR3 de
+  acuerdo (menos de 8 lpm de diferencia, SQI mayor ≥ 0,8 y menor ≥ 0,5), media
+  ponderada por SQI; se enseña cuando el acuerdo dura más de 1 s y, tras una
+  interrupción de más de 2 s, se vuelve a exigir esa espera. Hasta la 18.58.0
+  la misma regla la aplicaba `CommTask`, contando vueltas de su bloque de 1 Hz
+  (2 buenas seguidas para enseñar, 3 malas para volver a exigirlas).
+- `spo2`: %, entero. `0` = sin valor (el HMI muestra `--`). Es la SpO2 de
+  `incunest_afe4490` redondeada (`spo2_disp`, que hoy es su `spo2` tal cual),
+  y `0` solo cuando la librería no publica valor
+  (SpO2 NaN: calentamiento, o retenida por alguna de sus puertas). Se envía
+  también con perfusión baja: `spo2_sqi` **no** indica si hay valor, es una
+  rampa del PI entre 0,5 y 2 % y vale `0` con PI ≤ 0,5 % aunque la SpO2 sea
+  válida. Hasta la motherBoard 18.53.0 el campo era siempre `0`; desde la
+  18.57.0 lleva la SpO2, y el HMI la muestra desde la 4.7.0.
 - `pi` es opcional; el HMI acepta la línea con 2 o 3 campos.
+- `pi`: índice de perfusión en %, con dos decimales. Desde la motherBoard
+  18.57.0 es **PI_pp** (pico a pico: 2√2·RMS de la banda 0,5–15 Hz entre el DC
+  del IR, ventana de 6 s; `PI-METHOD-1` de `incunest_afe4490`). Hasta la 18.53.0
+  era **PI_rms**; para la misma señal PI_pp ≈ 2,8–3,2 × PI_rms (2,83 exacto solo
+  en una senoide). Lo mismo vale para la clave de telemetría `PI`
+  (`telemetry_keys.h`). Desde la motherBoard 18.58.0 (`incunest_afe4490`
+  v0.120+) sigue siendo pico a pico, pero es la mediana de subventanas de 1 s
+  sobre una ventana de 7 s (`PI-METHOD-2`): la misma cifra con señal estable,
+  y ya no sube con una ráfaga de movimiento de menos de 2 s.
+  `0.00` = sin valor (el HMI muestra `--`), como en `hr` y `spo2`. Hasta la
+  motherBoard 18.57.0 viajaba `nan` cuando la librería no tenía PI. El HMI lo
+  muestra desde la 4.7.0: dos decimales por debajo del 1 %, uno a partir de
+  ahí, y `--` si no es mayor que 0 (lo que también descarta el `nan` de una
+  motherBoard anterior).
+- Los tres campos siguen la misma regla desde la 18.58.0. La librería publica
+  cada magnitud como un número finito o como NaN, y NaN es la única forma de
+  decir «sin valor» (su especificación, §2.1.1 y, para los valores de
+  pantalla, §2.1.2). La motherBoard lo traduce a `0` en un solo sitio
+  (`modules/util/vitals_out.h`) y nunca decide con un SQI.
 
 #### CTRL,ALM (Evento de Alarma)
 Enviado cuando una alarma cambia de estado.
@@ -223,7 +461,7 @@ Enviado cuando una alarma cambia de estado.
 
 #### CTRL,TIME (Reloj de pared)
 Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
-**Formato**: `CTRL,TIME,epoch,tzq,tzsrc`
+**Formato**: `CTRL,TIME,epoch,tzq,tzsrc,src`
 - `epoch`: hora Unix UTC de la motherboard, o `0` si aún no ha sincronizado.
 - `tzq`: offset de zona horaria en **cuartos de hora** (`-48`..`+56`, o sea
   UTC-12:00..UTC+14:00). Cuartos y no horas porque existen husos no enteros
@@ -236,22 +474,60 @@ Enviado cada 10 segundos (y una vez al arrancar la tarea de comunicación).
   **No es redundante con `tzq`**: sin él, «offset 0 porque estamos en Togo» y
   «offset 0 porque no lo sabemos» son indistinguibles, y el HMI no puede
   decidir si pintar la hora o el aviso «Sin hora».
-- **`tzq`/`tzsrc` son opcionales**: una motherBoard anterior a esta versión
-  envía solo `epoch`, y el HMI lo interpreta como `tzsrc=0` (hay hora, no hay
-  zona). Al revés también funciona: un HMI antiguo ignora los campos de más.
+- **`tzq`/`tzsrc`/`src` son opcionales**: una motherBoard anterior a esta
+  versión envía solo `epoch`, y el HMI lo interpreta como `tzsrc=0` (hay hora,
+  no hay zona) y `src=0` (hay hora, no se sabe de dónde). Al revés también
+  funciona: un HMI antiguo ignora los campos de más. El parseo es por número de
+  campos encontrados, nunca por índice fijo.
 - **La zona nunca altera un epoch.** Todo lo que se almacena o se transmite
   —historial de alarmas, perfiles, Drive, ThingsBoard— sigue en UTC; el offset
   se aplica solo al formatear para una persona. Un cambio de offset no
   reinterpreta ningún registro ya escrito.
-- Prioridad entre fuentes: **NITZ gana a IP, siempre**. La antena está
-  físicamente donde está el equipo; una IP puede ser de una VPN, un enlace
+- Prioridad entre fuentes **de huso**: **NITZ gana a IP, siempre**. La antena
+  está físicamente donde está el equipo; una IP puede ser de una VPN, un enlace
   satelital o la sede del operador en otro país.
-- La motherboard es la **única** fuente de hora del sistema (NTP por WiFi);
-  el HMI no tiene RTC ni sincroniza por su cuenta. El HMI interpola con su
-  propio `millis()` entre difusiones (`HMI_GetEpochNow()`).
+- `src`: rango de la fuente que fijó **el epoch**. `0`=desconocido,
+  `1`=NITZ, `2`=RTC del HMI, `3`=NTP/SNTP, `4`=puesto a mano. **Gana el
+  mayor.** También es opcional: una motherBoard anterior no lo envía y el HMI
+  lo interpreta como `0`, y un HMI antiguo que lo reciba lo ignora.
+- **`src` y `tzsrc` son escalas DISTINTAS.** `src` ordena el instante y
+  `tzsrc` el huso, y no coinciden ni en los valores ni en el orden: NITZ es la
+  **peor** fuente de hora y la **mejor** de huso. Están separadas justo para
+  poder decir eso. Los valores de una nunca se pasan a la otra.
+- La motherboard es la **única** autoridad de hora del sistema: es la que
+  arbitra entre manual, NTP, RTC y NITZ, y la única que fija el reloj. El HMI
+  no decide nada sobre la hora — solo **lee** su RTC al arrancar para
+  ofrecérselo (`HMI,RTC_TIME`) y lo **escribe** con lo que la motherboard
+  difunda. Entre difusiones interpola con su propio `millis()`
+  (`HMI_GetEpochNow()`).
 - Cadencia de 10 s a propósito, no 1 Hz: el HMI solo la necesita para
   formatear fechas, y `known_issues.md` #2 desaconseja añadir tráfico UART
-  periódico evitable.
+  periódico evitable. El campo `src` **no añade ningún mensaje**: viaja dentro
+  de esta difusión que ya existía.
+
+#### HMI,RTC_TIME (Semilla del RTC del HMI)
+El HMI lleva un **PCF8563** con pila (I2C `0x51`, en el bus del táctil). Es la
+única pieza del equipo que conserva la hora con la alimentación cortada, así
+que tras un ciclo de alimentación es la única que puede decir qué día es
+mientras no haya red.
+
+**Formato**: `HMI,RTC_TIME,epoch,tzq,tzsrc`
+- Mismos campos y mismas unidades que `CTRL,TIME`, porque es literalmente lo
+  que el HMI guardó de la última difusión: el epoch en el chip y el huso en su
+  NVS (el PCF8563 no tiene RAM de usuario donde guardarlo).
+- La motherboard lo trata como una fuente de rango `2` (RTC). O sea que lo
+  adopta cuando aún no tiene hora, y lo **descarta** si ya la fijó por NTP o a
+  mano. NITZ sí queda por debajo y no lo desplaza.
+- Se descarta también, en silencio y sin tocar el reloj, si la línea viene mal
+  formada o si el epoch cae fuera de `[2021-01-01, 2100-01-01)` — la misma
+  ventana que impone `civil_to_unix_utc()`.
+- El HMI **no** lo envía periódicamente. Lo manda al arrancar y después solo
+  mientras la motherboard siga difundiendo `epoch=0`, como mucho uno por cada
+  `CTRL,TIME` recibido; en cuanto la motherboard anuncie hora, se calla hasta
+  el siguiente reinicio. Esta restricción responde a `known_issues.md` #2.
+- El HMI escribe su RTC solo cuando el `CTRL,TIME` recibido trae un `src`
+  mejor que el que tiene guardado, o del mismo rango con más de 2 s de deriva.
+  Nunca de forma periódica: el I2C es el mismo bus del táctil.
 
 #### HMI,SET_TIME
 Ajuste manual del reloj desde la pantalla táctil de la HMI: se toca la propia
@@ -357,6 +633,30 @@ Descripción de una alarma concreta, ya traducida.
   `known_issues.md` #2 documenta una inundación real de UART por tráfico
   periódico evitable.
 
+#### CTRL,SERVICE (Horas de uso desde el último servicio)
+Aviso de servicio por horas de uso de cada actuador con vida útil acotada. Es
+**información, no una alarma**: no hay `AlarmId` ni suena el zumbador.
+**Formato**: `CTRL,SERVICE,n{,id,horasDesdeServicio,umbralHoras}×n`
+- `n`: número de entradas (0 a 4). `id`: 0 calefactor, 1 ventilador,
+  2 humidificador, 3 fototerapia (`ServiceActuator` en
+  `shared/include/service_hours_proto.h`; solo se añaden ids al final).
+- `horasDesdeServicio`: horas de uso enteras (hacia abajo) desde el último
+  `HMI,SERVICE_DONE` de ese actuador, es decir, contador de vida − base. Si el
+  contador de vida es menor que la base (NVS borrada), vale el contador.
+  `umbralHoras`: umbral compilado en la placa
+  (`motherBoard/include/config/service_thresholds.h`, provisionales); **0 = sin
+  aviso** para ese actuador. Vencido = `horas >= umbral`.
+- Ejemplo: `CTRL,SERVICE,4,0,12,5000,1,30,10000,2,2001,2000,3,0,10000`
+- Se envía al recibir `HMI,UI_READY`, al recibir `HMI,SERVICE_REQ`, tras
+  registrar un `HMI,SERVICE_DONE` (con los valores ya actualizados, que hace de
+  confirmación) y cada hora. No va dentro de `CTRL,STATE`.
+- El HMI descarta la línea entera si es malformada (n incoherente con los
+  campos, no numérico, id desconocido o repetido) y conserva el último estado
+  válido.
+- Los contadores de vida útil (NVS `heater_t`, `fan_t`, `hum_t`, `photo_t`;
+  telemetría `*_active_time`) NO se reinician al registrar un servicio y se
+  siguen publicando tal cual a ThingsBoard.
+
 ### 2. Mensajes del Display (HMI → MCU)
 
 #### HMI,UI_READY (Handshake Crítico)
@@ -380,12 +680,18 @@ Solicitud manual de sincronización completa.
 Pide la lista de perfiles activos. Respuesta: `CTRL,PROFILE_LIST`.
 
 #### HMI,PROFILE_NEW
-Crea un perfil de bebé nuevo (el wizard de activación).
+Crea un perfil de bebé nuevo. Lo envían el wizard de activación (BEBE NUEVO
+al confirmar las semanas) y la pantalla Bebes (BEBE NUEVO → nombre, semanas,
+peso → REGISTRAR; en este camino la HMI no lo envía si ya hay 3 activos).
 **Formato**: `HMI,PROFILE_NEW,name,gestWeeks`
 - `name`: sin comas (el teclado del HMI bloquea la tecla; la placa además
   las filtra defensivamente). Máx. 23 caracteres.
 - Respuesta: `CTRL,PROFILE_ACK,seq`. Si los 3 slots están llenos, se
   desaloja por FIFO (menor `seq`) el que no esté controlando (`activeSeq`).
+- El perfil (nombre, semanas, `admissionEpoch` = ahora, `weightGrams` = 0) se
+  **persiste en NVS en este mismo mensaje** (`babyStore_createProfile`):
+  un reinicio después del ACK conserva el bebé aunque nunca llegue
+  `PROFILE_WEIGHT`.
 
 #### HMI,PROFILE_SELECT
 Selecciona un bebé existente para el wizard.
@@ -397,8 +703,9 @@ Peso actual del bebé del wizard (o SKIP si no se conoce).
 - Con peso: actualiza el último peso conocido y añade un punto
   `(timestamp,grams)` a la curva de evolución (deduplicado si no cambió).
 - Respuesta: `CTRL,PROFILE_RANGE`.
-- Hasta este mensaje NADA se persiste del wizard en curso (un reinicio a
-  mitad de wizard no toca los slots).
+- Con `SKIP` no se persiste nada nuevo (el perfil ya quedó en NVS con
+  `PROFILE_NEW`); por eso la pantalla Bebes no envía `SKIP` cuando se
+  registra SIN PESO.
 
 #### HMI,PROFILE_AGE_MANUAL
 Edad en días introducida a mano (solo cuando `CTRL,PROFILE_RANGE` llegó con
@@ -446,6 +753,21 @@ Curva de peso de cualquier bebé (activo o archivado).
 Registro completo de alarmas (últimas 10).
 **Formato**: `HMI,ALM_HISTORY_REQ` → `CTRL,ALM_HISTORY`
 
+#### HMI,SERVICE_REQ
+Pide el estado de servicio por horas ahora (el HMI lo manda al abrir la vista de
+servicio y, cada 30 s, mientras no haya recibido ningún informe).
+**Formato**: `HMI,SERVICE_REQ` → `CTRL,SERVICE`
+
+#### HMI,SERVICE_DONE
+Registra que se ha hecho el servicio de un actuador.
+**Formato**: `HMI,SERVICE_DONE,id` → `CTRL,SERVICE` (ya actualizado)
+- La placa guarda en NVS (`mb_rt`) las horas de vida actuales del actuador como
+  base (`svc_b_heater`, `svc_b_fan`, `svc_b_hum`, `svc_b_photo`, float) y el
+  epoch UTC del servicio (`svc_e_*`, uint32; 0 si no hay hora válida). Si la
+  escritura falla no cambia nada y no hay respuesta.
+- `id` fuera de `[0, 4)`, vacío o no numérico se descarta con log, sin efecto.
+- El HMI exige dos pasos (HECHO y CONFIRMAR) y no lo manda en modo formación.
+
 #### HMI,ALM_DESC_REQ
 Descripción de una alarma concreta, para el pop-up de detalle.
 **Formato**: `HMI,ALM_DESC_REQ,id` → `CTRL,ALM_DESC`
@@ -461,6 +783,24 @@ AUDIO PAUSED de **una** condición concreta.
   inactivation state"*).
 - Silenciar una condición no afecta a las demás (6.8.1).
 - `id` fuera de rango o línea malformada: descarte con log.
+
+#### HMI,ALM_RESET
+Reset manual de una condición **enclavada** (los cortes térmicos, latching
+según 60601-2-19 201.15.4.2.1 aa)/bb)) cuya condición física ya ha
+desaparecido.
+**Formato**: `HMI,ALM_RESET[,id]` (sin respuesta propia; si algo se resetea la
+placa fuerza un `CTRL,STATE` inmediato para que el botón no parezca inerte, y
+el efecto se observa en `latchedBitmask` y `alarmBitmask`)
+- Sin `id`, o con `id=0`: resetea todas las condiciones enclavadas que se dejen.
+- Con `id`: solo esa condición.
+- La política vive en un único sitio, `alarm_machine_reset()`: rechaza la
+  petición si la condición no es latching o si **su condición sigue
+  presente**. El operador no puede hacer desaparecer un aviso vivo pulsando un
+  botón; solo reconoce uno que ya se ha resuelto.
+- Una condición que no esté enclavada se ignora sin error. Resultado
+  (reseteadas/rechazadas) en el log `[ALARM] ALM_RESET`.
+- El display solo ofrece el botón cuando `latchedBitmask` de `CTRL,STATE`
+  tiene algún bit a 1.
 
 #### HMI (trama de estado periódica)
 El display manda su trama **al menos cada 1 s** (`HMI_KEEPALIVE_PERIOD_MS`),
@@ -482,6 +822,94 @@ Lanza la prueba de funcionamiento de las señales de alarma
   patrón de una alarma real: el operador dejaría de poder identificar qué suena
   (6.3.2.2.2).
 - No toca actuadores ni declara condición alguna.
+
+### 2.bis Consola de depuración (NO es este protocolo)
+
+La motherBoard tiene **dos** puertos serie y conviene no confundirlos:
+
+| puerto | objeto | pines | qué lleva |
+|---|---|---|---|
+| enlace con el display | `Serial1` (`hmiSerial`) | TX 15 / RX 16 | todo lo descrito en este documento |
+| consola de depuración | `Serial` (`debugSerial`) | UART0 (el del flasheo) | el log, y dos comandos de banco |
+
+#### `PHOTO,<0|1>` — fototerapia desde el modo depuración
+
+Enciende (`1`) o suelta (`0`) la fototerapia sin nadie en la pantalla, para
+probar el lazo de intensidad en banco.
+
+- **`PHOTO,1` exige el modo depuración encendido** (`POST /debug/mode?on=1`); si
+  no, se rechaza con `PHOTO,1 rechazado: el modo depuracion esta apagado`.
+  `PHOTO,0` se acepta siempre: apagar nunca es lo peligroso.
+- **Solo por esta consola, sin endpoint HTTP, a propósito.** Acciona un
+  actuador sobre un paciente; la consola exige acceso físico al USB de la
+  placa, y `/debug/*` se alcanza desde toda la red con una contraseña que viaja
+  en claro (`known_issues.md` #16).
+- Se aplica en el siguiente tick de la placa (no espera ninguna trama del
+  display), por el mismo camino que una orden real, así que lo que se prueba es
+  el lazo de producción.
+- **El ON forzado de la prueba nunca se guarda** en NVS (solo vive en
+  `in3.phototherapy`): una caída a mitad de sesión vuelve sin él. Las órdenes
+  del display **sí se guardan**, también durante la prueba, porque como el
+  campo `photo` emite esa misma orden nunca vienen contaminadas por el ON
+  forzado; al soltar se guarda además el valor aplicado.
+- **Durante la prueba, la pantalla NO muestra el ON de depuración**: el campo
+  `photo` de `CTRL,STATE` emite la **orden del display** (la última del
+  operador), no el ON forzado. Es a propósito: el display ADOPTA ese campo y lo
+  devuelve en su keepalive, y si adoptase el ON de la prueba habría que
+  neutralizar un 1 rancio al soltar. Una ventana fija de 5 s y después una
+  confirmación con plazos no lo aguantaron (con el temporizador vencido durante
+  la liberación el ON se auto-confirmaba y se guardaba como sesión continua, un
+  OFF del operador se perdía, y una trama rancia del anillo de RX del display
+  se colaba). Quitada la raíz, no hay nada que neutralizar. El ON de la prueba
+  se ve en `GET /debug/state` (`ctl.photo_dbg`) y en el log.
+- Durante la prueba las órdenes del display **se registran** (no se aplican), y
+  la caducidad del temporizador de fototerapia cuenta como una orden de
+  apagado. **Soltar** (con `PHOTO,0` o apagando el modo) aplica en el
+  acto —sin ventana de gracia ni confirmación— la **última orden del display**
+  (la del operador manda; si no hubo ninguna, la que había al empezar), sin
+  esperar ninguna trama: con la tarea Comm del display atascada
+  (`known_issues.md` #7) la lámpara también se apaga.
+- Estado en `GET /debug/state`: `ctl.photo_dbg` (1 mientras dure la prueba).
+- **Caducidad del temporizador de fototerapia** (dentro y fuera de la prueba):
+  tras vencer, la placa IGNORA un `HMI,...` con `photo=1` y sin minutos
+  (`photoMin<=0`) hasta ver un `photo=0`; una sesión nueva con minutos
+  (`photo=1`, `photoMin>0`) se acepta siempre. Es una trama que el display tenía
+  en vuelo, o retenida hasta 10 s por su guarda de confirmación, y que de otro
+  modo reenciende la lámpara recién caducada. Lógica en
+  `modules/control/photo_expiry_latch.h`.
+- Efectos secundarios conocidos de la prueba: los minutos de una terapia real
+  que ya estuviera ON al empezar no cuentan por bebé
+  (`updateTherapyAccounting`, que exige lámpara aplicada, sin prueba activa y
+  sin `ALARM_PHOTO_LAMP_FAULT`); `timeTrackHandler` NO suma la prueba a las
+  horas de fototerapia, pero la telemetría `Phototherapy_active` sí la publica
+  como activa (es el estado real); y con la prueba activa puede verse un fallo
+  de lámpara (`ALARM_PHOTO_LAMP_FAULT`) mientras el campo 8 dice OFF.
+- Lógica en `modules/control/photo_override.h`, con test de host
+  (`test/test_photo_override`).
+
+#### `WIFI_EN,<0|1>`
+
+En la consola se acepta **`WIFI_EN,<0|1>`** (`main.cpp::debugConsolePoll`).
+Enciende o apaga la WiFi en caliente para poder probar la OTA por 2G: con
+enlace WiFi, `GPRS_Handler()` solo refresca localización y hora — ni publica
+telemetría ni llama a `GPRSCheckOTA()`, así que ese camino no se ejercita
+nunca.
+
+- Confirmación: una línea de log con el testigo `CTRL,WIFI_EN,<0|1>` cuando el
+  cambio **ya está aplicado**.
+- **No se persiste en ningún sitio.** `WIFI_EN` nace a `true` en cada arranque,
+  así que cualquier reinicio —incluido el que hace la propia OTA— devuelve la
+  WiFi encendida. Es deliberado: que no exista forma de que una unidad salga de
+  fábrica con la WiFi apagada por un comando que alguien se dejó puesto.
+- El comando solo **anota** la petición; la aplica `WifiOTAHandler()` en el lazo
+  principal. Tocar la API WiFi desde otra tarea mientras ese lazo está dentro de
+  `wifiInit()` es la misma clase de carrera que el issue #11 de
+  `docs/known_issues.md`.
+- Argumento que no sea exactamente `0` o `1`: se rechaza con aviso. Cualquier
+  otra línea se ignora y se registra.
+- Los acuses van con `ESP_LOGx`, no con `logI`/`logE`: `main.h` compila esos dos
+  fuera del binario (`LOG_INFORMATION` y `LOG_ERRORS` a `false`), y un acuse
+  escrito con `logI` no se imprime nunca aunque el comando funcione.
 
 ### 3. Test de fábrica (`FTEST`)
 
@@ -515,8 +943,8 @@ observan un estado ya cacheado por otra tarea o una petición asíncrona ya en
 vuelo: `charger`, `env_sensor`, `sb_status`, `sb_camera`, `gsm_at`, `gsm_sim`,
 `gsm_signal`, `gsm_net`, `wifi`, `tb_provision`, `time` y los instantáneos
 `sysinfo`, `ina3221`, `skin_adc`, `hmi_link`, `nvs`, `littlefs`, `power_src`,
-`humid_usb`, `sb_door`, `afe_probe`, `sim_act`) y **ACTIVOS** (`standby`, `actuators`,
-`fan_rpm`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
+`sb_door`, `afe_probe`, `sim_act`) y **ACTIVOS** (`standby`, `actuators`,
+`fan_rpm`, `humid_usb`, `buzzer`, `afe_spi`, `sb_env`, `sb_light`, en ese orden — no el
 ascendente de id: `sb_env`/`sb_light` van al final para dar tiempo a que
 `env_sensor` resuelva la cascada `sb_usb` en paralelo). Al arrancar `START`,
 la motherBoard emite `RUNNING` de **todos** los pasivos a la vez y arranca un
@@ -579,7 +1007,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
   numéricos, si `id` no es de motherBoard o `status` > 6.
 - Las líneas salen por una **cola** drenada por la tarea de comunicación
   (`CommunicationHost_Enqueue()`), nunca desde la tarea de test: el `CTRL,PPG`
-  a 25 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
+  a 50 Hz comparte el mismo UART y dos escritores entrelazarían caracteres.
   Cola llena = línea perdida con log; el display la da por FAIL por plazo.
 
 | id | clave | qué verifica | opcional |
@@ -598,7 +1026,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 11 | sb_camera | `capture` devuelve JPEG ≥ 1000 B en 10 s; SKIP `sin usb` | |
 | 12 | actuators | `actuatorsTest()` sin bits nuevos de calefactor/foto/ventilador | |
 | 13 | fan_rpm | tacómetro con feedback y RPM ≥ `FAN_MIN_RPM` | |
-| 14 | humid_usb | **omitido por ahora** (`SKIP`, detail `omitido`): el jig de fábrica todavía no puede medir el humidificador; no toca `USB_EN` | |
+| 14 | humid_usb | **activo** (desde el banco de la V19.A, 19/11/2026): enciende el humidificador (`USB_EN`) 5 s y mide su corriente por R19 (canal USB del INA3221 secundario, lecturas de `sensors_Task`); PASA si el incremento sobre el reposo está entre 20 y 800 mA y `USB_FAULT` no se activa. Detail `i=<mA> base=<mA>` (+` FAULT`) | |
 | 15 | buzzer | ΔdBA ≥ 6 dB con el micrófono de la SensorBoard; sin micrófono → **SKIP** `sin microfono` (ya no pregunta al operario, camino CONFIRM retirado) | |
 | 16 | afe_spi | registros de timing del AFE4490 releídos por SPI; DIAG en detail | |
 | 17 | afe_probe | sonda SpO2 conectada | ✓ |
@@ -612,7 +1040,7 @@ ningún test de la tabla hace ya I2C directo salvo `actuators`/`standby`
 | 25 | time | hora sincronizada dentro de 30 s; fuente en detail; agotado el plazo → **WARN** `sin hora` | ✓ |
 | 26 | nvs | escribir y releer `mb_ftest/probe` | |
 | 27 | littlefs | partición montada | |
-| 28 | sim_act | activación de la SIM en la API de Onomondo por WiFi (≤ 80 s). Solo con ICCID `894573…`; otra SIM → SKIP `sim no onomondo`. Ya activada o activada ahora → PASS; la API contesta y queda sin activar → **FAIL**; sin WiFi / sin respuesta → **WARN** con el motivo | |
+| 28 | sim_act | activación de la SIM en la API de Onomondo por WiFi (≤ 80 s). **Solo existe en los entornos `*_factory`** de `platformio.ini`: en el firmware que se distribuye la funcionalidad está compilada fuera (`FTEST_SIM_ACT_ENABLED` a 0, para que `ONOMONDO_API_KEY` —que controla TODAS las SIM de la organización— no viaje en un binario público) y el test da **WARN** `solo fabrica`. Solo con ICCID `894573…`; otra SIM → SKIP `sim no onomondo`. Ya activada o activada ahora → PASS; la API contesta y queda sin activar → **FAIL**; sin WiFi / sin respuesta → **WARN** con el motivo | |
 
 El test `env_sensor` (id 6) fusiona a los antiguos `ext_sht4x` (6) y
 `sensorboard` (7): un equipo lleva SensorBoard O sensor ambiental, no ambos, y

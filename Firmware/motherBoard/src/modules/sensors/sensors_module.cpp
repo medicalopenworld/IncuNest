@@ -4,6 +4,8 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/photo_slew.h"
+#include "modules/control/photo_fault.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
 #include "system/hw_selftest.h"
@@ -65,6 +67,61 @@ long lastEncoderUpdate;
 static long lastPhotoControl = 0;
 static int heaterSensorDropoutCycles = 0;
 
+// Estado de ALARM_PHOTO_LAMP_FAULT (logica en modules/control/photo_fault.h).
+static PhotoFault photoFault;
+static uint32_t lastPhotoFaultCheck = 0;
+// El INA principal contesto en la ultima pasada. Sin esto, si el chip se
+// cuelga, in3.phototherapy_current se queda con su ultimo valor y las dos
+// consumidoras de la medida de la lampara (el lazo de intensidad y la alarma)
+// juzgarian un dato rancio.
+static bool mainCurrentSensorAnswered = false;
+
+// Muestra de corriente de la lampara que el lazo de intensidad aun NO ha
+// usado: el INA contesta Y systemCurrentSampleSeq ha avanzado desde la ultima
+// vez. Es el mismo criterio que heaterCurrentSampleSeq da al calefactor. Con un
+// dato congelado por debajo del objetivo el lazo subiria el PWM hasta el
+// maximo sin que la corriente pueda responder; con dato viejo el PWM se queda
+// quieto. Consume la muestra, asi que va el ULTIMO en la condicion del lazo.
+static unsigned long photoLoopSeqSeen = 0;
+static bool photoSampleIsNew() {
+  if (!mainCurrentSensorAnswered || systemCurrentSampleSeq == photoLoopSeqSeen) {
+    return false;
+  }
+  photoLoopSeqSeen = systemCurrentSampleSeq;
+  return true;
+}
+// Escritura del PWM de la lampara, serializada (declarada en main.h).
+//
+// Carrera que cierra: el lazo de intensidad (tarea de seguridad) comprueba
+// in3.phototherapy y escribe el PWM un poco despues; si entre medias la tarea
+// Comm apaga la lampara (applyPhotoState(false), caducidad del temporizador, o
+// soltar la prueba de depuracion con el display colgado), la escritura tardia
+// la reenciende con in3.phototherapy=false: lampara ON sin estado y sin alarma.
+//
+// Un spinlock y no un mutex: la seccion critica es UNA escritura de registro
+// (microsegundos) y la tarea de seguridad no puede quedarse bloqueada ni sufrir
+// inversion de prioridad. Y el duty se calcula DENTRO, a partir del estado
+// actual, en vez de comprobarlo antes y escribir despues: asi la ultima
+// escritura serializada siempre ve el estado mas reciente.
+//
+// RESTRICCION: no se puede instalar fade (ledc_fade_func_install / ledcFade) en
+// PHOTOTHERAPY_PWM_CHANNEL. Hoy ledcWrite() solo toma un semaforo si hay fade
+// instalado; con el, esto seria un semaforo dentro de una seccion critica
+// (assert del kernel, o bloqueo con interrupciones deshabilitadas). Ver board.h.
+// No hay comprobacion en tiempo de ejecucion: instalar y desinstalar el fade
+// solo para mirar reservaria memoria y registraria su ISR globalmente, y
+// romperia a otro usuario legitimo del fade. Basta con esta prohibicion escrita.
+static portMUX_TYPE s_photoPwmMux = portMUX_INITIALIZER_UNLOCKED;
+void photoPwmRefresh(void) {
+  portENTER_CRITICAL(&s_photoPwmMux);
+  ledcWrite(PHOTOTHERAPY_PWM_CHANNEL,
+            in3.phototherapy ? in3.phototherapy_intensity : 0);
+  portEXIT_CRITICAL(&s_photoPwmMux);
+}
+
+// Idem para la alarma, con su propio marcador (cadencias distintas).
+static unsigned long photoFaultSeqSeen = 0;
+
 // The Beastdevices_INA3221 library (getCurrent()) does not check I2C
 // transaction results: on a NACK/timeout it silently returns whatever was
 // last in the register (or 0), with no error signal - see
@@ -85,6 +142,9 @@ void currentMonitor() {
       in3.phototherapy_current =
           measureMeanConsumption(MAIN, PHOTOTHERAPY_SHUNT_CHANNEL);
       systemCurrentSampleSeq++;
+      mainCurrentSensorAnswered = true;
+    } else {
+      mainCurrentSensorAnswered = false;
     }
     if (digitalCurrentSensorPresent[SECUNDARY] &&
         i2cDevicePresent(SECUNDARY_DIGITAL_CURRENT_SENSOR_I2C_ADDRESS)) {
@@ -97,8 +157,12 @@ void currentMonitor() {
       }
 #endif
       in3.USB_current = measureMeanConsumption(SECUNDARY, USB_SHUNT_CHANNEL);
+#if (HW_NUM < 19)
+      // V19: el canal 3 de U8 esta a GND (CHANGELOG #26). BATTERY_current y
+      // BATTERY_voltage salen del ADC del BQ25730 (sensors_Task, main.cpp).
       in3.BATTERY_current =
           measureMeanConsumption(SECUNDARY, BATTERY_SHUNT_CHANNEL);
+#endif
       heaterCurrentSampleSeq++;
     } else if (digitalCurrentSensorPresent[SECUNDARY]) {
       // Chip was found at boot but is not answering now. Leave
@@ -130,22 +194,107 @@ void currentMonitor() {
   if (!g_factoryTestActive && in3.phototherapy &&
       (millis() - in3.photoTurnOnTime  > PHOTO_SETTLE_MS) &&
       (millis() - lastPhotoControl     > PHOTO_CONTROL_PERIOD_MS) &&
-      in3.phototherapy_current > 0.0f) {
+      in3.phototherapy_current > 0.0f && photoSampleIsNew()) {
 
     float error = in3.phototherapy_current - PHOTO_TARGET_CURRENT;
-    if (error > PHOTO_TOLERANCE_A || error < -PHOTO_TOLERANCE_A) {
-      int newIntensity = (int)(in3.phototherapy_intensity *
-                               PHOTO_TARGET_CURRENT / in3.phototherapy_current + 0.5f);
-      int delta = newIntensity - (int)in3.phototherapy_intensity;
-      if (delta >  PHOTO_MAX_STEP) delta =  PHOTO_MAX_STEP;
-      if (delta < -PHOTO_MAX_STEP) delta = -PHOTO_MAX_STEP;
-      int next = (int)in3.phototherapy_intensity + delta;
-      if (next < PHOTO_MIN_PWM)   next = PHOTO_MIN_PWM;
-      if (next > PWM_MAX_VALUE)   next = PWM_MAX_VALUE;
+    // Estado del filtro de ruido del slew; se reinicia en cada encendido.
+    static PhotoSlew photoSlew;
+    static long photoSlewSession = -1;
+    if (photoSlewSession != in3.photoTurnOnTime) {
+      photo_slew_init(&photoSlew);
+      photoSlewSession = in3.photoTurnOnTime;
+    }
+    // Se llama cada ciclo, tambien en banda, para reiniciar la cuenta.
+    const int next = photo_slew_step(
+        &photoSlew, (int)in3.phototherapy_intensity, in3.phototherapy_current,
+        PHOTO_TARGET_CURRENT, PHOTO_TOLERANCE_A, PHOTO_MAX_STEP_UP,
+        PHOTO_MAX_STEP_DOWN, PHOTO_MIN_PWM, PWM_MAX_VALUE);
+    if (next != (int)in3.phototherapy_intensity) {
       in3.phototherapy_intensity = (byte)next;
-      ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, in3.phototherapy_intensity);
+      photoPwmRefresh();
     }
     lastPhotoControl = millis();
+
+    // Guarda la intensidad a la que el lazo ha convergido, para sembrar con
+    // ella en el proximo encendido en vez de con la extrapolacion del
+    // autotest.
+    //
+    // La extrapolacion parte de una lectura al 10 % de PWM y asume
+    // I proporcional a (PWM+20). En la flota eso acierta, pero no en todas las
+    // unidades: en la de banco (2026-09-23) el lazo convergio a PWM 47 para
+    // 0,28 A, mientras que su lectura al 10 % --0,10 A-- queda por debajo de
+    // esa recta y hace que la extrapolacion pida en torno al doble de PWM. El
+    // valor convergido es medido, no modelado, asi que es mejor semilla.
+    //
+    // Se escribe como mucho cada 60 s y solo si ha cambiado: esto corre una
+    // vez por segundo y NVS es flash.
+    //
+    // Y SOLO DENTRO DE BANDA. La primera version guardaba cualquier valor, y
+    // la primera escritura de una sesion caia en la semilla de la
+    // extrapolacion: en banco (2026-09-23, objetivo 0,45 A) eso fue PWM 175 a
+    // 1,06 A. Si la sesion se cortaba antes del siguiente guardado, la
+    // proxima volvia a arrancar al doble del objetivo. Una semilla solo vale
+    // si es un punto donde el lazo YA estaba en su sitio.
+    const bool enBanda =
+        (error <= PHOTO_TOLERANCE_A) && (error >= -PHOTO_TOLERANCE_A);
+    static uint32_t ultimoGuardadoPwm = 0;
+    static uint8_t  pwmGuardado = 0;
+    if (enBanda && in3.phototherapy_intensity != pwmGuardado &&
+        millis() - ultimoGuardadoPwm > 60000) {
+      Preferences p;
+      p.begin(NS_STATE, false);
+      p.putUChar(KEY_PHOTO_PWM, in3.phototherapy_intensity);
+      p.putUShort(KEY_PHOTO_PWM_TGT,
+                  (uint16_t)(PHOTO_TARGET_CURRENT * 1000.0f + 0.5f));
+      p.end();
+      pwmGuardado = in3.phototherapy_intensity;
+      ultimoGuardadoPwm = millis();
+    }
+  }
+
+  // ALARM_PHOTO_LAMP_FAULT: lampara ordenada ON que no consume corriente, o
+  // que no se puede vigilar.
+  //
+  // FUERA del `if` del lazo de intensidad de arriba, a proposito: ese exige
+  // `phototherapy_current > 0.0f`, que es justo lo que esta comprobacion
+  // quiere detectar que no se cumple. Mismo gate de fabrica que el lazo
+  // (g_factoryTestActive) y misma cadencia (PHOTO_CONTROL_PERIOD_MS). La
+  // decision (umbral, ciclos, histeresis, ceguera) vive en photo_fault.cpp,
+  // probada en host; aqui solo se clasifica el ciclo:
+  //   - INACTIVE: fototerapia apagada, test de fabrica, o aun en el
+  //     asentamiento (PHOTO_SETTLE_MS). Retira la averia.
+  //   - NO_SAMPLE: ordenada ON y asentada, pero el INA principal no contesta
+  //     (o esta ausente desde el arranque) o no hay muestra nueva. Mantiene el
+  //     estado y, tras N ciclos a ciegas, declara la averia.
+  //   - SAMPLE: muestra nueva; se juzga la corriente.
+  if ((uint32_t)(millis() - lastPhotoFaultCheck) > PHOTO_CONTROL_PERIOD_MS) {
+    lastPhotoFaultCheck = millis();
+    const bool avanzo = (systemCurrentSampleSeq != photoFaultSeqSeen);
+    photoFaultSeqSeen = systemCurrentSampleSeq;
+    PhotoFaultInput entrada;
+    if (g_factoryTestActive || !in3.phototherapy ||
+        (millis() - in3.photoTurnOnTime <= PHOTO_SETTLE_MS)) {
+      entrada = PHOTO_FAULT_INPUT_INACTIVE;
+    } else if (!mainCurrentSensorAnswered || !avanzo) {
+      entrada = PHOTO_FAULT_INPUT_NO_SAMPLE;
+    } else {
+      entrada = PHOTO_FAULT_INPUT_SAMPLE;
+    }
+    const bool antes = photo_fault_present(&photoFault);
+    const bool ahora = photo_fault_update(
+        &photoFault, entrada, (float)in3.phototherapy_current);
+    if (ahora != antes) {
+      const String detalle =
+          String(in3.phototherapy_current, 3) + " A, " +
+          (entrada == PHOTO_FAULT_INPUT_NO_SAMPLE ? "sin medida)" : "medida)");
+      if (ahora) {
+        logE(String("[PHOTO] lampara sin corriente o sin medida (") + detalle);
+      } else {
+        logI(String("[PHOTO] lampara: fallo retirado (") + detalle);
+      }
+    }
+    // Idempotente: declarar cada ciclo el mismo valor no re-anuncia nada.
+    alarm_machine_condition(ALARM_PHOTO_LAMP_FAULT, ahora, millis());
   }
 }
 
@@ -156,8 +305,10 @@ void voltageMonitor() {
     }
     if (digitalCurrentSensorPresent[SECUNDARY]) {
       in3.USB_voltage = measureMeanVoltage(SECUNDARY, USB_SHUNT_CHANNEL);
+#if (HW_NUM < 19) // V19: del BQ25730, ver arriba
       in3.BATTERY_voltage =
           measureMeanVoltage(SECUNDARY, BATTERY_SHUNT_CHANNEL);
+#endif
     }
     lastVoltageMeasurement = millis();
   }
@@ -282,7 +433,11 @@ static float resistanceToTempYSI400(float rntc) {
 // duplicar la fórmula del divisor en dos sitios es pedir que diverjan.
 float adcToResistance(float adcReading_mV) {
   const float rTop = 2260.0f; // Resistencia del divisor (Ω, 0.1%)
-#if (HW_NUM >= 17)
+#if (HW_NUM >= 19)
+  // V19 (CHANGELOG #20): U3 = LM4040AIM3X-2.5 (2,500 V, grado A, 0,1 %),
+  // alimentada desde IO18 a traves de R83 = 470 Ohm.
+  const float vExc = 2.500f;
+#elif (HW_NUM >= 17)
   const float vExc = 2.048f;  // Tensión de excitación (LM4040EIM7-2.0, 2.048 V)
 #else
   const float vExc = 3.3f;    // Tensión de excitación (GPIO, 3.3 V)

@@ -8,6 +8,7 @@
 #include "main.h"
 #include "ui.h"
 #include "ui/HelpDialog.h"
+#include "ui/MenuDialog.h"
 #include "ui/TimeDialog.h"
 
 extern ui_lang_t g_lang;
@@ -48,6 +49,8 @@ bool goalDarkChanged() { return snap().darkMode != s_darkBase; }
 bool goalTimeOpen() { return TimeDialog_IsOpen(); }
 bool goalTimeClosed() { return !TimeDialog_IsOpen(); }
 bool goalHelpOpen() { return HelpDialog_IsOpen(); }
+// Ajustes, hora y ayuda se abren desde el menu del heading: primero el menu.
+bool goalMenuOpen() { return MenuDialog_IsOpen(); }
 bool goalHelpClosed() { return !HelpDialog_IsOpen(); }
 
 // ---- T1: informacion y versiones -------------------------------------------------
@@ -76,9 +79,14 @@ const Quiz QUIZ_T1 = {
 };
 
 constexpr Step T1_STEPS[] = {
-    DO(&ui_Settings, &ui_ScreenMain, goalSettingsScreen,
-       "Toca Ajustes.", "Touch Settings.", "Touchez Reglages.",
-                                           "Toca em Definicoes."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuSettingsBtn, &ui_ScreenMain, goalSettingsScreen,
+       "Toca AJUSTES.", "Touch SETTINGS.", "Touchez PARAMETRES.",
+                                           "Toca em DEFINICOES."),
     DO(&ui_InfoButton, &ui_ScreenSettings, goalInfoVisible,
        "Toca la fila Informacion.", "Touch the Information row.",
        "Touchez la ligne Informations.",
@@ -157,9 +165,14 @@ const Quiz QUIZ_T2 = {
 };
 
 constexpr Step T2_STEPS[] = {
-    DO(&ui_Settings, &ui_ScreenMain, goalSettingsScreen,
-       "Toca Ajustes.", "Touch Settings.", "Touchez Reglages.",
-                                           "Toca em Definicoes."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuSettingsBtn, &ui_ScreenMain, goalSettingsScreen,
+       "Toca AJUSTES.", "Touch SETTINGS.", "Touchez PARAMETRES.",
+                                           "Toca em DEFINICOES."),
     DO(&ui_WifiButton, &ui_ScreenSettings, goalWifiVisible,
        "Toca la fila WiFi.", "Touch the WiFi row.", "Touchez la ligne WiFi.",
                                                     "Toca na linha WiFi."),
@@ -226,9 +239,14 @@ const Quiz QUIZ_T3 = {
 };
 
 constexpr Step T3_STEPS[] = {
-    DO(&ui_Settings, &ui_ScreenMain, goalSettingsScreen,
-       "Toca Ajustes.", "Touch Settings.", "Touchez Reglages.",
-                                           "Toca em Definicoes."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuSettingsBtn, &ui_ScreenMain, goalSettingsScreen,
+       "Toca AJUSTES.", "Touch SETTINGS.", "Touchez PARAMETRES.",
+                                           "Toca em DEFINICOES."),
     DO(&ui_LanguagesButton, &ui_ScreenSettings, goalLangVisible,
        "Toca la fila Idioma.", "Touch the Language row.",
        "Touchez la ligne Langue.",
@@ -311,10 +329,14 @@ const Quiz QUIZ_T4 = {
 };
 
 constexpr Step T4_STEPS[] = {
-    DO(&ui_ClockButton, &ui_ScreenMain, goalTimeOpen,
-       "Toca la hora del heading.", "Touch the time in the heading.",
-       "Touchez l'heure de l'en-tete.",
-       "Toca na hora do cabecalho."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuTimeBtn, &ui_ScreenMain, goalTimeOpen,
+       "Toca FECHA Y HORA.", "Touch DATE AND TIME.", "Touchez DATE ET HEURE.",
+       "Toca em DATA E HORA."),
     FREE(&ui_ScreenMain, goalTimeClosed,
          "Teclea dia, mes, ano, hora y minutos (10 cifras) y pulsa APLICAR. "
          "En formacion la placa no cambia la hora. Cierra el dialogo para "
@@ -328,7 +350,7 @@ constexpr Step T4_STEPS[] = {
          "Escreve dia, mes, ano, hora e minutos (10 algarismos) e toca em "
          "APLICAR. Em formacao a placa nao muda a hora. Fecha o dialogo "
          "para continuar."),
-    EXPLAIN(&ui_ClockButton, &ui_ScreenMain,
+    EXPLAIN(&ui_ClockCont, &ui_ScreenMain,
             "La fecha del heading se pone gris si la hora no esta sincronizada. "
             "Con red movil o internet la placa la corrige sola, zona horaria "
             "incluida.",
@@ -495,7 +517,7 @@ const Quiz QUIZ_T6 = {
 };
 
 constexpr Step T6_STEPS[] = {
-    EXPLAIN(&ui_Settings, &ui_ScreenMain,
+    EXPLAIN(&ui_MenuButton, &ui_ScreenMain,
             "Actualizar el firmware de la pantalla: 1) conecta el equipo a la "
             "WiFi del hospital (Ajustes > WiFi) y anota su direccion IP, que "
             "aparece en el informe de soporte.",
@@ -585,10 +607,13 @@ const Quiz QUIZ_T7 = {
 };
 
 constexpr Step T7_STEPS[] = {
-    DO(&ui_HelpButton, &ui_ScreenMain, goalHelpOpen,
-       "Toca el boton de ayuda.", "Touch the help button.",
-       "Touchez le bouton d'aide.",
-       "Toca no botao de ajuda."),
+    DO(&ui_MenuButton, &ui_ScreenMain, goalMenuOpen,
+       "Toca el boton MENU (las tres rayas, arriba a la derecha).",
+       "Touch the MENU button (the three lines, top right).",
+       "Touchez le bouton MENU (les trois traits, en haut a droite).",
+       "Toca no botao MENU (as tres riscas, em cima a direita)."),
+    DO(&ui_MenuHelpBtn, &ui_ScreenMain, goalHelpOpen,
+       "Toca AYUDA.", "Touch HELP.", "Touchez AIDE.", "Toca em AJUDA."),
     FREE(&ui_ScreenMain, goalHelpClosed,
          "Elige CONTACTAR SOPORTE. El QR abre un correo con el numero de serie "
          "en el asunto y el informe tecnico en el cuerpo. Con SIN INFORME el "

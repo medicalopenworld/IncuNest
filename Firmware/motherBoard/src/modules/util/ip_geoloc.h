@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Posicion aproximada del equipo a partir de su IP publica.
 //
@@ -37,6 +38,32 @@ extern "C" {
 // "En algun sitio de esta ciudad": esta ahi para que nadie lea estas
 // coordenadas como un fix de torre y menos como un GPS.
 #define IP_GEOLOC_ACCURACY_M 25000
+
+// Cada cuanto se repone la posicion aunque no haya cambiado, en ms. 6 h.
+//
+// Es un LATIDO, no la cadencia normal: lo normal es publicar solo cuando la
+// posicion cambia. Existe porque el montaje de la telemetria no sabe si el
+// publish llego a salir (broker caido, JSON truncado), y sin esto un fallo
+// puntual dejaria al equipo sin posicion hasta que le cambiara la IP publica.
+#define IP_GEOLOC_REPUBLISH_MS 21600000u
+
+// Decide si toca meter la posicion por IP en la telemetria.
+//
+// POR QUE ESTO NO SE PUBLICA EN CADA CICLO: el root chain de ThingsBoard manda
+// toda la telemetria al chain "Country estimator", que llama a Nominatim
+// mientras el equipo no tenga guardado el atributo `country`. Por WiFi se
+// publica cada TX_WIFI_PUBLISH_MS (5 s), asi que soltar ahi la posicion en
+// cada ciclo son ~17.000 peticiones al dia POR UNIDAD, todas con el mismo
+// valor. Eso banea la IP del servidor y se lleva por delante la estimacion de
+// pais de toda la flota. La posicion por IP cambia una vez al dia como mucho:
+// la cadencia correcta es "cuando cambia", con un latido de respaldo.
+//
+// `everPublished` false ignora el resto de los parametros previos.
+// La resta de tiempos es SIN SIGNO a proposito: millis() desborda a los 49,7
+// dias y con una resta con signo un equipo que cruzara ese punto dejaria de
+// publicar la posicion para siempre.
+bool ip_geoloc_due(bool everPublished, float pubLat, float pubLon,
+                   uint32_t pubMs, float lat, float lon, uint32_t nowMs);
 
 // Extrae lat/lon del cuerpo de una respuesta de ip-api.com.
 //

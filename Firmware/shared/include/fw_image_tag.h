@@ -31,6 +31,30 @@
 #define FW_BOARD_ID_MOTHERBOARD "motherboard"
 #define FW_BOARD_ID_DISPLAY_HMI "display_hmi"
 
+// Revisiones de la motherBoard entre si. Una V18 y una V19 son la misma placa
+// con otro hardware (otros pines, otros railes): el binario de una entra de
+// sobra en la otra y esp_ota no lo distingue, asi que una V19 con firmware V18
+// (o al reves) se queda sin recuperacion por OTA. La marca lleva por eso el
+// numero de revision a partir de la V19:
+//
+//   V18 y anteriores: FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD
+//                     = "IncuNestFW:motherboard"        (SIN CAMBIO: las
+//                     imagenes antiguas se siguen aceptando)
+//   V19 en adelante:  FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD_HW(19)
+//                     = "IncuNestFW:hw19:motherboard"
+//
+// La marca "hwNN:" va ANTES de "motherboard" a proposito: asi la marca de la V19
+// NO contiene como subcadena la de la V18 y viceversa. Con "motherboard-hw19" la
+// V18 buscaria "IncuNestFW:motherboard", la encontraria dentro y aceptaria la
+// imagen de la V19.
+//
+// Es un macro que solo se expande donde se usa, asi que este fichero no mete
+// ninguna cadena de otra revision en el binario (misma regla que arriba).
+#define FW_STRINGIFY_(x) #x
+#define FW_STRINGIFY(x) FW_STRINGIFY_(x)
+#define FW_BOARD_ID_MOTHERBOARD_HW(n) \
+  "hw" FW_STRINGIFY(n) ":" FW_BOARD_ID_MOTHERBOARD
+
 // IMPORTANTE: cada firmware define y busca UNICAMENTE su propia marca
 // (FW_TAG_PREFIX FW_BOARD_ID_<suya>). Si un binario llevase ademas la cadena
 // completa de la otra placa, la comprobacion de esa otra placa lo aceptaria.

@@ -30,17 +30,26 @@ static inline void bqE(const String &s) { if (LOG_CHARGER) logE(s); }
 
 // ─── Estado interno del módulo ────────────────────────────────────────────────
 bool chargerPresent = false;
+bool chargerDetected = false;
 static TwoWire *_i2c = nullptr;
 static bool     _initialized = false;
 
 // ─── Helpers I2C de bajo nivel ────────────────────────────────────────────────
 
+// millis() de la ultima escritura (intentada) al chip. El detector de red deja
+// de mirar CHRG_OK un rato despues (mains_pin_usable()): el pin baja ~750 ms
+// al escribir la tension de carga aunque la entrada siga presente.
+volatile uint32_t g_bq_last_write_ms = 0;
+
 static bool write_reg16(uint8_t reg, uint16_t value) {
+    g_bq_last_write_ms = millis();
     _i2c->beginTransmission(BQ25730_ADDR);
     _i2c->write(reg);
     _i2c->write((uint8_t)(value & 0xFF));        // Byte bajo (dirección base)
     _i2c->write((uint8_t)((value >> 8) & 0xFF)); // Byte alto (dirección base+1)
-    return (_i2c->endTransmission() == 0);
+    const bool ok = (_i2c->endTransmission() == 0);
+    g_bq_last_write_ms = millis();  // la ventana cuenta desde el final
+    return ok;
 }
 
 static bool read_reg16(uint8_t reg, uint16_t *out) {
@@ -65,18 +74,19 @@ static bool read_reg8(uint8_t reg, uint8_t *out) {
 
 // ─── Funciones de cálculo de valores de registro ─────────────────────────────
 //
-// ChargeCurrent   (0x02) bits[12:6]:  valor = mA / 64      → reg = valor << 6
+// ChargeCurrent   (0x02) bits[12:6]:  valor = mA / 128 (5 mOhm) → reg = valor << 6
 // MaxChargeVoltage(0x04) bits[14:4]:  valor = mV / 16      → reg = valor << 4
 // VINDPM          (0x0A) bits[13:6]:  valor = (mV-3200)/64 → reg = valor << 6
 // VSYS_MIN        (0x0C) bits[15:8]:  valor = (mV-1000)/100→ reg = valor << 8
 // IIN_HOST        (0x0E) bits[14:8]:  valor = mA/100 - 1   → reg = valor << 8
 
 static uint16_t calc_charge_current_reg(uint16_t ma) {
-    // 64 mA/bit, campo [12:6].
-    // Corrección shunt: I_set = I_real × (R_actual / R_nominal) = I_real × 3/5
+    // Campo [12:6]: 64 mA/bit con 10 mOhm y el DOBLE, 128 mA/bit, con
+    // RSNS_RSR=1 (5 mOhm): "charge current range is doubled" (SLUSE65 8.3.5).
+    // Corrección shunt: I_set = I_real × (R_actual / R_nominal).
     uint16_t ma_adj = (uint16_t)((uint32_t)ma * BQ25730_RSNS_ACTUAL_MOHM
                                              / BQ25730_RSNS_NOMINAL_MOHM);
-    uint16_t v = (ma_adj / 64U) & 0x7FU;
+    uint16_t v = (ma_adj / 128U) & 0x7FU;
     return (uint16_t)(v << 6);
 }
 
@@ -116,11 +126,22 @@ static uint16_t calc_iin_host_reg(uint16_t ma) {
     return (uint16_t)(code << 8);
 }
 
-// ─── init_BQ25730() ───────────────────────────────────────────────────────────
-bool init_BQ25730(TwoWire *i2c) {
+// ─── Configuración del chip ───────────────────────────────────────────────────
+// Cuerpo común de init_BQ25730() y reconfigure_BQ25730(). `fromBoot` decide si
+// se tocan los flags de estado del módulo:
+//   - arranque: chargerPresent/_initialized se bajan al empezar y solo se
+//     suben si TODA la configuración sale bien;
+//   - reconfiguración en marcha (el adaptador vuelve): NO se bajan. Bajar
+//     chargerPresent aqui apagaba la lectura del cargador y, con ella, la
+//     vigilancia de la red (checkMainsInterruption): un fallo de una de las
+//     ~11 operaciones I2C la dejaba apagada para siempre, y aun saliendo bien
+//     securityCheck() veia el false transitorio.
+static bool bq_configure_chip(TwoWire *i2c, bool fromBoot) {
     _i2c          = i2c;
-    _initialized  = false;
-    chargerPresent = false;
+    if (fromBoot) {
+        _initialized   = false;
+        chargerPresent = false;
+    }
 
     // ── 1. Verificar identidad del chip ───────────────────────────────────────
     uint8_t mfr_id = 0, dev_id = 0;
@@ -129,6 +150,9 @@ bool init_BQ25730(TwoWire *i2c) {
         bqE("[BQ25730] I2C sin respuesta en 0x" + String(BQ25730_ADDR, HEX));
         return false;
     }
+    // El chip contesta por I2C: existe. Se fija una vez y no se baja nunca; es
+    // lo que distingue "no hay cargador en esta placa" de "hay y no responde".
+    chargerDetected = true;
     if (mfr_id != BQ25730_MFR_ID_EXPECTED || dev_id != BQ25730_DEV_ID_EXPECTED) {
         bqE("[BQ25730] ID inesperado: mfr=0x" + String(mfr_id, HEX) +
              " dev=0x" + String(dev_id, HEX) +
@@ -147,8 +171,18 @@ bool init_BQ25730(TwoWire *i2c) {
     //  Resultado: 0x070E
     //    bit10(EN_OOA)=1, bit9(PWM_FREQ)=1→400kHz, bit8(LOW_PTM_RIPPLE)=1
     //    bit3(IBAT_GAIN)=1, bit2(EN_LDO)=1, bit1(EN_IIN_DPM)=1
+    //
+    //  V19 (CHANGELOG #4 y firmware 5): la compensacion (R71 16k9, C67 3,3 nF,
+    //  C60 1,2 nF) y L1 = 3,3 uH estan calculadas para 800 kHz, asi que
+    //  PWM_FREQ = 0. Se escribe y se LEE DE VUELTA: a 400 kHz con esta
+    //  compensacion el lazo no esta verificado.
+#if (HW_NUM >= 19)
+    const uint16_t opt0_pwm_freq = 0;                       // 800 kHz
+#else
+    const uint16_t opt0_pwm_freq = BQ25730_OPT0_PWM_FREQ;   // 400 kHz
+#endif
     const uint16_t charge_option0 = BQ25730_OPT0_EN_OOA         |  // bit 10
-                                    BQ25730_OPT0_PWM_FREQ        |  // bit  9
+                                    opt0_pwm_freq                |  // bit  9
                                     BQ25730_OPT0_LOW_PTM_RIPPLE  |  // bit  8
                                     BQ25730_OPT0_IBAT_GAIN       |  // bit  3
                                     BQ25730_OPT0_EN_LDO          |  // bit  2
@@ -157,7 +191,25 @@ bool init_BQ25730(TwoWire *i2c) {
         bqE("[BQ25730] Error escribiendo ChargeOption0");
         return false;
     }
-    bqI("[BQ25730] ChargeOption0 = 0x" + String(charge_option0, HEX));
+    {
+        uint16_t opt0_rb = 0;
+        if (!read_reg16(BQ25730_REG_CHARGE_OPTION0, &opt0_rb)) {
+            bqE("[BQ25730] Error releyendo ChargeOption0");
+            return false;
+        }
+        const bool f400 = (opt0_rb & BQ25730_OPT0_PWM_FREQ) != 0;
+        // logI y no bqI: una linea por configuracion, y en banco es la prueba
+        // de que la frecuencia del convertidor es la de la compensacion.
+        logI("[BQ25730] ChargeOption0 = 0x" + String(charge_option0, HEX) +
+            " (releido 0x" + String(opt0_rb, HEX) + ", PWM " +
+            String(f400 ? "400" : "800") + " kHz, LWPWR=" +
+            String((opt0_rb & BQ25730_OPT0_EN_LWPWR) ? 1 : 0) + ")");
+        if ((opt0_rb & BQ25730_OPT0_PWM_FREQ) != opt0_pwm_freq) {
+            // Siempre visible, aunque LOG_CHARGER este apagado.
+            logE("[BQ25730] PWM_FREQ releido no coincide con el escrito");
+            return false;
+        }
+    }
 
     // ── 3. ChargeOption1 (0x30) ───────────────────────────────────────────────
     //  • EN_IBAT = 1   → Medición de corriente de batería por ADC.
@@ -174,8 +226,15 @@ bool init_BQ25730(TwoWire *i2c) {
     bqI("[BQ25730] ChargeOption1 = 0x" + String(charge_option1, HEX));
 
     // ── 4. ChargeOption2 y ChargeOption3 (0x32 / 0x34) ───────────────────────
+    //  ChargeOption3 NO a 0: sus bits [4:3] son IL_AVG, el tope de corriente
+    //  media en la bobina, y 00b es 6 A (el POR es 10b = 15 A). Con 6 A el
+    //  convertidor no podia alimentar el calefactor a plena potencia (~9,5 A
+    //  de sistema) y el resto salia de la BATERIA aun con red: en banco,
+    //  IBUS clavado en 2,8 A, ICHG=0 e IDCHG ~4 A, y la bateria acababa vacia.
+    //  La hoja pide el menor tope por encima de la corriente maxima de la
+    //  bobina: sistema 9,5 A + carga 1,9 A + electronica > 10 A -> 15 A.
     if (!write_reg16(BQ25730_REG_CHARGE_OPTION2, 0x0000) ||
-        !write_reg16(BQ25730_REG_CHARGE_OPTION3, 0x0000)) {
+        !write_reg16(BQ25730_REG_CHARGE_OPTION3, BQ25730_OPT3_IL_AVG_15A)) {
         bqE("[BQ25730] Error escribiendo ChargeOption2/3");
         return false;
     }
@@ -231,7 +290,7 @@ bool init_BQ25730(TwoWire *i2c) {
          String(vsys_min, HEX) + ")");
 
     // ── 9. ChargeCurrent (0x02) ───────────────────────────────────────────────
-    //  960 mA real → adj 576 mA → 576/64=9 → reg 0x0240
+    //  1920 mA real → 1920/128 = 15 → reg 0x03C0 (el mismo valor que antes)
     const uint16_t chg_current = calc_charge_current_reg(BQ25730_ICHG_MA);
     if (!write_reg16(BQ25730_REG_CHARGE_CURRENT, chg_current)) {
         bqE("[BQ25730] Error escribiendo ChargeCurrent");
@@ -252,8 +311,30 @@ bool init_BQ25730(TwoWire *i2c) {
 
     _initialized   = true;
     chargerPresent = true;
-    bqI("[BQ25730] Init OK (PDF V2) – Vabs=14.4V Ichg=960mA IIN=6400mA VSYS=11V VINDPM=12V");
+    bqI("[BQ25730] Init OK – Vabs=" + String(BQ25730_VCHARGE_ABSORPTION_MV) +
+         "mV Ichg=" + String(BQ25730_ICHG_MA) + "mA IIN=" +
+         String(BQ25730_IIN_LIMIT_MA) + "mA VSYS_MIN=" + String(BQ25730_VSYS_MIN_MV) +
+         "mV VINDPM=" + String(BQ25730_VINDPM_MV) + "mV");
 
+    return true;
+}
+
+bool init_BQ25730(TwoWire *i2c) {
+    return bq_configure_chip(i2c, /*fromBoot=*/true);
+}
+
+bool reconfigure_BQ25730(TwoWire *i2c) {
+    return bq_configure_chip(i2c, /*fromBoot=*/false);
+}
+
+// ─── charge_ac_present() ──────────────────────────────────────────────────────
+// Solo el bit AC_STAT de ChargerStatus: una lectura de 16 bits, para el
+// detector de red a 5 Hz sin arrastrar las cuatro lecturas de ADC.
+bool charge_ac_present(bool *present) {
+    if (!_initialized || present == nullptr) return false;
+    uint16_t raw_status = 0;
+    if (!read_reg16(BQ25730_REG_CHARGER_STATUS, &raw_status)) return false;
+    *present = (raw_status & BQ25730_STAT_AC_STAT) != 0;
     return true;
 }
 
@@ -336,12 +417,35 @@ bool charge_status(BQ25730_Status *status) {
     status->ichg_ma  = (int16_t)((uint32_t)adc_ichg * BQ25730_ADC_ICHG_STEP_MA
                                  * BQ25730_RSNS_NOMINAL_MOHM / BQ25730_RSNS_ACTUAL_MOHM);
 
+    // IDCHG: byte bajo de 0x28 (7 bits), misma correccion de shunt que ICHG.
+    uint8_t adc_idchg = (uint8_t)(raw_ibat & 0x7F);
+    status->idchg_ma  = (uint16_t)((uint32_t)adc_idchg * BQ25730_ADC_IDCHG_STEP_MA
+                                   * BQ25730_RSNS_NOMINAL_MOHM / BQ25730_RSNS_ACTUAL_MOHM);
+
     // IBUS: byte alto de 0x2A, 100 mA/bit nominal (RSNS_RAC=1).
     uint8_t adc_ibus = (uint8_t)(raw_ibus >> 8);
     status->ibus_ma  = (int16_t)((uint32_t)adc_ibus * BQ25730_ADC_IBUS_STEP_MA
                                  * BQ25730_RSNS_NOMINAL_MOHM / BQ25730_RSNS_ACTUAL_MOHM);
 
     return true;
+}
+
+// ─── set_charge_inhibit() / set_charge_current() ─────────────────────────────
+bool set_charge_inhibit(bool inhibit) {
+    if (!_initialized) return false;
+    uint16_t opt0 = 0;
+    if (!read_reg16(BQ25730_REG_CHARGE_OPTION0, &opt0)) return false;
+    const uint16_t want = inhibit ? (uint16_t)(opt0 | BQ25730_OPT0_CHRG_INHIBIT)
+                                  : (uint16_t)(opt0 & ~BQ25730_OPT0_CHRG_INHIBIT);
+    if (want != opt0 && !write_reg16(BQ25730_REG_CHARGE_OPTION0, want)) return false;
+    uint16_t rb = 0;
+    if (!read_reg16(BQ25730_REG_CHARGE_OPTION0, &rb)) return false;
+    return ((rb & BQ25730_OPT0_CHRG_INHIBIT) != 0) == inhibit;
+}
+
+bool set_charge_current(uint16_t current_ma) {
+    if (!_initialized) return false;
+    return write_reg16(BQ25730_REG_CHARGE_CURRENT, calc_charge_current_reg(current_ma));
 }
 
 // ─── set_charge_voltage() ─────────────────────────────────────────────────────

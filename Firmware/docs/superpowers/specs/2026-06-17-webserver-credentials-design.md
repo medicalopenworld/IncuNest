@@ -26,7 +26,7 @@ Include logic in `Wifi_OTA.cpp`:
 
 ### New files
 - `Display_HMI/include/credentials_template.h` — committed, defines `WEB_SERVER_USERNAME` and `WEB_SERVER_PASSWORD` with placeholder values.
-- `Display_HMI/include/credentials.h` — gitignored, defines real credentials (`incunestadmin` / `savinglives`).
+- `Display_HMI/include/credentials.h` — gitignored, defines real credentials (`incunestadmin` / `<WEB_SERVER_PASSWORD>`).
 
 ### Changes to `Display_HMI/src/tasks/Wifi_OTA.cpp`
 - Remove the two hardcoded `const char*` lines (`www_username`, `www_password`).
@@ -43,7 +43,7 @@ Authentication is already enforced on all sensitive routes (`/`, `/serverIndex`,
 
 ### New files
 - `motherBoard/include/credentials_template.h` — committed, defines `WEB_SERVER_USERNAME` and `WEB_SERVER_PASSWORD` with placeholder values.
-- `motherBoard/include/credentials.h` — gitignored, defines real credentials (`incunestadmin` / `savinglives`).
+- `motherBoard/include/credentials.h` — gitignored, defines real credentials (`incunestadmin` / `<WEB_SERVER_PASSWORD>`).
 
 ### Include logic in `motherBoard/src/tasks/Wifi_OTA.cpp`
 Add the same `#if __has_include` block used in Display HMI:
@@ -76,4 +76,4 @@ Add `credentials.h` to `.gitignore` in both `Display_HMI/` and `motherBoard/` (o
 | Field    | Value           |
 |----------|-----------------|
 | Username | `incunestadmin` |
-| Password | `savinglives`   |
+| Password | `<WEB_SERVER_PASSWORD>`   |

@@ -16,7 +16,6 @@
 // Umbrales del test de fabrica (design.md D10 / mb-factory-test).
 #define FTEST_SB_SPREAD_MAX_C 1.0f
 #define FTEST_SB_VS_EXT_MAX_C 3.0f
-#define FTEST_BUZZER_DBA_DELTA 6.0f
 #define FTEST_HUMID_MIN_MA 20.0f
 #define FTEST_HEAP_MIN_BYTES (40u * 1024u)
 // Plazo de los tests de conectividad opcionales (gsm_net/wifi/tb_provision/
@@ -67,10 +66,10 @@ bool factoryTestRunSingle(unsigned id);
 // <= 250 ms) y termina en SKIP con detail="abort".
 void factoryTestAbort(void);
 
-// NOTA (cuarta ronda, banco 2026-09-06): factoryTestConfirm() se elimino --
-// BUZZER (unico test que preguntaba al operario) ya no usa el camino
-// CONFIRM (factory_test_hw.cpp). El comando HMI,FTEST,CONFIRM lo sigue
-// aceptando el parser (CommTask.cpp) pero se descarta con log "sin uso".
+// Respuesta del display a un CTRL,FTEST,id,5 (CONFIRM): HMI,FTEST,CONFIRM.
+// Un id que no coincide con el CONFIRM que la tarea esta esperando se
+// descarta con log. Hoy solo lo usa BUZZER (mide el display con su microfono).
+void factoryTestConfirm(unsigned id, bool ok);
 
 bool factoryTestRunning(void);
 

@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/noise_detector.h"
 #include "sb_door_state.h"
 #include "sb_env_fusion.h"
 #include "sb_frame_parser.h"
@@ -203,6 +204,14 @@ static void handle_message(const SbMessage *m, uint32_t now_ms) {
       s_snapshot.dba = m->dba;
       s_snapshot.last_sound_ms = now_ms;
       s_snapshot.sound_seen = true;
+      // ALARM_NOISE_HIGH (security.cpp). Este es el unico hilo que alimenta el
+      // detector; la supresion la publica securityCheck().
+      {
+        extern NoiseDetector g_noise_detector;
+        extern volatile bool g_noise_samples_suppressed;
+        noise_detector_sample(&g_noise_detector, m->dba_valid, m->dba,
+                              g_noise_samples_suppressed, now_ms);
+      }
       break;
 
     case SB_MSG_CAPTURE_RESP:
@@ -488,7 +497,9 @@ void sensorboard_comm_init(void) {
 
   // Los pines 19/20 venian de hacer de bus I2C2 en el sondeo de arranque: hay
   // que soltarlos antes de que el PHY los reclame como D-/D+.
+#if (HW_NUM < 19) // en la V19 Wire1 nunca se levanta (initI2C())
   Wire1.end();
+#endif
   gpio_reset_pin(GPIO_NUM_19);
   gpio_reset_pin(GPIO_NUM_20);
   // gpio_reset_pin() deja el pull-up interno (~45k) HABILITADO. Sobre las
@@ -521,7 +532,7 @@ void sensorboard_comm_init(void) {
     return;
   }
 
-  xTaskCreatePinnedToCore(usb_host_daemon_task, "USB_HOST_D", 4096, NULL,
+  xTaskCreatePinnedToCore(usb_host_daemon_task, "USB_HOST_D", SMALL_TASK_STACK_BYTES, NULL,
                           SENSORBOARD_TASK_PRIORITY, NULL, CORE_ID_FREERTOS);
 
   // Stack propio mayor que el de por defecto: el callback de datos decodifica

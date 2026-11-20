@@ -138,8 +138,29 @@ build before trusting any observation.
     `WifiOTAHandler()`) starved the Comm task for seconds at a time. UART0's
     1 KB RX ring fills in ~1.5 s, so whole protocol lines were lost as well,
     alarm lines included (same sink as the factory-test lines, but with a new
-    trigger). No reset: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1` is off in
-    the framework's sdkconfig, so a long core-1 stall is benign for the TWDT.
+    trigger). No reset **on the HMI**: `CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1`
+    is off in the framework's sdkconfig, so a long core-1 stall is benign for
+    the TWDT *there*.
+*   **The same conclusion does NOT transfer to the motherBoard — there the
+    identical stall reboots the board.** The asymmetry is that the HMI
+    subscribes no task to the TWDT and therefore inherits the framework's
+    configuration, while the motherBoard installs its own:
+    `initHardware()` ends in `watchdogInit(WDT_TIMEOUT)`
+    (`system/initHardware.cpp`), i.e. `esp_task_wdt_init(75, true)` plus
+    `esp_task_wdt_add(NULL)` called from `setup()` — which subscribes
+    Arduino's **`loopTask`** to a 75 s TWDT with panic, fed once a second by
+    `watchdogReload()` in `loop()`. That `loopTask` runs at **priority 1 on
+    core 1** (`CONFIG_ARDUINO_RUNNING_CORE=1`), the lowest of every motherBoard
+    task on that core (OTA 4, GPRS 5, buzzer 6, comm 7, sensors 8, security 9),
+    so the very busy-loops described above starve it. Five consecutive waits of
+    the library's default `MQTT_SOCKET_TIMEOUT` (15 s) are exactly the 75 s
+    budget. Observed on the bench on 2026-09-10: IncuNest-353_1 lost WiFi at
+    16:54 and reset with `RST_reason = 6` (`TASK_WDT`) about 50 minutes later,
+    having stopped publishing at 17:46. `-D MQTT_SOCKET_TIMEOUT=2` is now in
+    the motherBoard's `IncuNest_V18`/`IncuNest_V17` blocks too (the `_factory`
+    variants inherit it); with 2 s it would take 38 consecutive waits.
+    Still a strong hypothesis rather than a closed case: the CrashReporter
+    dump naming the starved task is what would confirm it.
 *   **Mitigation (implemented)**, in three layers:
     1.  *Order of priorities*: `OTA_TASK_PRIORITY` 4 -> **2**, below
         `COMM_TASK_PRIORITY` (3). The link with the board cannot yield to
@@ -182,3 +203,1097 @@ build before trusting any observation.
     and the 5 s telemetry publish, not with the OTA task (which can no longer
     preempt Comm) — the LVGL mutex and the `arduino_events` task at priority 19
     on core 1 are the remaining coupling, 4x under the alarm window.
+
+## 9. Phantom `BOARD LINK LOST` of a few ms on every unlock (regression of #8)
+
+*   **Problem Description**: on the bench (2026-09-10), **every** screen unlock
+    produced the same sequence: the maintenance pop-up opened, the link-lost
+    banner appeared with its audible pattern for a few milliseconds, the pop-up
+    closed itself, and everything went back to normal. The motherBoard's alarm
+    log held **no** `ALARM_HMI_LINK_LOST` entry, so unlike #8 the HMI's
+    keepalive never stopped: the board could still hear the display, and the
+    display was the only one claiming the link was gone.
+*   **Reason**: an unsigned underflow in the very discount added as layer 3 of
+    #8's mitigation. The accounting block at the top of `Comm_Task()` measures
+    `gap` from the **header of the previous pass**, but incoming lines are
+    stamped into `g_lastCtrlLineMs` **inside** that pass, by
+    `ReceiveMessageFromOtherESP()`. When the UI task (priority 5) preempts Comm
+    (priority 3) mid-pass and does not hand the CPU back for hundreds of ms,
+    the stamp ends up *later* than the header it will be compared against, so
+    `g_lastCtrlLineMs += gap` double-counts a window already contained in the
+    stamp and pushes it into the **future**. The old code asserted the opposite
+    in a comment ("gap se mide contra la pasada anterior, `g_lastCtrlLineMs`
+    nunca adelanta a `nowPass`"), which is true only if nothing is stamped
+    during the pass. With a future stamp, `now - g_lastCtrlLineMs` wraps around
+    in `Display_IsBoardLinkLost()` and reads as ~49 days of silence, so the
+    detector fires instantly — and clears again as soon as the next `CTRL,TEL`
+    or `CTRL,STATE` (1 Hz each) re-stamps a sane value. Hence "a few ms".
+    The unlock is what makes it reproducible rather than random: repainting the
+    screen and then building the maintenance pop-up (QR render included) are
+    two long UI passes back to back, which is exactly the preemption shape
+    required. The pop-up then closed itself correctly — `mustYield()` in
+    `MaintenanceDialog.cpp` cedes to any active alarm or to a lost link — so
+    the closing pop-up was a symptom, never a second bug.
+*   **Mitigation (implemented)**, in two layers:
+    1.  *Root cause*: the shifted stamp is clamped to `nowPass`, so
+        `g_lastCtrlLineMs` can never move ahead of the pass doing the shifting.
+        The discount still forgives blindness shorter than
+        `BOARD_LINK_TIMEOUT_MS`, exactly as #8 intended.
+    2.  *Defence in depth*: `Display_IsBoardLinkLost()` computes both ages with
+        **signed** arithmetic saturated at 0, so a stamp ahead of `millis()`
+        reads as "just seen" rather than as a wrap-around silence. This
+        detector decides whether a medical device declares its readings dead;
+        it must not depend on every other site in the file being right to the
+        millisecond.
+*   **What did NOT change**: a genuinely silent board is still declared at
+    `BOARD_LINK_TIMEOUT_MS`, and a hung or dead Comm task still raises the
+    banner through the `unheard > BOARD_LINK_TIMEOUT_MS` branch, which the
+    clamp does not touch.
+*   **Bench verification**: with the reminder due (or `Maintenance_SetEnabled`
+    left on with the daily level overdue), lock and unlock the screen several
+    times. Expected after the fix: the pop-up opens and **stays** open, no
+    banner, no beep, no blanked readings. `[COMM] N ms sin drenar el cable` may
+    still appear with N between `COMM_RX_TIMEOUT_MS` and `BOARD_LINK_TIMEOUT_MS`
+    — that line reports the UI stall, which is real and unchanged; what it must
+    no longer do is trigger the alarm.
+
+## 10. Temperature control (or phototherapy) switches itself back OFF right after the baby wizard
+
+*   **Symptom**: select a baby, enter the weight, press APLICAR on the proposed
+    air temperature. Temperature control goes ON and, a second or two later,
+    goes back OFF on its own. The same shape was reported for phototherapy.
+*   **Why it is a regression of the phototherapy echo race (`a77bd1b`)**: the
+    HMI is the only place that can turn these switches off spontaneously.
+    `Display_ApplyCtrlState()` resyncs `actuation` / `controlMode` /
+    `phototherapyMode` / `muteAlarm` / `skinModeEnabled` from the
+    motherBoard's echoed `CTRL,STATE` on every frame — needed so a rebooted
+    HMI inherits the board's real state (#4). A frame that was already in
+    flight still carries the value from *before* the board processed the
+    command; adopting it does not just repaint the switch, it writes
+    `hmi_msg`, and the HMI's next 1 Hz heartbeat then genuinely commands the
+    board OFF.
+*   **Why the old fix was not enough**: `a77bd1b` protected a just-changed
+    field for a fixed 2.5 s grace window. That is a bet that the round trip
+    fits inside it, and this link does not guarantee that — the HMI Comm task
+    can lose the CPU for whole seconds (#7, #9) and the UART RX ring drops the
+    *newest* bytes when it fills, so what gets parsed after a stall is
+    precisely the stale line. Once the window expires without confirmation the
+    stale echo wins, and the resulting OFF is irreversible. The baby wizard
+    makes the shape easy to hit: activation now happens at the end of a long
+    modal, in a single heavy UI pass, right after a burst of `HMI,PROFILE_*`
+    traffic.
+*   **Fix (implemented)**: the guard is no longer a timer but a
+    **confirmation**. A locally changed field stays authoritative until the
+    board echoes back that same value; the 1 Hz heartbeat keeps resending the
+    intent meanwhile, so lost frames and multi-second stalls no longer matter.
+    `LOCAL_CMD_CONFIRM_TIMEOUT_MS` (10 s) survives only as a safety net for a
+    board that never confirms, and logs `<campo> sin confirmar en N ms` when it
+    fires — that log line is the discriminator between "stale echo" and "the
+    board is refusing the command".
+*   **Also fixed here**: the setpoints (`desiredAirTemperature`,
+    `desiredSkinTemperature`) had **no** guard at all — they were overwritten
+    from every echo. Applying the wizard's proposed temperature could therefore
+    be silently undone by the next `CTRL,STATE`, which still carried the
+    previous setpoint. They now use the same confirmation guard.
+*   **What did NOT change**: recovery after an HMI reboot (#4). No guard arms
+    before the first `CTRL,STATE` has been applied (`g_stateSynced`), nor on
+    the first value observed for a field, so a freshly booted display never
+    imposes its start-up "everything off" on a board that is actually
+    regulating.
+*   **Bench verification**: select a baby, enter a weight, press APLICAR.
+    Expected: temperature control stays ON and the target temperature stays at
+    the proposed value (not the previous setpoint) for at least 30 s. Repeat
+    for SKIN and for phototherapy. Unplug the HMI↔MB cable for ~5 s while
+    control is ON and reconnect: control must still be ON afterwards.
+
+## 11. Control (or phototherapy) switches itself OFF milliseconds after being turned on (residual race of #10)
+
+*   **Symptom**: flip temperature control or phototherapy ON and a few
+    *milliseconds* later it goes back OFF on its own, as if OFF had been
+    pressed. Intermittent — it depends on the exact instant of the tap.
+*   **How it differs from #10**: #10 is the *baby wizard* shape and takes a
+    second or two (the command's round trip). This one is immediate and hits a
+    plain switch tap. The confirmation guard from #10 is present and correct;
+    what failed is *when* it gets armed.
+*   **Root cause**: the guard was armed only by `Comm_Task`'s 10 ms poll
+    (`CommTask.cpp`, `trackLocalCmdGuard`), while the decision is taken by
+    `UITask` inside `Display_ApplyCtrlState()`. Between the operator's tap
+    (UITask writes `hmi_msg`) and the next poll there is a window of up to
+    10 ms:
+
+    ```
+    t=0      Comm_Task parses a CTRL,STATE that predates the command
+    t=+1ms   operator taps  -> UITask writes hmi_msg.actuation = 1
+    t=+2ms   UITask reaches Display_ApplyCtrlState -> `pending` is still false
+             -> the stale echo wins, hmi_msg is rewritten, switch paints OFF
+    t=+10ms  Comm_Task polls -> sees 0, equal to lastSeen -> "no change"
+             -> the guard is NEVER armed
+    ```
+
+    Because the guard never armed, the `<field> sin confirmar en N ms` line
+    never fires either: the defect leaves **no trace in the log**, which is why
+    it survived the #10 work.
+*   **Fix (implemented)**: `Display_ApplyCtrlState()` now arms all seven guards
+    itself, immediately before consulting them. Arming and deciding happen in
+    the same task and the same instant, so the window is gone. `Comm_Task`'s
+    poll stays: it is idempotent, and it is what leaves `changedAtMs` at the
+    real instant of the change, which the `LOCAL_CMD_CONFIRM_TIMEOUT_MS` safety
+    net hangs from.
+*   **What did NOT change**: recovery after an HMI reboot (#4). `g_stateSynced`
+    is set *after* `Display_ApplyCtrlState()` returns, so on the first frame the
+    new arming call takes the `!g_stateSynced` branch and arms nothing — a
+    freshly booted display still inherits the board's real state instead of
+    imposing its start-up "everything off".
+*   **Bench verification**: flip temperature control ON and OFF ~20 times in a
+    row at a normal pace, then the same for phototherapy. Expected: every ON
+    stays ON. If one still drops, capture both serial ports and check whether
+    `sin confirmar en 10000 ms` appears — with the line it is the board
+    refusing the command (a different defect); without it, the race is not
+    fully closed.
+*   **Bench result (2026-09-19, SN 353, HW18)**: verified working by the user
+    on the fixed build — control and phototherapy no longer switch themselves
+    back OFF. This issue is **closed**; #10's own bench verification, which had
+    been left pending since 2026-09-11, is covered by the same run.
+
+## 12. Re-flashing with the flasher tool erases the unit's identity (no ThingsBoard) — FIXED
+
+*   **Symptom (2026-09-20)**: a unit re-flashed with `IncuNest_Flasher.exe`
+    stopped connecting to ThingsBoard. Nothing in the flashing log looked
+    wrong, the board booted normally, and no new device appeared in the
+    server.
+*   **Root cause**: `flasher_config.json` sets `force_serial_number: true`, so
+    the tool asks for a serial on *every* motherBoard, including boards that
+    already have firmware. Supplying a serial makes `flash_board()` write the
+    image from `nvs_gen.generate_serial_nvs()`, which is the size of the whole
+    NVS partition and carries a single key (`mb_cfg/serial`). Writing it wipes
+    everything else in NVS: the ThingsBoard token and the `provisioned` flag
+    (`mb_gprs`) and the WiFi credentials (`mb_wifi`).
+*   **Why it looks like a server problem**: with no stored WiFi the unit falls
+    back to the SSID compiled into `Credentials.h`, which usually does not
+    exist outside the bench, so it never reaches the network. If it does reach
+    it, the `IncuNest` device profile provisions with
+    `ALLOW_CREATE_NEW_DEVICES`, which refuses a name that already exists; the
+    firmware retries as `IncuNest-<n>_1`..`_3` (`PROVISION_MAX_RETRIES = 3`)
+    and then gives up for good. On the server, serial 1 already has all four
+    names taken, and 325, 327, 328, 331, 333, 334, 336, 337 and 353 have burnt
+    at least one retry — each of those is a unit that was re-flashed and came
+    back as a different device, losing its history.
+*   **Fix (flasher)**: the tool now reads the serial already stored on the
+    board (`flasher.read_device_serial()`, using the `parse_nvs_serial()` that
+    was already there) and pre-fills the dialog with it. Accepting it unchanged
+    writes no NVS at all, so the unit keeps its identity
+    (`flasher.serial_to_write()`); changing it rewrites NVS and the dialog says
+    so in red. Covered by `tests/test_serial_preserva_nvs.py`.
+*   **Still open on the server side**: the duplicate `IncuNest-<n>_k` devices
+    are not cleaned up, and serial 1 cannot provision again until somebody
+    deletes them. Worth considering `CHECK_PRE_PROVISIONED_DEVICES` for the
+    `IncuNest` profile so a re-provisioning unit recovers its own credentials
+    instead of creating a twin.
+
+## 13. `Reset due to task watchdog` a los 2-3 min de encender (TinyGSM) — FIXED
+
+*   **Symptom (production, 2026-09-20)**: units 352, 358 and 359 reset with
+    `RST_reason = 6` (`ESP_RST_TASK_WDT`) two to three minutes after power-on,
+    once each, and then ran for hours without another reset. The operator had
+    just switched phototherapy on, so phototherapy looked like the trigger.
+*   **Phototherapy is not the trigger.** Its regulation loop
+    (`sensors_module.cpp`) is rate-limited and never blocks, and the three
+    units kept phototherapy on for 4.5 h afterwards with no further resets.
+    What lines up with the timing is the **modem bring-up**.
+*   **Root cause**: `TINY_GSM_YIELD()` is `delay(TINY_GSM_YIELD_MS)` and the
+    library's default is `0`. In arduino-esp32 `delay(0)` is `vTaskDelay(0)`,
+    which yields **only to tasks of equal or higher priority**. `loopTask`
+    runs at priority 1 and is the only thing that feeds the 75 s task
+    watchdog (`watchdogInit(WDT_TIMEOUT)`, `initHardware.cpp`), so while the
+    GPRS task — priority 5 — sits inside a TinyGSM wait, the watchdog is
+    never fed. And the waits are long: `modem.gprsConnect()` blocks for the
+    whole attach handshake, which `GPRS.cpp:727` already warned "can by
+    itself exceed GPRS_TIMEOUT on slow networks". Over 75 s on a slow 2G
+    network and the board resets.
+*   **Same family as #8**: that one was PubSubClient's 15 s active waits
+    starving the same `loopTask`, fixed with `MQTT_SOCKET_TIMEOUT=2`. The
+    project had already paid for this lesson once in another library.
+*   **Fix**: `-DTINY_GSM_YIELD_MS=1` on both motherBoard environments. One
+    tick of real `vTaskDelay` does yield to lower priorities. Costs at most
+    1 ms per poll of the modem UART.
+*   **Not verified on hardware yet**: the bench unit attaches quickly, so it
+    does not reproduce the slow-attach case on demand. What can be checked is
+    the absence of the reset; reproducing it needs a slow or marginal 2G
+    network.
+
+## 14. Every OTA ends in `PANIC`: the server re-triggers an update that can never succeed
+
+*   **Symptom (production, 2026-09-21)**: the seven units of the batch (352,
+    354-359) all reached 18.30 **and** all reported
+    `RST_reason = 4` (`ESP_RST_PANIC`). Reproduced on the bench on 2026-09-22
+    with 18.32 and again with 18.33.
+*   **Why it looked like the update "worked"**: it applies on reboot, and the
+    panic *is* the reboot. `updatedCallback()` (`GPRS.cpp`) and
+    `WIFI_UpdatedCallback()` (`Wifi_OTA.cpp`) deliberately leave
+    `esp_restart()` commented out — you do not reboot an incubator with a baby
+    inside, the image is meant to boot at the next power-up. So a unit that
+    updated *and* rebooted by itself had, by definition, crashed.
+*   **Captured live** (`ota2_bucle_fantasma.log`, bench, 18.33). Right after
+    `Progress 100.00%` and `[GPRS] -> Done, OTA will be implemented on next
+    boot`, the port fills at ~7 lines/s with:
+
+    ```
+    [TB] Failed to initalize flash updater, ensure that the partition scheme has two app sections
+    ```
+
+    That message is `ERROR_UPDATE_BEGIN`, and it is only reachable while
+    processing **chunk 0**. The finished download had been restarted from
+    scratch, on an updater that was already closed. Control and the HMI link
+    stayed alive throughout: it is not a CPU lock-up, it is a retry storm that
+    keeps asking the server for chunks forever.
+*   **Root cause — a clash of models, not a coding slip.** ThingsBoard
+    considers an update finished when the device **reports** the new version.
+    This device deliberately does not reboot, so it keeps reporting the old
+    one. The server therefore still sees `target != current`, re-triggers the
+    update, and `Start_Firmware_Update()` runs again on a partition that is
+    already written and finalized — so Arduino's `Update.begin()` refuses,
+    which is the `ERROR_UPDATE_BEGIN` above.
+
+    From there the SDK never gives up: `Handle_Failure(RETRY_UPDATE)` calls
+    `Request_First_Firmware_Packet()`, which **re-reads
+    `m_retries = m_fw_callback->Get_Chunk_Retries()` on every lap**. The retry
+    count never reaches zero, so the loop is unbounded by construction.
+*   **Proof it is server-driven** (bench, 18.35, 00:05:45): unassigning the
+    firmware package in ThingsBoard stopped the storm instantly — 488
+    occurrences before, 488 thirty seconds later, zero new — and the unit
+    logged `[TB] No new firmware assigned on the given device`. Nothing was
+    changed on the device to achieve that.
+*   **Fix** (`GPRS.cpp`, `Wifi_OTA.cpp`): a `g_otaPendingReboot` latch, set by
+    the shared `updatedCallback()` on success and checked at both
+    `Start_Firmware_Update()` call sites. It lives in RAM on purpose: the only
+    thing that clears it is the reboot that actually applies the image. Both
+    transports share `updatedCallback()`, so one flag covers 2G and WiFi.
+*   **A false trail worth recording.** The first diagnosis was that the
+    per-chunk timeout timer (`OTA_Handler::m_watchdog`) outlived the download
+    and resurrected it, and the first patch was
+    `if (m_fw_callback == nullptr) { return; }` in `Handle_Request_Timeout()`.
+    That guard **can never fire**: on success `Firmware_OTA_Unsubscribe()` does
+    `m_fw_callback = OTA_Update_Callback();`, which rebuilds
+    *ThingsBoardSized's own member* rather than `OTA_Handler`'s pointer to it,
+    and the only thing that nulls that pointer — `Stop_Firmware_Update()` —
+    hangs off `Cleanup_Subscriptions()`, which this firmware never calls. The
+    patch shipped inside 18.32 and the unit panicked anyway. What settled it
+    was the serial capture: the loop starts **one second after** `Done` with no
+    `Progress` line at all, so it is a *new* update being started, not a
+    download being resumed.
+*   **Still worth knowing** (not the cause, not patched): after
+    `Firmware_OTA_Unsubscribe()` that pointer aims at a default-constructed
+    object, and both `OTA_Update_Callback()` and `Callback()` are `= default`
+    with no member initializers, so `m_message`, `m_fwTitel`, `m_updater`,
+    `m_retries` and `m_timeout` are **indeterminate**. Anything that reaches
+    `Handle_Request_Timeout()` after an update ends reads garbage, and
+    `Logger::println(m_message)` in `Callback.h` would print from a wild
+    `char *`. `patch_libdeps.py` patches 2 to 4 stop the timer and null the
+    pointer at the three exits of the update so that patch 1's guard becomes
+    reachable — defensive, and **not** verified to fix anything observed.
+*   **Do not "fix" this by raising the timeout or the retry count.** The retry
+    count is reset every lap; the defect is that the update is restarted at
+    all.
+
+## 15. Phototherapy timer lost or resurrected across a crash
+
+Found by audit on 2026-09-23, not by a field report. Both faults need a reset
+to show up, and both change how long a baby is irradiated, so they are written
+down in full.
+
+**What already worked.** State restore is sound: the rule is "restore on every
+reset except `POWERON` and `BROWNOUT`" (`initHardware.cpp`), both boards use
+it, and control state is written to NVS *at the moment it changes*
+(`main.cpp:474` and `546`), so a crash does not lose it. `in3.phototherapy` is
+part of that, which means **after a crash the lamp always comes back on**. The
+only thing that decides whether it also comes back with its countdown is the
+`"photo"` NVS namespace — and that is where both faults were.
+
+**A — a crash in the first 60 s turned a timed session into an endless one.**
+The remaining minutes were only persisted by a periodic save every 60 s
+(`CommTask.cpp`). Before the first save the namespace is empty, so
+`initEEPROM()` read `active=false`, `g_restore_photo_minutes` stayed 0 and the
+timer was never re-armed. The lamp came back on with **no countdown and no
+auto-off**. Over-treatment, with nothing on screen to suggest it.
+
+**B — a cancelled timer could resurrect on top of a continuous session.** Only
+natural expiry cleared the namespace. Stopping a timed session by hand left
+`active=true, mins=N` behind. Start a **continuous** session afterwards, crash,
+and the restore read those leftovers and re-armed the cancelled timer: the lamp
+switched itself off N minutes later with nobody asking. Under-treatment, silent.
+
+**Fix.** `photoTimerPersist()` / `photoTimerForget()` in `CommTask.cpp`, called
+on *every* transition rather than some of them: persist when the session starts
+(A) and on each periodic save, forget on operator stop, on natural expiry, and
+on the edge that starts a continuous session (B). `photoTimerForget()` probes
+before clearing, because it runs on every HMI command (~1 Hz) and an
+unconditional `clear()` would be a flash write per second.
+
+**The trap in this code — do not "simplify" the three branches into two.** The
+HMI sends `photoMin=0` *with* `photo=1` during the **last minute** of a timed
+session, because the seconds travel in their own field
+(`Display_HMI/src/tasks/CommTask.cpp:1571`, and `photoMinutesRemaining` is
+`(int)photoTimeRemaining` over an `MM.SS` value). So `mode=1, mins=0` is
+ambiguous: it is either a continuous session or the final minute of a timed
+one. Treating it as "continuous" stops a live timer and leaves the lamp on
+forever — the exact fault A was meant to remove. The third branch tells them
+apart by looking at `photoTimerActive`. The original two-branch shape was
+deliberate; it just did not persist or clear enough.
+
+**Verification.** The five transitions were modelled on the host and run
+against the old and the new logic: the old one fails A and B (2 failures), the
+new one passes all of them, and the last-minute case is unaffected by both.
+That model is *not* in the repo: the logic lives inside `CommTask.cpp`, which
+needs Arduino, FreeRTOS and Preferences and does not build in `[env:native]`,
+so a copy of it kept as a unit test would drift from production in silence.
+Making this properly testable means extracting the timer into
+`modules/control/`, like `fan_guard` — worth doing, not done here.
+
+**C — the fix for A uncovered a third fault: the HMI echo ratcheted the
+countdown.** Verified on the bench (2026-09-23, 18.39): after a restored timer,
+15 minutes were consumed in **26 seconds**. The board broadcasts the remaining
+time as `MM.SS`, which just under a whole minute reads `14.59`; the HMI
+truncates that to `14` and sends it back; the board compared it against
+`photoTimerMinutes` — the duration it was *armed* with — saw `14 != 15`, took it
+for a new duration and restarted the count from 14. Every round trip ate a
+whole minute.
+
+This was pre-existing and unreachable in production: it needs a *restored*
+timer, and until A was fixed the timer was never restored. Left alone it would
+have traded "the lamp never switches off" for "the lamp switches off in 30
+seconds", which is not an improvement.
+
+The fix compares against the **remaining** time, not the armed duration, and
+only re-arms on a genuine change: a new session, or a difference of more than
+one minute. One minute is exactly the truncation margin, so the steady-state
+echo — always exactly one step below — is ignored, while a real operator change
+(15 → 30, 15 → 5) still re-arms.
+
+*Residual limitation:* the protocol has no way to distinguish "the operator set
+a new duration" from "the HMI is echoing what we just sent", so the rule is a
+heuristic on the size of the jump. An echo that arrived two or more minutes
+stale would still be read as a change and would lose a minute. It would not
+ratchet, and it has not been observed.
+
+**Verified on hardware** (bench, 18.39 and 18.40, `/debug/inject` +
+`/debug/crash?kind=null`):
+
+| check | evidence |
+|---|---|
+| A: crash 1 s into a timed session | `reset=PANIC (4) restoreState=1` then `[RESTORE] photo timer resumed: 15 min` |
+| C: single-step echo (`15` then `14`) | no second `timer started` line — no re-arm |
+| C: two-step jump (`15` then `13`) | re-arms, as a real operator change should |
+
+B was verified on the host model only: reproducing it on hardware needs the HMI
+to hold a continuous session, and the HMI overwrites the injected command about
+once a second.
+
+## 16. Web endpoints leaked patient data and unit identifiers without a password
+
+Found by audit on 2026-09-23. Every endpoint that **writes** was already
+authenticated — `/config` POST, `/update`, all of `/debug/*` (the last with a
+second gate on debug mode). The reads were not.
+
+*   `/get_config` returned `skin_temp_val` — **the baby's current skin
+    temperature** — plus the serial number, `heater_amps` and the `air_tmax` /
+    `skin_tmax` thermal cutoffs. Anyone on the hospital LAN could read it with
+    no credentials, while the POST that writes those same parameters asked for
+    them.
+*   `/get_ccid` returned the unit's SIM CCID.
+*   Both are now authenticated. Neither user flow changes: they are fetched by
+    AJAX from `/config` and `/serverIndex`, which are themselves authenticated,
+    so the browser sends the credentials it has already cached.
+
+**Left open on purpose, do not "fix" these:** `/get_fw_version` (both boards)
+and `/get_freq` (HMI) are the flasher's discovery path — it sweeps the subnet
+with 50 threads before it has any credential, and uses `/get_freq` returning
+200 vs 404 to tell an HMI from a motherBoard. They publish only version, serial,
+board type and the LCD write frequency. Adding a field to either of them
+publishes it to the whole network unauthenticated.
+
+**Still open — the transport.** All of this is HTTP Basic over plain HTTP, so
+the credentials travel base64 on the wire, and that same password is the only
+thing guarding `/update`, which accepts an arbitrary binary. Capturing one
+authenticated request is enough to flash anything onto the unit. Fixing it
+means TLS on a board with ~11 KB of free internal heap (see the OOM notes), so
+it is a design decision, not a patch.
+
+## 17. Phototherapy intensity was never regulated, so the 40 % cut did nothing
+
+Reported from the bench on 2026-09-23 as "during the current test the light
+uses a low PWM (correct), but sometimes it comes back on for a second at a
+higher intensity". Chasing that turned up two separate faults, the second much
+larger than the report.
+
+### 17a — a one-second irradiation burst on every cold boot after a session
+
+`in3.actuation` is read from NVS unconditionally but only **applied** under
+`if (in3.restoreState)` (`EEPROM.cpp`), so a cold power-up does not resume
+temperature control. `in3.phototherapy` had no such filter: it was read *and*
+applied, in `initHardware.cpp`:
+
+```c
+if (in3.phototherapy) { ...; ledcWrite(PHOTOTHERAPY_PWM_CHANNEL, ...); }
+```
+
+Sequence: switch the unit off with phototherapy running (NVS keeps
+`photo_active=1`), power it up cold (`restoreState=false`), the autotest drives
+the lamp at 10 % PWM — correct — and immediately afterwards that line drives it
+at the *operating* intensity, brighter than the test, until the HMI's first
+command arrives about a second later with `photo=0` and switches it off.
+
+Intermittent because it needs the unit to have been switched off mid-session.
+It also left the two boards disagreeing on exactly the point
+`security_check_reboot_cause()` says was unified: the HMI uses the same
+`restoreState` rule, which is why the `photo=0` that ended the burst came from
+the HMI. Fixed by clearing `in3.phototherapy` when `!in3.restoreState`.
+
+### 17b — the regulation loop never ran, and the current is 2.2x the target
+
+`PHOTO_TARGET_CURRENT` is read in exactly one place: the intensity loop in
+`currentMonitor()` (`sensors_module.cpp`), which is gated on
+
+```c
+millis() - in3.photoTurnOnTime > PHOTO_SETTLE_MS   // 3000 ms
+```
+
+`main.cpp` refreshed `in3.photoTurnOnTime` on **every** HMI command, and that
+command is a keepalive — `CommTask.cpp` sets `newCommand = true` on every frame
+received, about once a second. The gate therefore never opened and the loop
+never executed once. `PHOTO_TARGET_CURRENT` was dead code, and the lamp simply
+sat at its open-loop seed.
+
+Fixed by re-arming `photoTurnOnTime` only on the off→on edge instead of on
+every keepalive.
+
+**Retracted claim — the extrapolation is *not* broken.** This entry first said
+the open-loop seed was wrong by 2.2x, from a bench reading of 0.59-0.60 A that
+was attributed to PWM 102. That attribution was wrong: the `PH_PWM` sample used
+was published *before* the session started, so the PWM during that measurement
+is simply unknown. Fleet telemetry says the model is accurate — for each unit,
+the current at its working PWM matches `I ∝ (PWM + 20)` extrapolated from its
+own 10 % reading:
+
+| unit | 10 % PWM | working PWM | measured | model |
+|---|---|---|---|---|
+| 301 | 0.13 A | 138 | 0.45 A | 0.456 A |
+| 329 | 0.13 A | 138 | 0.46 A | 0.456 A |
+| 345 | 0.14 A | 129 | 0.46 A | 0.463 A |
+| 346 | 0.14 A | 121 | 0.46 A | 0.439 A |
+
+Those working PWMs are themselves the extrapolation for the **old** 0.45 A
+target (`0.45·45/0.13 − 20 ≈ 136`), which is what confirms the mechanism: the
+extrapolation is what sets the operating point, and it lands accurately. The
+0.59-0.60 A measured on the bench is left recorded as **unexplained**, not as
+evidence of anything.
+
+### 17c — the seed was a fixed 40 % on any boot that skips the autotest
+
+Consequence of the above, and what makes the lamp start near its target rather
+than converging to it. `actuatorsTest()` extrapolates a PWM for
+`PHOTOTHERAPY_CONSUMPTION_DEFAULT` and that lands accurately — but it is
+skipped on a `restoreState` boot, exactly the boot after a crash. The
+`photoFirstRun` fallback then seeded a fixed `PHOTOTHERAPY_INITIAL_PWM_PCT`
+(40 %, PWM 102), which targets no particular current and gives a different one
+on every unit.
+
+The extrapolated value is now persisted (`KEY_PHOTO_PWM`, `mb_state`) when the
+autotest commits it, and reloaded at boot when present, so a unit that skips
+the autotest still starts at its own calibrated operating point instead of a
+fixed duty.
+
+**This changes delivered irradiance and must be validated before it reaches a
+patient.** Enabling the loop drops the current from ~0.60 A to 0.27 A, more
+than halving it. Current is not calibrated against irradiance — the LED's
+radiant flux is roughly linear with current, so this is of the order of -55 %
+in uW/cm2/nm, but only a radiometer on the unit gives the real figure, and only
+that says whether the dose still meets the clinical protocol.
+
+**Credentials fallback is no longer silent.** `Credentials_public.h` fell back
+to the repository's public dummy values with no diagnostic; the only thing that
+caught it was the factory test failing to provision. It now emits a `#warning`
+always, and `-DREQUIRE_REAL_CREDENTIALS` turns it into an `#error` — that flag
+belongs in any build destined for a real unit.
+
+## 18. `/debug/coredump` can serve the dump of a *previous* crash (OPEN)
+
+Found running the bench battery on 2026-09-23 (18.45). Two crashes provoked in
+a row through `/debug/crash`:
+
+| kind | reset reason | dump downloaded afterwards |
+|---|---|---|
+| `null` | `PANIC (4)` | 45 220 B, decodes to `debug_crash_task+117`, `StoreProhibited` |
+| `wdt` | `INT_WDT (5)` | 45 220 B, **byte-identical** (same SHA-256) — the `null` dump again |
+
+The watchdog reset wrote no new dump, and `/debug/coredump` served the old one
+with nothing to say it belongs to a different reset. `CrashReporter.cpp` keeps a
+valid dump **on purpose** ("se conserva para sacarlo entero con esptool") and
+only erases *unreadable* ones, so this is by construction: after any reset that
+does not write a dump, the partition still holds the last one that did.
+
+**Impact.** Not on ThingsBoard: `Crash_reason` was correctly `INT_WDT`, and
+`Crash_task` / `Crash_backtrace` are not being published at all. The damage is
+to the diagnostic workflow documented next to the archived symbols
+(`curl /debug/coredump` → `esp_coredump info_corefile`): after such a reset it
+hands you the backtrace of a different, older crash. That is the exact trap
+this project fell into on 2026-09-22, decoding the wrong image's dump.
+
+**Fix, not applied yet:** tie the dump to the reset that produced it — e.g.
+persist a checksum of the last dump already reported and, at boot, treat an
+unchanged dump as "no dump for this reset" (and have `/debug/coredump` say so),
+while still keeping it in flash for esptool.
+
+**Also seen in the same run:** the debug `wdt` kind is meant to fire the *task*
+watchdog (`DEBUG_CRASH_TASK_WDT`, "lo dispara el TWDT"), but the board reported
+`INT_WDT`. It does not reproduce the production failure it is named after
+(`TASK_WDT`, units 352/358/359, #13).
+
+## 19. The 40 °C air cutout is a bench shortcut shipping on the production line (DECIDED: kept)
+
+**Decision, 2026-09-23 (Pablo Sánchez):** keep the setpoint ceiling at 39 °C
+and the cutout at 40 °C in production. The deviation from 201.15.4.2.1 aa)
+stays on record as in `68a0369e` and `alarms_normative_analysis.md` §2.4, and
+conformance with that clause still cannot be claimed while it stands.
+
+Applied to the bench unit the same day: `air_tmax` 38 → 40 through `POST
+/config` (only that field; `heater_amps` and `skin_tmax` untouched), persisted
+across a reboot (the boot warning disappeared), and `frontera-corte-termico`
+now passes — the bench battery is 17/17. Units already in the field whose NVS
+predates `68a0369e` still hold 38 °C, and the firmware deliberately does not
+migrate a safety threshold silently: each needs `air_tmax` set in `/config` to
+follow this decision.
+
+**Update (`mb-remote-config`, revised 2026-10-25): remote correction exists
+in code but is OFF for the cut-outs.** The air and skin cut-outs can be set from
+ThingsBoard by writing the shared attribute of the same name, but only if
+`RCFG_REMOTE_SAFETY_PARAMS` (`modules/config/runtime_config_policy.h`) is set to
+1, and **it ships at 0**: the MQTT link is unencrypted (port 1883, no TLS), so
+anyone on the path can publish to `v1/devices/me/attributes`, and a cut-out is
+an order to a device heating a newborn. Until there is TLS with certificate
+verification (and a risk review), **remotely only the three GPRS reporting
+periods can be changed**; `air_tmax` / `skin_tmax` on units in the field still
+need the local route (`POST /config` or the USB console, `air_tmax = 40`). The
+boot warning in `recapVariables()` is still the signal that a unit holds the old
+38, and the firmware still does not migrate it on its own. The decision to stay
+local is the coordinator's and the user can reverse it. When the flag is set to
+1 the remote path can only lower or keep a cut-out relative to the compiled
+factory value (it cannot raise it), rejects values outside 34-40 °C instead of
+clamping, and defers changes made with therapy active until standby. See
+`thingsboard_dashboards.md` §11.
+
+What follows is the analysis that led to it.
+
+**Correction.** The first version of this entry said the bench unit was wrong
+to cut at 38 °C and suggested checking the fleet for "old" 38 °C units. That was
+backwards. `68a0369e`, the commit that introduced the 40 °C default, says so in
+its own message: *"El corte a 40 C ES UNA DESVIACION NORMATIVA CONSCIENTE de
+201.15.4.2.1 aa), que fija 38 C: no se puede reclamar conformidad mientras esto
+este puesto"*, and records it as a shortcut to test 39 °C setpoints on the
+bench. `docs/alarms_normative_analysis.md` §2.4 says the same.
+
+So the facts are:
+
+| | value | meaning |
+|---|---|---|
+| IEC 60601-2-19 201.15.4.2.1 aa) | **38 °C** | the requirement |
+| bench unit NVS `air_tmax` | 38.00 | initialised before `68a0369e`: **conforming** |
+| `AIR_THERMAL_CUTOUT_DEFAULT_C` | 40 | the deviation, as default for new NVS |
+| `ALARM_AIR_CUTOUT_MAX_C` | 40 | ceiling of the clamp |
+| `ALARM_AIR_SETPOINT_MAX_C` | 39 | setpoint ceiling, must stay below the cutout |
+
+The consequence that matters: this is on `dev-pio`, the production line. **Any
+unit whose NVS is initialised by firmware at or after `68a0369e` gets a 40 °C
+cutout** — which is likely the manufacturing batch of 2026-09-17 — and the
+bench test `frontera-corte-termico` encodes the deviation as the expected value.
+The standard's own route above 37 °C is an override gesture plus a second,
+independent cutout at 40 °C (OpenSpec `mb-air-overtemp-override`, not
+implemented), and the cutout still reads the same sensor as the PID (§2.4).
+
+The bench unit's 38 is the correct value and has been left alone. Deciding the
+production value is a product/regulatory call, not a firmware fix.
+
+## 20. The board echoes the display's phototherapy order instead of reporting the lamp — FIXED (2026-10-25, pending bench check)
+
+Seen while testing the UART `PHOTO,1` command on 2026-09-23 (18.46): with the
+lamp on at 0.46 A, `CTRL,STATE` field 8 said `0`. `send_state_to_hmi()` sends
+`g_last_cmd.phototherapyMode` — the last thing the *display* asked for — not
+`in3.phototherapy`. Same class of fault as the audio field already fixed in
+that function ("devolvia g_last_cmd.muteAlarm... no aportaba nada y ademas
+mentia"); actuation, control mode and setpoints are echoes too.
+
+Certain consequence: during a debug phototherapy session **the screen shows
+phototherapy OFF while the lamp is ON**. Not yet established: whether any
+*non*-debug path (a crash restore, a timer expiry on the board) leaves the lamp
+and the screen disagreeing. The debug override does not depend on it — its
+release window is defensive and verified to leave the lamp off.
+
+*   **Fix (change `mb-photo-current-check`)**: `send_state_to_hmi()` now sends
+    `in3.phototherapy` (what is applied) in field 8. Actuation, control mode
+    and setpoints are **still echoes, on purpose**: `in3.actuation` /
+    `in3.controlMode` are assigned verbatim from the command (so the "real"
+    value is the same), and the board keeps a single setpoint per mode, so
+    there is no one-line real value for the other one.
+*   **One exception, and why (change `mb-photo-override-simplify`)**: during a
+    debug phototherapy session (`PHOTO,1`) field 8 carries the *display's own
+    order*, not the forced ON. The display ADOPTS field 8 and returns it in its
+    keepalive, so emitting the forced ON meant neutralising a stale 1 on
+    release. A fixed 5 s window and then a confirmation scheme (value == real,
+    min 2 s, 60 s backstop) both failed review: with the phototherapy timer
+    expiring during the release the ON confirmed itself and was persisted as a
+    continuous session; an OFF from the operator in that window was lost; and a
+    stale `CTRL,STATE` processed late by the display's RX ring still slipped
+    through (#7, #11). Removing the root (never emit the forced ON) leaves
+    nothing to neutralise. The debug ON is visible in `/debug/state`
+    (`ctl.photo_dbg`) and in the log, which is where whoever runs the test looks.
+*   **Release is immediate**: `PHOTO,0` (or leaving debug mode) applies the
+    *last display order* — operator orders and the timer expiry are recorded
+    during the test — on the board's periodic tick, with no frame needed (so a
+    stuck display Comm task cannot leave the lamp ON). The forced ON is never
+    persisted; display orders are persisted always (they are never
+    contaminated now, since field 8 carries the display order during the
+    test), and on release the applied value is persisted too. Re-arming
+    (`PHOTO,1`,`PHOTO,0`,`PHOTO,1` in one console pass, before the tick) does
+    not capture the contaminated `in3.phototherapy` as the display order.
+*   **Timer expiry vs a late frame** (also outside the test, a pre-existing
+    race): after the phototherapy timer expires the board ignores a
+    `photo=1` with no minutes until it sees a `photo=0` (a frame in flight, or
+    held up to 10 s by `localCmdHoldsLocal`, would otherwise re-light the lamp
+    that just expired). A timed session (`photo=1`, minutes>0) is always
+    accepted. `photo_expiry_latch.h`.
+*   **Side effects / limits**: (1) `CommTask`'s per-baby therapy accounting
+    does not count the session (lamp applied, no debug override active, no
+    `ALARM_PHOTO_LAMP_FAULT`). (2) **Echo window**: between the operator's tap
+    and the board applying it, one `CTRL,STATE` can go out with the old value;
+    the display's local confirmation guard (`localCmdHoldsLocal`, 10 s) covers
+    it, but a display *without* that guard would see the switch bounce.
+    (3) The lamp PWM is written through `photoPwmRefresh()` under one spinlock
+    by both the intensity loop (`currentMonitor`) and `applyPhotoState()`: a
+    late loop write could otherwise re-light the lamp after the Comm task had
+    turned it off, leaving it ON with `in3.phototherapy=false` and no alarm.
+    **No LEDC fade may ever be installed on `PHOTOTHERAPY_PWM_CHANNEL`**:
+    `ledcWrite` takes a semaphore only when fade is installed, and that would
+    be a semaphore inside a critical section (kernel assert). `board.h` and
+    `photoPwmRefresh()` say so; there is deliberately no runtime check
+    (installing/uninstalling the fade service just to look would allocate and
+    register its ISR globally, and break a legitimate fade user). (4) The minutes of a *real* therapy already ON when the test starts
+    are not counted per baby. (5) `timeTrackHandler` excludes the test from
+    the phototherapy hours, but the `Phototherapy_active` telemetry key
+    publishes it as active (it is the real lamp state). (6) While the test is
+    active, a lamp fault (`ALARM_PHOTO_LAMP_FAULT`) can show while field 8
+    says OFF.
+*   **Verify on the bench BEFORE manufacturing**: the lamp-fault alarm
+    (`ALARM_PHOTO_LAMP_FAULT`) also fires when the main INA3221 gives no
+    sample with the lamp ON. On HW17 with the channel-2 shunt **not populated**
+    this would be a false positive on every session. Check it on the real
+    units of each hardware revision first.
+*   **Still open from the original text**: whether any *non*-debug path (crash
+    restore, timer expiry) left lamp and screen disagreeing. With the real
+    state emitted, a restore from NVS now reaches a rebooted display, which is
+    the intent of #4.
+*   **Verification**: host-testable parts (`test_photo_override`,
+    `test_photo_fault`) are green; the screen behaviour is **manual, on the
+    bench**.
+
+## 21. The first session after a setpoint change can start at twice the target — FIXED
+
+Measured on the bench unit (18.46, target 0.45 A, seed discarded because it was
+calibrated for another target): the autotest's extrapolated seed was PWM 175,
+the lamp started at **1.06 A**, and the loop took **95 s** to reach 0.46 A
+because it moves 1 PWM count per second (`PHOTO_MAX_STEP`). On this unit the
+10 %-PWM reading sits below the linear model, so extrapolation overshoots; on
+fleet units it is accurate (#17).
+
+It happens once per unit per target: after convergence the seed is saved with
+its target and the next session starts at PWM 75 / 0.46 A from the first
+second (verified, 18.47). Two things were fixed along the way: the seed is now
+saved **only inside the tolerance band** (the first version saved the PWM-175
+overshoot as a seed), and a seed calibrated for another target is discarded.
+
+**Resolved 2026-10-25.** The slew is now asymmetric: `PHOTO_MAX_STEP` was
+replaced by `PHOTO_MAX_STEP_UP 1` (raising current is the clinically risky
+direction, still 1 count/s) and `PHOTO_MAX_STEP_DOWN 20` (lowering is always
+safe). The next-PWM computation moved to the pure function
+`photo_slew_next_pwm()` (`modules/control/photo_slew.cpp`, host-tested in
+`test/test_photo_slew`). The step never crosses the proportional model's own
+estimate, so the descent cannot undershoot beyond what the model predicts.
+Expected convergence for the case above (seed 175, 1.06 A, target 0.45 A): the
+simulated loop goes 175 → 174 → 154 → 134 → 114 → 94 → 74 (the first high reading drops only 1 count, a second consecutive one allows the 20-count step, which filters a spurious reading), about 6 control cycles
+(~6 s) instead of 95 s. Not yet measured on the bench unit.
+
+## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
+
+Surfaced while benching the move to incunest_afe4490 v0.94 (2026-09-23). The
+bench test fails in one of two timing steps, never the same one twice in a row:
+
+- `plazo agotado (40 s) esperando ALARM_FAN_FAILURE con el ventilador simulado parado`
+- `plazo agotado (10 s) esperando que la actuacion inyectada ordene el ventilador`
+
+Suspecting the heavier library (more decimation chains, HR1 buffer 64 → 160),
+the same test was run ten times per firmware on the same bench, with the same
+display (4.3.0, compatible with both), changing **only** the library:
+
+| board | library | passes |
+|---|---|---|
+| 18.49.0 | v0.94 | 6/10 |
+| 18.48.0 | v0.81 | 8/10 (one of the two failures was a network timeout) |
+
+It fails on v0.81 too, and in the same step, so it predates the library change;
+the four clean 17/17 battery runs earlier the same day were luck. With ten
+runs per side the difference is not conclusive either way, so a small
+worsening from v0.94 is not ruled out.
+
+**The part that matters is not the test.** "ALARM_FAN_FAILURE did not fire in
+40 s with the fan simulated stopped" may be the alarm, not the harness. Until
+it is known which, do not read a green `ventilador-se-retira` as proof that fan
+failure is always detected in time.
+
+## 23. Restarting the HMI was read as a patient discharge — FIXED (not yet benched)
+
+Found while persisting the baby identity (`hmi-patient-identity`), by reading
+the code, not from a bench failure.
+
+*   **Cause**: the HMI kept "which baby is in charge" only in RAM
+    (`BabyWizard.cpp`, `s_sessionSeq`). `Maintenance_Tick()` compares
+    `BabyWizard_GetActiveSeq()` with the last seq it persisted (`mnt_seq`). After
+    any HMI restart the first became 0 while the second was still the baby's, so
+    the transition `seq -> 0` was taken for a discharge and left a **terminal
+    clean pending** (`mnt_tpend`), asking for a disinfection nobody needed.
+*   **Second effect**: the screen had no idea whose therapy was running after a
+    restart, although the motherBoard keeps the active baby and resumes the
+    therapies by itself.
+*   **Fix**: the identity is persisted (`pat_id`) and restored with
+    `PatientState_Restore()` **before** `Maintenance_Init()`, so the seq does not
+    go through 0. The restored identity is **not trusted**: it is born
+    unconfirmed and shown only once the board confirms it with `activeSeq`
+    (field 24 of `CTRL,STATE`), with the same `sn` stored in `pat_id` v2. If the
+    board says another baby is in charge (`activeSeq` other than 0 and than the
+    stored `seq`), has nobody while a therapy runs, is another board (`sn`), or
+    — with an old board that does not send the field — lacks the baby in
+    `PROFILE_LIST`, the identity is dropped (the board wins). That is
+    NOT a discharge: it leaves no terminal clean pending (see #24). Restoring without validating (the first
+    version of this fix) could show **another baby**: `seq` collide between
+    boards. A rejected `PROFILE_NEW` (`PROFILE_ACK` 0) no longer erases the
+    identity of the baby still inside; only a rejected `PROFILE_SELECT` does.
+*   **To verify on the bench**: restart the HMI with a therapy running and check
+    that `mnt_tpend` stays clear and the name comes back. Units that already
+    had a spurious `mnt_tpend` set keep it until a terminal clean is recorded.
+
+## 24. Residual risks of confirming a restored baby identity against the board
+
+`hmi-patient-identity` restores the baby identity from the HMI's NVS and only
+treats it as true once the motherBoard confirms it (`activeSeq`, field 24 of
+`CTRL,STATE`; see `hmi.md` §9). What the design **cannot** close, by
+construction:
+
+*   **`seq` reuse after `babyStore_wipeAll()`.** The wipe resets the counter to
+    1, so a restored `seq 3` can be another baby on the same board with
+    `activeSeq == 3`. After confirming by `activeSeq`, the HMI contrasts name
+    and weeks with the next `CTRL,PROFILE_LIST` (its own single request, or any
+    list that goes by) and drops the identity if they do not match. Until that
+    list arrives (seconds), the baby is shown as confirmed; two different babies
+    with the **same name and weeks** on the same board after a wipe are
+    indistinguishable.
+*   **`sn == 0`.** A board with no serial number cannot be told apart from
+    another board. `activeSeq` alone does not confirm then: the list contrast
+    is mandatory, and the baby stays hidden until it arrives. Same limit as
+    above for identical name and weeks.
+*   **No checksum.** The protocol is ASCII CSV with no CRC, and `activeSeq` is the
+    LAST field. A line that loses bytes in the middle but keeps its newline can
+    leave a prefix of the number (`%u` reads `7` out of `70`), which would
+    confirm (`== seq`) or contradict (`!= seq`) wrongly. The consequence of a false
+    confirmation is bounded by the list contrast above; a false contradiction
+    drops a valid identity (the operator picks the baby again). No second
+    consecutive message is required before acting; adding it would be cheap if
+    this shows up on the bench.
+*   **Dropping is not a discharge.** Discarding an identity the board never
+    confirmed does not leave a terminal clean pending
+    (`Maintenance_NoteSeqDropped()`); a baby that left by another route while this
+    HMI was off is therefore not reminded either.
+## 25. No technical alarm when the BQ25730 charger stops answering (OPEN)
+
+Found in the safety review of `shared-mains-detector` (2026-10-25). The mains
+interruption alarm (`ALARM_MAINS_INTERRUPTION`) is fed by the BQ25730 AC_STAT
+bit, read every 5 s. If the charger stops giving valid readings, the detector
+cannot know whether mains is present: it freezes (a declared alarm stays, the
+safe side; no alarm is raised if there was none).
+
+What exists today: with the charger detected at boot, more than 30 s without a
+valid reading (or a failing re-configuration when mains returns) logs an error
+(`logE`) and publishes `charger_comm_fault` (DIAG group, GPRS only; WiFi has no
+DIAG group). **What is missing is an alarm**: `shared/include/alarm_ids.h` has
+no technical-fault id for it, and none was added because another open branch
+adds id 20 and a second new id would collide with it. Until the branches are
+integrated, a unit with a mute charger is only visible from the log and from
+ThingsBoard, **not on the incubator's own screen**.
+
+Also fixed in the same review: the charger re-configuration on mains return
+used to lower `chargerPresent`; one failing I2C operation left it false for
+good (the charger was never read again, so mains was never watched), and even a
+successful one made `securityCheck()` retire and re-raise the alarm. See
+`openspec/changes/archive/*-shared-mains-detector-fixes`.
+
+### 25, addendum (second safety review, 2026-10-25)
+
+- **Expected charger.** `CHARGER_EXPECTED` (`config/board.h`) is 1 from HW 17 on
+  (the V16_A schematic has no BQ25730; V17_A does). On those boards a charger
+  that does not answer at boot is **not** "no charger": it is blindness (`logE`
+  and `charger_comm_fault` after 30 s), and the configuration is retried with a
+  progressive wait (5 s to 5 min). The silent "no charger" case is only for HW
+  without a BQ25730. Before this, a mute chip at boot left `chargerDetected`
+  false and the board stopped watching mains for good, with nothing on screen.
+- **Debt: a declared alarm with a blind charger stays HIGH with no end.** If the
+  mains alarm is declared and the charger then stops answering, the detector
+  freezes and the alarm keeps sounding as HIGH, not silenceable, until the
+  charger answers again or the unit is restarted. The correct behaviour is a
+  *technical*, pausable alarm (the mains alarm retired or demoted, and a
+  separate "charger fault" alarm the operator can pause). It needs a new
+  `AlarmId`, which waits for the integration of the open branches (one adds
+  id 20). Until then: log and `charger_comm_fault` only.
+- **`charger_comm_fault` and WiFi.** It is published only through the DIAG
+  group, which is on for GPRS and off for WiFi. Nothing is done about it on
+  this branch: `feat/mb-diag-wifi` turns DIAG on for WiFi, and after the merge
+  the key goes out over both transports. Re-run
+  `python tools/check_transport_matrix.py` then (GPRS worst case is 93 of 112
+  fields today).
+## 26. Restarting the AFE4490 library from the consumer is unsafe (OPEN — needs a change in `incunest_afe4490`)
+
+Found in review of `feat/mb-hw19` (2026-10-25). The first V19 cut restarted the
+AFE when `SPO2_Task` saw no sample for 10 s: `afe.stop()`, a PDN pulse, then
+`afe.begin()`. **Do not reintroduce it.**
+
+`afe.stop()` calls `vTaskDelete()` on the library's four tasks at an arbitrary
+point. In exactly the scenario that triggers the restart, the AFE task is
+writing `"DRDY timeout"` with `ESP_LOGW`, which takes `log_mutex` with
+`portMAX_DELAY`. Deleting it while it holds that mutex hangs **every** task that
+logs afterwards, the security task included, with the heater's LEDC output still
+on. It can also leave `_diag_active = true` for ever (the data task then skips
+every read), leak ~15 KB of internal SRAM (4 task stacks plus queues) and trip a
+`configASSERT`. The library lives in another repo (pinned at v0.124, which
+still has no soft re-init) and is not touched from here.
+
+**What the firmware does instead** (all revisions): no restart. After 10 s
+without a sample it logs once per episode (`logE`, so it reaches the CrashReporter
+ring) and counts `AFE_stalls`. After 1 s without a sample it marks the data stale
+by synthesising `probe_state = PROBE_DISCONNECTED`, so vitals are no longer sent
+frozen (see `PROTOCOL.md`, `CTRL,PROBE`). Since motherBoard 18.58.0 the whole
+sample is replaced, not only `probe_state`: SpO2, PI and the three HR become NaN
+too, so a consumer that only tests whether a value is finite is also covered.
+
+**Design required in the library** (a soft re-init that destroys nothing):
+
+1. A method such as `softReinit()` that takes `_spi_mutex` **with a timeout**,
+   pulses PDN (the caller passes the pin or a callback), runs `_chip_init()` and
+   releases the mutex. No `vTaskDelete`, no deleting queues or semaphores.
+2. Reset `_diag_active = false`, `_diag_holdoff_samples = 0` and the algorithm
+   state (`_reset_algorithms()`).
+3. Rate-limit the `"DRDY timeout"` log (at most once per second or per episode)
+   and never hold the log mutex across a wait.
+4. Expose a DRDY-timeout counter so the firmware does not have to infer the
+   fault from missing samples.
+
+See `docs/hw19.md`.
+
+## 27. Repeated `PANIC` in the TCP/IP thread while ThingsBoard provisioning cannot resolve its host — FIXED (not yet benched)
+
+Found on the V18 bench board on 2026-11-17 (18.57.0 and 18.58.0, built without
+`Credentials.h`, so `THINGSBOARD_SERVER` is the placeholder `"myURL"`). Five
+crash reports, all `PANIC (4)`, all ending in
+`[WiFi] no se pudo abrir la conexion de provisioning` every ~1.3 s. Uptime
+before the crash: ~39 385 s once on 18.57.0, then ~1 117, ~3 054, ~1 995 and
+~6 230 s on 18.58.0.
+
+*   **What the core dump says** (the last of the five; the other four were not
+    decoded): task `tiT` (lwIP's TCP/IP thread), `LoadProhibited` reading
+    address 0x15, in `tcpip_thread → sys_check_timeouts → dns_timeout_cb →
+    dns_tmr → dns_check_entry → dns_send → udp_sendto`. The `pcb` passed to
+    `udp_sendto` is the value 1, which is what `dns_pcbs[DNS_MAX_SOURCE_PORTS]`
+    reads: index 4 is lwIP's "this entry has no pcb" mark and the variable right
+    after the array is `is_tmr_start`. The DNS timer sent an entry that was
+    marked active while its `pcb_idx` still held that mark. The addresses were
+    translated with the ELF of 18.59.0, not the exact one: lwIP is precompiled,
+    so its code is the same and only displaced (by 0x1d0, the one shift that
+    puts all six return addresses right after a call instruction).
+*   **Cause**: arduino-esp32 2.0.14's `WiFiGenericClass::hostByName()` calls
+    lwIP's raw `dns_gethostbyname()` from the calling task, here the OTA/WiFi
+    task on core 1, with no TCP/IP core lock (`CONFIG_LWIP_TCPIP_CORE_LOCKING`
+    is not set) while the TCP/IP thread runs on core 0. `dns_enqueue()` sets
+    the entry to `DNS_STATE_NEW` before it assigns `pcb_idx`; a DNS timer tick
+    in that gap sends the entry with the stale index. A name that does not
+    resolve is never cached, so every attempt is a fresh enqueue, and the
+    unprovisioned branch of `WIFI_TB_OTA()` called `WIFITBProvision()` on every
+    pass of the OTA task with no wait: ~2 800 lookups an hour (the provisioned
+    branch does 120).
+*   **Confirmed with a sixth core dump** (2026-11-18, 18.60.0, this time with
+    its exact ELF): at the instant of the fault `tiT` is in
+    `dns_tmr → dns_check_entry(0) → dns_send → udp_sendto(pcb=0x1)` and the OTA
+    task is in `WIFITBProvision → … → hostByName("myURL") → dns_gethostbyname →
+    dns_enqueue → dns_alloc_pcb → dns_alloc_random_port → udp_bind`, that is,
+    inside the gap. The gap is not a few instructions: it spans `udp_new()` and
+    `udp_bind()`, and the OTA task (priority 4) can be preempted inside it,
+    which fits a crash about once an hour better than the first estimate did
+    (that fit is reasoning, not a measurement).
+*   **Impact**: not limited to the placeholder credentials. An unprovisioned
+    unit on a WiFi network whose DNS fails (no uplink, captive portal, filtered
+    network) ran the same loop. A provisioned unit only looks the host up once
+    every 30 s while its ThingsBoard link is down, so it was exposed far less.
+    While it looped, the OTA task was inside `hostByName()` almost all the time.
+*   **Fix (18.64.0)**, two parts:
+    1.  Every DNS lookup runs inside the TCP/IP thread. The link wraps
+        `dns_gethostbyname` (`-Wl,--wrap`, `platformio.ini`) and
+        `src/system/lwip_dns_guard.cpp` forwards the call with
+        `tcpip_api_call()`. This removes the cause, whatever the interleaving
+        was, and covers every caller (the core, the libraries), not only
+        provisioning. The flag and the file go together.
+    2.  Provisioning attempts that fail before the request is out wait 5 s,
+        10 s ... up to 5 min (`modules/util/retry_backoff`), and start again at
+        once when the WiFi reconnects. Not a cure by itself: it stops the
+        hammering and the log line every 1.3 s.
+*   **Bench so far** (2026-11-18, V18, unprovisioned, no `Credentials.h`):
+    81 min without a restart. The attempts show from outside as a ~1.3 s stall
+    of the web server (same task): after the first ones they came 80 s, 160 s
+    and then 300 s apart, every time, where there used to be one every 1.3 s;
+    `/debug/state` answers in 0.2 s instead of ~1.6 s. Each lookup returns as
+    before, so the wrapper does not hang the resolver.
+*   **Still to verify**: a night without restarts (81 min is not proof: the
+    board used to last 56 min on average, with one run of 11 h). A faster check
+    is a temporary console command that looks up a name that does not resolve
+    in a tight loop, with and without the linker flag.
+*   **Still there, not touched**: `hostByName()` gives up after 15 s but lwIP
+    keeps the pointer to its result, which can be gone when a late answer
+    arrives. The HMI uses the same core and was not reviewed for this. The 3.x
+    core resolves through `lwip_getaddrinfo()` and has none of it.
+
+## 28. Bursts of spikes in the pleth trace after a cold power-on, V18 (OPEN — hardware, no firmware mitigation)
+
+Seen on the bench for weeks at least, measured on 2026-11-18. Number 27 is the DNS
+panic of `fix/dns-provisioning-panic`, not merged when this was written.
+
+**Symptom.** On a V18 the pleth trace of the display shows bursts of sharp,
+isolated spikes. A burst lasts between 1 and 5 s on screen and they come about
+every 66 s (65 to 67 s between most of them, 98 s once).
+
+**It depends on how the board was started, not on the firmware.** With the same
+binary (motherBoard 18.60.0), ten minutes with the probe on a simulator:
+
+| Start | Spikes on the display |
+|---|---|
+| Restart after an OTA update | 0 |
+| Cold power-on | 25, in bursts about 66 s apart |
+
+Bench rule that follows: to compare two firmwares on pulse oximetry on a V18,
+start both the same way. A cold start against a restart compares the start, not
+the firmware.
+
+**Where it comes from.** The raw codes of the AFE4490 are already wrong, before
+any processing. After a cold power-on, with a diagnostic build that watched every
+sample of the library (not in the repository):
+
+- A continuous background in the two LED channels: about 120 samples per second
+  that jump more than 1500 counts away from their neighbours (59 069 in 8 min).
+  The two ambient channels stay almost clean.
+- On top of it, every ~66 s, 4 to 9 s with jumps of up to 298 115 counts on a
+  signal of about 1.1 million. These are the bursts seen on the display.
+- After a restart by OTA, same build: none of either in 9 min.
+
+**Ruled out with measurements:**
+
+- The UART link to the display: 0 UART errors and whole, well-formed `CTRL,PPG`
+  lines during the bursts. The spikes arrive in the values, not in the transport.
+- The display's WiFi: with its radio off the bursts go on.
+- The gain changes of the library (HGAC): 11 changes without a spike, and no
+  change during the bursts.
+
+Ruled out without a measurement: reading the library at 50 Hz (18.59.0; the
+bursts were seen before that change), the priority of the sample task (reading
+the code, it is the highest of the board) and the SPI bus (the AFE is alone on
+it).
+
+**Suspected cause, not confirmed: the 2G modem.** The hardware designer points
+at it and says it is fixed in the V19. What supports it: in a capture of another
+V18 the instants of the drops keep a period of 15.0 ms, which is the alias, at
+the 500 Hz of the AFE, of the 4.615 ms frame of GSM. The direct test, a cold
+start with the modem without supply, has not been done: the V18 has no line to
+cut it (`GSM_PWR_EN` exists from the V19 on). How it gets in (the LED supply or
+the radio field) is not known, nor why a restart without a power cycle leaves
+the signal clean.
+
+**Effect on the readings: not measured on IncuNest.** One data point only, from
+another firmware on a V18 with library v0.122 and a simulator at 85 bpm and
+SpO2 99 %, for a single burst of 5 s:
+
+| Quantity | Effect |
+|---|---|
+| SpO2 | no value for 9.4 s (the library withholds it; it does not publish a wrong one) |
+| HR1 | no value for 3.9 s, then up to 88.5 bpm before returning to 85 |
+| HR2, HR3 | none (the pulse rate on screen comes from these two) |
+| PI | +12 % (4.60 to 5.17) |
+| Probe state | applied all the time |
+
+IncuNest carries v0.124 and its bursts repeat, so this is a first reference, not
+a measurement of the product.
+
+**What is pending.**
+
+1. Measure, on IncuNest after a cold power-on, which algorithms are affected and
+   for how long.
+2. Decide with that whether the library should process this interference. It
+   competes with artefacts that no hardware redesign will remove (motion), which
+   come first.
+3. Check a V19 when there is one.
+
+Every unit in the field starts cold, so on a V18 this is the normal case, not a
+corner case.
+
+## 29. HMI boot loop on units with saved WiFi credentials (the "OTA server that was never there")
+
+*   **Problem Description**: a deployed Display comes up with a blank screen and
+    reboots roughly every 1.2 s (49 reboots/min measured over serial on unit
+    sn 317). WiFi appears intermittent and the OTA web server is unreachable.
+    Reported from the field; never reproduced on the bench.
+*   **Reason**: startup order. `setup()` used to create the OTA/WiFi task
+    before the UI. With an SSID stored in NVS, WiFi associates at ~300 ms and
+    the WiFi/lwIP stack fragments internal RAM. When `UI_Task` then calls
+    `esp_lcd_new_rgb_panel()` at ~340 ms there is no longer a contiguous
+    internal DMA block for the bounce buffers (two of 38.4 KB), so it returns
+    `ESP_ERR_NO_MEM`, `ESP_ERROR_CHECK` aborts, and the unit loops.
+    Log line: `lcd_rgb_panel_alloc_frame_buffers(185): no mem for bounce buffer`.
+    The largest contiguous internal DMA block drops from ~164 KB at the top of
+    `setup()` to ~86 KB once WiFi is up; the 76.8 KB the panel needs fit by
+    9 KB, so any new static buffer tipped it over. **Free total says nothing
+    here** — there were 133 KB free on a unit that would not boot. Always read
+    `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA)`.
+*   **Why the bench never saw it**: with no WiFi configured, `GOT_IP` does not
+    arrive before the panel is created and the unit boots fine. It only fires
+    on Displays with saved credentials — that is, on deployed units.
+*   **This is what the Display's "OTA failures" since June 2026 actually were**
+    (diagnosis by @acuesta-mow on PR #28). The update server was not at fault:
+    the Display died before it could serve anything. Any future report of "the
+    Display does not answer over the network" should check the boot loop
+    first — the symptom looks like a connectivity problem and is not one.
+*   **Fix** (`50293a0`, on `dev` since 2026-09-07): `setup()` creates
+    `CreateUITask()` first, then `CreateCommTask()` (its rings are static, so
+    it asks for no large blocks, and starting it early avoids losing the
+    `CTRL,*` lines the board emits while the panel is built), then waits on
+    `UI_IsLcdPanelReady()` up to `LCD_READY_TIMEOUT_MS` (3000 ms; worst real
+    case before the panel is ~740 ms because of the STC8 backlight I2C
+    retries) before `CreateOTATask()`. The timeout is a safety net: a panel
+    that never initialises must not leave the unit without communication to
+    the board. `TelemetryHistory` also moved to PSRAM (-17.3 KB of internal
+    `.bss`), and panel creation stopped aborting outright — it now walks a
+    ladder of 24 -> 16 -> 12 -> 8 -> 0 bounce lines. Margin: 9 KB -> ~87 KB.
+*   **What is verified, and what is not**: on COM62, `50293a0` boots with the
+    full 24 bounce lines, `LCD_DIAG` steady at 43.5 fps and touch working —
+    that is the PSRAM move and the ladder doing the work. The `setup()`
+    barrier itself was **compiled but never flashed**; its own commit message
+    records that the port was absent at the time. The field figures (49
+    reboots/min before, 0 reboots and panel ready at 240 ms after, on
+    CrowPanel 7.0 sn 317) come from @acuesta-mow's equivalent variant on the
+    branch of PR #28, **not** from the build now on `dev`.
+*   **Still open**:
+    *   `dev`'s ordering barrier is pending a flash on a unit with saved
+        credentials, which is the only configuration that reproduces the loop.
+        @acuesta-mow has that unit (sn 317) and is verifying it.
+    *   The bounce ladder is only visible over UART
+        (`RGB panel initialized OK bounce=N lineas`). `g_lcd_bounce_lines` is
+        exposed neither in Settings nor in the factory test, so a deployed
+        unit running with degraded bounce buffers goes unnoticed.

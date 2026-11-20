@@ -155,8 +155,88 @@ void test_hmi_acepta_su_propio_binario(void) {
   TEST_ASSERT_FALSE(fw_image_is_foreign(self.found(), any.found()));
 }
 
+// --- Revisiones de la motherBoard entre si (mb-hw19, A3) ---
+//
+// Una V18 y una V19 son la misma placa con otro hardware: el binario de una
+// entra de sobra en la otra y esp_ota no lo distingue. Una V19 flasheada con
+// una imagen V18 (o al reves) no se recupera por OTA.
+//
+//   V18 (y todas las anteriores): "IncuNestFW:motherboard"   (sin cambio)
+//   V19:                          "IncuNestFW:hw19:motherboard"
+//
+// La marca de la V19 NO contiene la de la V18 como subcadena, que es lo que
+// hace que una V18 la rechace; y la V18 conserva la marca de siempre, asi que
+// acepta las imagenes V18 antiguas.
+
+namespace {
+const char *const kMb19Tag = FW_TAG_PREFIX FW_BOARD_ID_MOTHERBOARD_HW(19);
+} // namespace
+
+void test_marca_hw19_tiene_el_formato_esperado(void) {
+  TEST_ASSERT_EQUAL_STRING("IncuNestFW:hw19:motherboard", kMb19Tag);
+  TEST_ASSERT_TRUE(strlen(kMb19Tag) <= FwStreamMatcher::kMaxPattern);
+}
+
+void test_marca_hw19_no_contiene_la_de_la_v18(void) {
+  TEST_ASSERT_TRUE(std::string(kMb19Tag).find(kMbTag) == std::string::npos);
+  TEST_ASSERT_TRUE(std::string(kMbTag).find(kMb19Tag) == std::string::npos);
+}
+
+void test_v18_rechaza_una_imagen_v19(void) {
+  const std::string img = fakeImage(kMb19Tag, 4096, 4096);
+  FwStreamMatcher self(kMbTag);
+  FwStreamMatcher any(FW_TAG_PREFIX);
+  feedInChunks(self, img, 1436);
+  feedInChunks(any, img, 1436);
+  TEST_ASSERT_TRUE(fw_image_is_foreign(self.found(), any.found()));
+}
+
+void test_v19_rechaza_una_imagen_v18(void) {
+  const std::string img = fakeImage(kMbTag, 4096, 4096);
+  FwStreamMatcher self(kMb19Tag);
+  FwStreamMatcher any(FW_TAG_PREFIX);
+  feedInChunks(self, img, 1436);
+  feedInChunks(any, img, 1436);
+  TEST_ASSERT_TRUE(fw_image_is_foreign(self.found(), any.found()));
+}
+
+void test_v18_sigue_aceptando_imagenes_v18_antiguas(void) {
+  // Una imagen de 18.52.1 o anterior: la marca de siempre, nada de sufijo.
+  const std::string img = fakeImage(kMbTag, 2048, 2048);
+  FwStreamMatcher self(kMbTag);
+  FwStreamMatcher any(FW_TAG_PREFIX);
+  feedInChunks(self, img, 1436);
+  feedInChunks(any, img, 1436);
+  TEST_ASSERT_FALSE(fw_image_is_foreign(self.found(), any.found()));
+}
+
+void test_v19_acepta_su_propia_imagen(void) {
+  const std::string img = fakeImage(kMb19Tag, 2048, 2048);
+  FwStreamMatcher self(kMb19Tag);
+  FwStreamMatcher any(FW_TAG_PREFIX);
+  feedInChunks(self, img, 1436);
+  feedInChunks(any, img, 1436);
+  TEST_ASSERT_FALSE(fw_image_is_foreign(self.found(), any.found()));
+}
+
+void test_hmi_rechaza_una_imagen_v19(void) {
+  const std::string img = fakeImage(kMb19Tag, 1024, 1024);
+  FwStreamMatcher self(kHmiTag);
+  FwStreamMatcher any(FW_TAG_PREFIX);
+  feedInChunks(self, img, 1436);
+  feedInChunks(any, img, 1436);
+  TEST_ASSERT_TRUE(fw_image_is_foreign(self.found(), any.found()));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_marca_hw19_tiene_el_formato_esperado);
+  RUN_TEST(test_marca_hw19_no_contiene_la_de_la_v18);
+  RUN_TEST(test_v18_rechaza_una_imagen_v19);
+  RUN_TEST(test_v19_rechaza_una_imagen_v18);
+  RUN_TEST(test_v18_sigue_aceptando_imagenes_v18_antiguas);
+  RUN_TEST(test_v19_acepta_su_propia_imagen);
+  RUN_TEST(test_hmi_rechaza_una_imagen_v19);
   RUN_TEST(test_marca_en_un_solo_trozo);
   RUN_TEST(test_marca_partida_entre_dos_trozos);
   RUN_TEST(test_marca_byte_a_byte);

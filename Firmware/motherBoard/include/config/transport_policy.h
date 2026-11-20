@@ -65,12 +65,34 @@
 #define TX_GROUP_CELLULAR_GPRS 1
 #define TX_GROUP_CELLULAR_WIFI 0
 
-// DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem.
-//       No tienen nada de específico del transporte. Está a 0 en WiFi porque
-//       es lo que hace el firmware hoy, no porque se decidiera: ponlo a 1 si
-//       quieres diagnóstico también en los equipos conectados por WiFi.
+// DIAG: boot count, heap libre, uptime, resets del HMI, kills del módem, las
+//       horas desde servicio de cada actuador (svc_*_h, 4 claves) y los
+//       fallos técnicos de diagnóstico (cargador, AFE).
+//       No tienen nada de específico del transporte. Desde 2026-10-25 va por
+//       los dos: heap, uptime y reinicios del HMI hacen falta también en los
+//       equipos conectados por WiFi, donde la red es gratis. Estaba a 0 por
+//       herencia (solo se había escrito la copia de GPRS), no por decisión.
+//       mb-hw19: +AFE_diag y +AFE_stalls (todas las placas) y
+//       +GSM_power_cycles (solo HW >= 19). Presupuesto de campos: ver
+//       python tools/check_transport_matrix.py (límite 112).
 #define TX_GROUP_DIAG_GPRS 1
-#define TX_GROUP_DIAG_WIFI 0
+#define TX_GROUP_DIAG_WIFI 1
+
+// Log COMPLETO de la ultima caida (Crash_log_full): los ~4 KB del anillo de
+// CrashReporter, publicados una sola vez en el arranque siguiente a un reinicio
+// anormal. Es lo que permite depurar la averia concreta desde el despacho y
+// sacar una OTA, sin ir a por la unidad.
+//
+// Por WiFi va encendido: 4 KB una vez por caida no le importan a nadie, y la
+// publicacion usa Serialize_Json() en streaming (THINGSBOARD_ENABLE_STREAM_UTILS),
+// asi que el tamano no choca con MAX_MESSAGE_SIZE.
+//
+// Por GPRS va APAGADO: son 4 KB de datos de pago por caida, y una unidad que
+// se reinicie en bucle los paga en cada vuelta. Por ahi sigue yendo el resumen
+// corto de Crash_log, que para identificar la averia suele bastar. Enciendelo
+// solo con una tarifa que lo aguante.
+#define TX_FEATURE_CRASH_FULLLOG_WIFI 1
+#define TX_FEATURE_CRASH_FULLLOG_GPRS 0
 
 // CALIBRATION: referencias y ajuste fino de los sensores de temperatura.
 //              Mismo caso que DIAG: divergencia heredada, no decidida.
@@ -87,8 +109,13 @@
 // campos, no por coste de datos: el peor caso por GPRS son 87 claves
 // (CORE 69 + CELLULAR 4 + DIAG 8 + CALIBRATION 6) y el bloque son 12, o sea
 // 99 -- no cabian en los 96 de entonces. Se subio
-// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss) y ahora quedan 13 de
-// margen. Por WiFi, con los grupos pesados apagados, son 69 + 12 = 81.
+// THINGSBOARD_FIELDS_AMOUNT a 112 (512 B de .bss). Por WiFi, con los grupos
+// pesados apagados, son 69 + 12 = 81.
+//
+// 2026-09-10: +2 claves en el peor caso (Humidifier_active, siempre; y
+// Control_active, que antes solo salia una vez por arranque de control y
+// ahora sale en cada ciclo tambien en la rama ON). Peor caso GPRS 101 de
+// 112: quedan 11 de margen.
 //
 // MAX_MESSAGE_SIZE (1024 B) NO es un limite aqui, al contrario de lo que
 // decia este comentario antes: main.h define THINGSBOARD_ENABLE_STREAM_UTILS
@@ -138,7 +165,8 @@
 // presupuesto de THINGSBOARD_FIELDS_AMOUNT. Ver modules/util/wifi_dwell.h.
 #define TX_FEATURE_WIFI_DWELL_GPRS 0
 #define TX_FEATURE_WIFI_DWELL_WIFI 1
-// Snapshot PPG. Un snapshot son 400 muestras ≈ 23 KB de JSON.
+// Snapshot PPG. Un snapshot son 400 muestras ≈ 23 KB de JSON, que se mandan
+// en 16 trozos de ~1,5 KB (ver modules/util/ppg_snapshot_plan.h).
 // El RPC capturePPG (captura bajo demanda) está en los dos transportes.
 #define TX_FEATURE_PPG_SNAPSHOT_GPRS 1
 #define TX_FEATURE_PPG_SNAPSHOT_WIFI 1
@@ -147,7 +175,25 @@
 // segundos. Por eso va aparte y está a 0: por GPRS se captura solo si alguien
 // lo pide con el RPC. Súbelo a 1 solo con una tarifa que lo aguante.
 #define TX_FEATURE_PPG_AUTOCAPTURE_GPRS 0
+// Por WiFi estuvo a 1 hasta el 2026-09-10. Ese dia se ejecuto por primera vez
+// en toda la flota -- hacia falta una unidad con FW 18.2, WiFi y la sonda
+// aplicada con rsqi==1, y no se habia dado nunca -- y la secuencia observada
+// en IncuNest-353_1 fue: captura hacia las 16:52, WiFi perdido a las 16:54,
+// sin publicar desde las 17:46 y vuelta con RST_reason=6 (TASK_WDT). Es
+// correlacion, no causa demostrada, pero es el unico camino de codigo
+// estrenado ese dia y el publish son ~23 KB en streaming por MQTT.
+//
+// Banco 2026-09-23 (IncuNest-1_2, FW 18.49.0) lo reprodujo con el monitor
+// serie delante: con el publish de una pieza, WiFiClient::write() daba EAGAIN
+// una vez por segundo durante ~30 s, luego BEACON_TIMEOUT y reconexion MQTT;
+// no llego ni un punto en 2 de 3 capturas. Desde entonces el snapshot sale en
+// trozos, uno por vuelta de la tarea, y la autocaptura vuelve a 1.
+//
+// Cada TX_PPG_AUTOCAPTURE_WIFI_MS mientras haya sonda con rsqi==1: ~115 000
+// puntos/dia por equipo en TB. Sin senal se reintenta a los 10 s
+// (PPG_SNAPSHOT_AUTO_RETRY_MS), no al intervalo siguiente.
 #define TX_FEATURE_PPG_AUTOCAPTURE_WIFI 1
+#define TX_PPG_AUTOCAPTURE_WIFI_MS (5UL * 60UL * 1000UL)
 
 // -----------------------------------------------------------------------------
 // 4. RPC DISPONIBLES POR TRANSPORTE

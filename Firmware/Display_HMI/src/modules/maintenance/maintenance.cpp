@@ -1,4 +1,5 @@
 #include "maintenance.h"
+#include "maintenance_seq.h"
 
 #include <Preferences.h>
 #include <cstdio>
@@ -7,6 +8,7 @@
 #include "CommTask.h"          // HMI_GetEpochNow(), HMI_HasLocalTime()
 #include "EEPROM_defines.h"    // HMI_NS_CFG, HMI_KEY_MNT_*
 #include "esp_log.h"
+#include "state/training_mode.h"  // Training_IsActive()
 #include "ui/BabyWizard.h"     // BabyWizard_GetActiveSeq(), HasLiveSession()
 #include "ui/i18n.h"           // TR() para la linea de "ultima"
 
@@ -29,6 +31,7 @@ const char *const KEY_LAST[MNT_LEVEL_COUNT] = {
 uint32_t s_last[MNT_LEVEL_COUNT] = {0, 0, 0};  // epoch UTC, 0 = sin registro
 uint32_t s_snoozeUntil = 0;  // epoch UTC, 0 = sin "mas tarde" vigente
 uint32_t s_lastSeq = 0;      // ultimo perfil de bebe visto al mando
+uint32_t s_droppedSeq = 0;   // seq de una identidad descartada sin confirmar (K2)
 bool s_enabled = true;
 // Alta de paciente sin limpieza terminal registrada todavia. Se persiste: el
 // equipo puede apagarse entre el alta y la limpieza.
@@ -70,7 +73,11 @@ void Maintenance_Init(void) {
   }
   s_snoozeUntil = p.getUInt(HMI_KEY_MNT_SNOOZE, 0);
   s_lastSeq = p.getUInt(HMI_KEY_MNT_SEQ, 0);
-  s_enabled = p.getUChar(HMI_KEY_MNT_EN, 1) != 0;
+  // Por defecto DESACTIVADO (peticion para la tanda de fabricacion del
+  // 2026-09-17). Solo afecta a una NVS virgen, que es el caso de una unidad
+  // recien fabricada: en una unidad que ya tenga la clave guardada manda su
+  // valor, no este. El interruptor de Ajustes lo enciende por unidad.
+  s_enabled = p.getUChar(HMI_KEY_MNT_EN, 0) != 0;
   s_terminalPending = p.getUChar(HMI_KEY_MNT_TPEND, 0) != 0;
   p.end();
 
@@ -118,18 +125,39 @@ void Maintenance_Tick(void) {
   // se cambia de bebe sin pasar por el alta. Las dos cosas dejan pendiente una
   // limpieza terminal; empezar con el primer paciente (0 -> seq) no, que ahi
   // no ha salido nadie.
+  //
+  // En formacion el seq al mando es un bebe de practica (ZOE o el registrado
+  // en la leccion): ni es un cambio de paciente real ni debe escribirse en
+  // NVS (nada cambiado en formacion persiste, ADR-0002). Al salir de la
+  // leccion el motor limpia el perfil de practica y el seq vuelve al que
+  // habia, asi que aqui no hay flanco que anotar.
+  //
+  // Que el HMI DESCARTE una identidad restaurada que la placa no confirma (otro
+  // bebe al mando, otra placa, NVS borrada) tambien lleva el seq a 0, pero no
+  // es un alta: nadie ha salido de esta incubadora, y la limpieza terminal
+  // pendiente seria un aviso falso Y persistido. patient_state lo anota con
+  // Maintenance_NoteSeqDropped() y mnt_seq_decide() lo excusa.
+  const uint32_t dropped = s_droppedSeq;
+  s_droppedSeq = 0;  // vale para UNA transicion; si no, excusaria una alta real
+  if (Training_IsActive()) return;
   const uint32_t seq = BabyWizard_GetActiveSeq();
-  if (seq != s_lastSeq) {
-    if (s_lastSeq != 0) {
+  const MntSeqDecision d = mnt_seq_decide(s_lastSeq, seq, dropped);
+  if (d.changed) {
+    if (d.markTerminalPending) {
       s_terminalPending = true;
       putBool(HMI_KEY_MNT_TPEND, true);
       ESP_LOGI(TAG, "alta del paciente (seq %lu -> %lu): terminal pendiente",
+               (unsigned long)s_lastSeq, (unsigned long)seq);
+    } else if (s_lastSeq != 0) {
+      ESP_LOGI(TAG, "identidad descartada (seq %lu -> %lu): no es un alta",
                (unsigned long)s_lastSeq, (unsigned long)seq);
     }
     s_lastSeq = seq;
     putU32(HMI_KEY_MNT_SEQ, seq);
   }
 }
+
+void Maintenance_NoteSeqDropped(uint32_t seq) { s_droppedSeq = seq; }
 
 bool Maintenance_IsEnabled(void) { return s_enabled; }
 
@@ -148,9 +176,12 @@ bool Maintenance_IsDue(mnt_level_t lvl) {
   switch (lvl) {
     case MNT_LEVEL_DAILY:
       // Solo con paciente dentro: una incubadora vacia no se ensucia a diario.
-      // "Dentro" es el criterio de BabyWizard: identidad conocida Y terapia en
-      // marcha ahora mismo, no un perfil recordado de la semana pasada.
-      return BabyWizard_HasLiveSession() && periodElapsed(lvl);
+      // "Dentro" es el criterio de BabyWizard: bebe conocido Y terapia en
+      // marcha ahora mismo, no un perfil recordado de la semana pasada. Es
+      // HasAnySession() y no HasLiveSession() adrede: que haya alguien dentro
+      // no depende de QUIEN sea, y con una identidad restaurada aun sin
+      // confirmar no por eso deja de haber un paciente.
+      return BabyWizard_HasAnySession() && periodElapsed(lvl);
     case MNT_LEVEL_WEEKLY:
       return periodElapsed(lvl);
     case MNT_LEVEL_TERMINAL:

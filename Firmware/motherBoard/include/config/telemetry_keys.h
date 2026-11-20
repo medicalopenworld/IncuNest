@@ -10,6 +10,23 @@
 #define APN_KEY "APN"
 #define COP_KEY "COP"
 #define SYSTEM_RESET_REASON "RST_reason"
+// Causa de la ULTIMA caida, publicada solo en el arranque siguiente a un
+// reinicio anormal (ver CrashReporter.h). En un arranque normal no se envia
+// ninguna de las tres, asi que no consumen del presupuesto de
+// THINGSBOARD_FIELDS_AMOUNT en regimen permanente.
+//
+// Crash_log es un texto corto (<= 192 car.) con las ultimas lineas del log
+// antes de morir. Es lo que distingue una averia de otra: en las caidas de
+// banco del 2026-09-20 ponia "[MON] GPRS_Task hung, restarting it".
+#define CRASH_REASON_KEY  "Crash_reason"
+#define CRASH_REBOOTS_KEY "Crash_reboots"
+#define CRASH_LOG_KEY     "Crash_log"
+// Anillo completo (~4 KB). Solo por WiFi, ver TX_FEATURE_CRASH_FULLLOG_*.
+#define CRASH_FULLLOG_KEY "Crash_log_full"
+// Del coredump: la tarea que exploto y su backtrace. Crash_task es lo unico
+// que senala al culpable sin deducirlo.
+#define CRASH_TASK_KEY    "Crash_task"
+#define CRASH_BT_KEY      "Crash_bt"
 #define SYS_CURR_STANDBY_TEST_KEY "SYS_current_stanby_test"
 #define HEATER_CURR_TEST_KEY "Heater_current_test"
 #define FAN_CURR_TEST_KEY "Fan_current_test"
@@ -53,6 +70,12 @@
 #define DESIRED_HUMIDITY_ROOM_KEY "Hum_desired"
 #define HUMIDIFIER_CURRENT_KEY "Humidifier_current"
 #define HUMIDIFIER_VOLTAGE_KEY "Humidifier_voltage"
+// Espejo de Phototherapy_active, y por el mismo motivo: Hum_desired solo se
+// publica DENTRO de if (in3.humidityControl), asi que el apagado es una
+// ausencia de clave. Para la placa vale, pero una serie temporal no puede
+// reconstruir un OFF desde un silencio: entre dos puntos separados horas, un
+// grafico en escalon pinta encendido todo el hueco. Hace falta el 0 explicito.
+#define HUMIDIFIER_ACTIVE_KEY "Humidifier_active"
 #define PHOTOTHERAPY_PWM_KEY "PH_PWM"
 #define PHOTOTHERAPY_CURRENT_KEY "Phototherapy_current"
 #define PHOTOTHERAPY_ACTIVE_KEY "Phototherapy_active"
@@ -65,14 +88,36 @@
 #define HUMIDIFIER_ACTIVE_TIME_KEY "Humidifier_active_time"
 #define GPRS_CONNECTIVITY_KEY "GPRS_connection"
 #define WIFI_CONNECTIVITY_KEY "WIFI_connection"
+// HR1, HR2 and HR3 are sent, each with its SQI, whenever the library publishes
+// a value (not NaN). Since 18.58.0 (incunest_afe4490 v0.121-v0.123): HR2 is
+// computed over 6 s instead of 8; HR1 uses a new front end, so it is present
+// more often and sooner, and is absent after 2 s without a detected beat.
 #define HR1_KEY "HR1"
 #define HR1_SQI_KEY "HR1_SQI"
 #define HR2_KEY "HR2"
 #define HR2_SQI_KEY "HR2_SQI"
 #define HR3_KEY "HR3"
 #define HR3_SQI_KEY "HR3_SQI"
+// SpO2 and SpO2_SQI go together whenever the library publishes a SpO2. Since
+// 18.57.0 that includes PI <= 0.5 %, where SpO2_SQI (a ramp of the PI
+// between 0.5 and 2 %) is 0; before 18.57.0 they were sent only with
+// SpO2_SQI > 0, so a series from before has no low-perfusion points.
 #define SPO2_KEY "SpO2"
 #define SPO2_SQI_KEY "SpO2_SQI"
+// PI = perfusion index [%]. Since 18.57.0 (incunest_afe4490 v0.101+) it is
+// PI_pp: 2*sqrt(2)*RMS(0.5-15 Hz band-pass) / IR DC, 6 s window
+// (the library's PI-METHOD-1), computed independently of SpO2. Up to 18.53.0
+// (lib v0.94) it was PI_rms, tied to the SpO2 window. The key is unchanged
+// but the value is not: PI_pp ~= 2.8-3.2 x PI_rms on real PPG (2.83 exactly
+// only for a sine; measured by the library, rationale sec. 11). Do not mix
+// series from before and after 18.57.0 without rescaling (FW_version tells
+// them apart; the bench-only builds 18.54.0-18.56.0, never released, already
+// sent PI_pp). Since 18.57.0 PI is sent on its own whenever the library has
+// one; before, only together with SpO2, i.e. never below 0.5 %.
+// Since 18.58.0 (incunest_afe4490 v0.120+) it is still peak to peak but the
+// median of 1 s sub-windows over a 7 s window (the library's PI-METHOD-2):
+// the same figure on a steady signal, no longer raised by a burst of motion
+// shorter than 2 s, and available one second later after the probe is applied.
 #define PI_KEY "PI"
 // _v1: versionado por si cambia el formato (fs/duración/canal) más adelante.
 #define PPG_SNAPSHOT_KEY "PPG_snapshot_v1"       // 1 punto por muestra ppg_disp
@@ -100,6 +145,11 @@
 #define BABY_ADMISSION_EPOCH_KEY "baby_admission_epoch"
 #define BABY_KANGAROO_EVENT_KEY "baby_kangaroo_event"
 #define BABY_STAY_DAYS_KEY "baby_stay_days"
+// Cuantos bebes ha dado de alta ESTA incubadora desde siempre. Describe el
+// equipo, no a su ocupante, asi que no lleva baby_seq y viaja tambien en el
+// payload de incubadora vacia. Sin prefijo baby_ en la clave a proposito: en
+// el cuadro de mando no se agrupa con las tarjetas del paciente.
+#define BABY_TOTAL_REGISTERED_KEY "babies_registered_total"
 // Una clave por condicion de alarm_ids.h. Las condiciones que ya existian
 // conservan su cadena original para no romper los cuadros de mando de la
 // nube; las nacidas del desglose normativo (desviaciones direccionales,
@@ -126,6 +176,12 @@
 // -- y por tanto sin sensor de aire -- era invisible en monitorizacion remota.
 #define ALARM_SENSORBOARD_LINK_LOST_KEY "sb_link_alarm"
 #define ALARM_SENSORBOARD_DOOR_FAULT_KEY "sb_door_alarm"
+// Misma razon: sin la clave, ALARM_PHOTO_LAMP_FAULT (20) caeria en el
+// `default: return` y una lampara de fototerapia que no responde seria
+// invisible en monitorizacion remota.
+#define ALARM_PHOTO_LAMP_FAULT_KEY "photo_lamp_alarm"
+#define ALARM_BATTERY_LOW_KEY "battery_low_alarm"
+#define ALARM_NOISE_HIGH_KEY "noise_alarm"
 
 #define CALIBRATION_RAW_TEMPERATURE_RANGE_SKIN_KEY "Cal_raw_range_skin_temp"
 #define CALIBRATION_RAW_TEMPERATURE_LOW_SKIN_KEY "Cal_raw_low_skin_temp"
@@ -142,6 +198,9 @@
 #define BQ_VBAT_KEY   "BQ_vbat_V"
 #define BQ_VBUS_KEY   "BQ_vbus_V"
 #define BQ_ICHG_KEY   "BQ_ichg_mA"
+// Fallo tecnico del cargador (grupo DIAG): sin lecturas validas > 30 s o
+// reconfiguracion fallida. No hay AlarmId para esto todavia (known issue 25).
+#define CHARGER_COMM_FAULT_KEY "charger_comm_fault"
 
 #define BOOT_COUNT_KEY "boot_count"
 #define FREE_HEAP_KEY "free_heap"
@@ -149,8 +208,25 @@
 #define UPTIME_S_KEY "uptime_s"
 #define GPRS_KILL_COUNT_KEY "gprs_kill_count"
 #define GPRS_MON_KILL_COUNT_KEY "gprs_mon_kill_count"
+// Power-cycles del modem por corte de GSM_PWR_EN. Solo HW >= 19 (en la V18 no
+// hay pin que cortar); RAM desde el arranque, no se persiste.
+#define GSM_POWER_CYCLES_KEY "GSM_power_cycles"
+// AFE4490: diag_code de la libreria (bits 0-12 = REG_DIAG 0x30, resto RSQM) y
+// episodios de parada del AFE (>10 s sin muestra). No hay reinicio en caliente.
+#define AFE_DIAG_KEY "AFE_diag"
+#define AFE_STALLS_KEY "AFE_stalls"
+// Reinicios del modem (GPRSForceReset) desde el arranque y motivo del ultimo.
+// Solo por GPRS y solo si hubo alguno.
+#define GPRS_MODEM_RESETS_KEY "gprs_modem_resets"
+#define GPRS_RESET_REASON_KEY "gprs_reset_reason"
 #define HMI_BOOT_COUNT_KEY "hmi_boot_count"
 #define HMI_LAST_RST_KEY "hmi_last_rst"
+// Horas de uso desde el ultimo servicio registrado de cada actuador (enteras).
+// El contador de vida util sigue publicandose aparte, sin tocar.
+#define SVC_HEATER_H_KEY "svc_heater_h"
+#define SVC_FAN_H_KEY "svc_fan_h"
+#define SVC_HUM_H_KEY "svc_hum_h"
+#define SVC_PHOTO_H_KEY "svc_photo_h"
 // 0-100 while an OTA is downloading; absent otherwise.
 #define OTA_PROGRESS_KEY "ota_progress"
 

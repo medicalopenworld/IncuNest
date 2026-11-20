@@ -23,7 +23,7 @@
 
 */
 #ifndef HW_NUM
-#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16, -DHW_NUM=17 or -DHW_NUM=18)"
+#error "HW_NUM must be defined via build_flags in platformio.ini (-DHW_NUM=16, -DHW_NUM=17, -DHW_NUM=18 or -DHW_NUM=19)"
 #endif
 // Set to true only on the HMI board
 #define IS_HMI false
@@ -78,8 +78,15 @@
 #define FAKE_PIN 46
 
 #define SCREENBACKLIGHT FAKE_PIN
+#if (HW_NUM < 19) // en la V19 son pines reales: ver el bloque HW19 mas abajo
 #define AFE44XX_PWDN_PIN FAKE_PIN
 #define GPRS_PWRKEY FAKE_PIN
+// Hay un pin de PWRKEY que pulsar (en V16-V18 es FAKE_PIN=46, que no esta
+// conectado: la "pulsacion" no hace nada pero conserva sus ~2 s de espera).
+// Se usa este flag y NO el valor del pin como `#if (GPRS_PWRKEY)`: 0 es un
+// GPIO valido y no sirve de "sin pin".
+#define GPRS_PWRKEY_PRESENT 1
+#endif
 #undef TFT_DC
 #define TFT_DC FAKE_PIN
 #define ENC_SWITCH FAKE_PIN
@@ -88,7 +95,61 @@
 #undef TFT_CS
 #define TFT_CS FAKE_PIN
 
-// Selección del puerto de depuración según modo USB
+// ---------------------------------------------------------------------------
+// HW19 (motherBoard V19, ESP32-S3-WROOM-1-N8R2). Ver Firmware/docs/hw19.md.
+//
+// Pines nuevos hacia el micro. El pinout sale del PcbDoc.
+//
+//   IO7   AFE_PDN      PDN del AFE4490 (U4-20), activo bajo: LOW = apagado.
+//   IO39  GSM_PWR_EN   EN del buck TPS563231 de VBAT del SIM800C. Pull-down:
+//                      el modem esta APAGADO hasta que el firmware lo levanta.
+//   IO40  PWR_5V_EN    EN del buck TPS563231 de 5 V (humidificador, LEDs del
+//                      AFE, SensorBoard por USB, display HMI). Pull-down: nada
+//                      de eso arranca hasta que el firmware lo levanta.
+//   IO41  EXT_WDT_WDI  WDI del watchdog externo TPS3431 (montaje por confirmar).
+//   IO42  CHRG_OK      CHRG_OK del BQ25730 (U11-4), open-drain con pull-up de
+//                      10k a 3V3. HIGH = fuente de entrada valida (red).
+//   IO43/44            UART de depuracion (conector J1) = UART0 = Serial.
+//   IO46               libre (sigue siendo FAKE_PIN).
+//
+// El resto del pinout (incl. IO5 USB_EN, IO6 USB_FAULT, IO18 BABY_TEMP_EN y
+// el SPI del AFE en 35/36/37) no cambia respecto a la V18.
+// ---------------------------------------------------------------------------
+#if (HW_NUM >= 19)
+#define AFE44XX_PWDN_PIN 7
+#define GSM_PWR_EN 39
+#define PWR_5V_EN 40
+#define EXT_WDT_WDI 41
+#define MAINS_OK_PIN 42
+#define DEBUG_UART_TX_PIN 43
+#define DEBUG_UART_RX_PIN 44
+
+// El PWRKEY del SIM800C va a GND en la V19: el modem se enciende solo al
+// aplicar VBAT (GSM_PWR_EN). No hay GPRS_PWRKEY: GPRS_PWRKEY_PRESENT 0 deja
+// fuera los bloques `#if GPRS_PWRKEY_PRESENT` de GPRS.cpp e initHardware.cpp
+// (en V16-V18 el pin es FAKE_PIN=46, "se pulsa" en el vacio y cuesta ~2 s en
+// GPRSPowerUp()).
+#define GPRS_PWRKEY_PRESENT 0
+
+// Watchdog externo TPS3431: pulso en EXT_WDT_WDI desde watchdogReload(), pero
+// SOLO una vez armado al final de setup() (extWdtArm()). DEJAR EN 0 hasta
+// verificarlo en banco. Datos sin confirmar (no hay datasheet en el repo; la
+// revision de mb-hw19 dice que el TPS3431 es un watchdog ESTANDAR, no de
+// ventana -el de ventana es el TPS3430- con tWD de fabrica de ~1,6 s si CWD no
+// esta conectado): un tWD tan corto no aguanta setup() ni un bloqueo largo de
+// flash/OTA, de ahi que el toggle empiece despues de setup() y que haya que
+// fijar un tWD bastante mayor que el bloqueo mas largo del loopTask. Con 0 el
+// pin ni se configura.
+#define EXT_WDT_ENABLED 0
+#endif
+
+// Selección del puerto de depuración según modo USB.
+//
+// En ESTA placa ARDUINO_USB_CDC_ON_BOOT es 0 (no se define en platformio.ini),
+// asi que `Serial` es SIEMPRE la UART0 hardware con sus pines por defecto del
+// S3: IO43 (TX) / IO44 (RX). Las dos ramas de abajo son equivalentes. El
+// display va por Serial1 (IO15/IO16, CommTask.cpp) y el modem por Serial2, asi
+// que en la V19 el conector J1 (IO43/IO44) ya recibe el log sin UART extra.
 #if ARDUINO_USB_MODE == 1
 // Cuando el USB CDC está activo, Serial ya se enruta por USB
 #define debugSerial Serial
@@ -115,6 +176,16 @@
 #define USB_SHUNT_CHANNEL INA3221_CH2
 #define BATTERY_SHUNT_CHANNEL INA3221_CH3
 
+// La placa LLEVA cargador BQ25730 (HW 17 en adelante; el PCB V16_A no lo trae
+// en su esquema). De ello depende que "el cargador no contesta" sea un fallo
+// (ceguera de la vigilancia de red) y no "sin cargador": la presencia esperada
+// sale del hardware, no de la respuesta I2C, que es justo lo que puede fallar.
+#if (HW_NUM >= 17)
+#define CHARGER_EXPECTED 1
+#else
+#define CHARGER_EXPECTED 0
+#endif
+
 #if (HW_NUM >= 17)
 #define HUMIDIFIER_SHUNT 100 // miliohms
 #else
@@ -138,7 +209,23 @@
 #define PHOTOTHERAPY_SHUNT 5   // miliohms
 #define USB_SHUNT 100         // miliohms (humidifier via USB_EN channel)
 #define BATTERY_SHUNT 27000   // miliohms
-#elif (HW_NUM == 18)
+#elif (HW_NUM >= 19)
+// HW19 (Hardware/Electronics/Motherboard/CHANGELOG.md, V19.A):
+//   - R49 (shunt de V_SYS, canal 1 de U7) = 2 mOhm (C844294), cambio #36. En
+//     la V18 era de 5 mOhm: con 5 aqui el firmware leeria el 40 % de la
+//     corriente de sistema real y el limitador del calefactor
+//     (HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT) se quedaria corto.
+//   - R46 (calefactor, canal 1 de U8) = 2 mOhm con el Kelvin rehecho (#18):
+//     sin factor de correccion ni inversion de signo.
+//   - Canal 3 de U8 a GND (#26): BATTERY_SHUNT no se usa en la V19; la
+//     tension y la corriente de bateria salen del ADC del BQ25730.
+#define SYSTEM_SHUNT 2        // miliohms (R49)
+#define HEATER_SHUNT 2        // miliohms (R46)
+#define FAN_SHUNT 100         // miliohms (R13)
+#define PHOTOTHERAPY_SHUNT 5   // miliohms (R17)
+#define USB_SHUNT 100         // miliohms (R19, humidificador)
+#define BATTERY_SHUNT 27000   // miliohms (sin uso en V19: canal a GND)
+#elif (HW_NUM >= 18)
 // HW18: VSYS_SHUNT+/heater shunt wiring fixed, no more MOSFET-switching-node
 // tap - HEATER_CURRENT_CORRECTION_FACTOR is a HW17-only workaround, not
 // needed here (see HW_NUM == 17 above and sensors_module.cpp's
@@ -166,6 +253,13 @@
 // FAN y FAN_CTL comparten timer 3 (ch 6,7) a 25 kHz; HEATER (ch 2, timer 1)
 // queda aislado para que HEATER_PWM_FREQUENCY (400 Hz) no sea sobrescrito.
 #define FAN_PWM_CHANNEL 7
+// PROHIBIDO instalar fade (ledc_fade_func_install / ledcFade) en este canal.
+// photoPwmRefresh() (sensors_module.cpp) escribe el duty con ledcWrite() DENTRO
+// de una seccion critica (spinlock): con fade instalado, ledcWrite toma un
+// semaforo para esperar el fade en curso, y tomar un semaforo dentro de una
+// seccion critica dispara un assert del kernel (o bloquea con interrupciones
+// deshabilitadas). Sin fade, ledcWrite es una escritura de registro y no
+// bloquea. Nada lo comprueba en tiempo de ejecucion: es una regla de revision.
 #define PHOTOTHERAPY_PWM_CHANNEL 4
 #define HUMIDIFIER_PWM_CHANNEL 5
 #define FAN_CTL_PWM_CHANNEL 6
@@ -232,8 +326,51 @@
 //   whereas a partial obstruction that slips past this threshold still
 //   shows up as a temperature-deviation alarm or a thermal cutout — both of
 //   which exist and act independently of this one.
-#define FAN_DUTY_BLOCKED_THRESHOLD 190
-#define FAN_DUTY_BLOCKED_HYSTERESIS 15 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
+// ============ MEDIDO EN BANCO 2026-09-14 (unidad 353): 190 NO VALIA ============
+//
+// El razonamiento de arriba parte de dos premisas y LAS DOS se caen con la
+// medida: da por bueno un baseline de 137 y un peor caso legitimo de ~158.
+// 97 muestras en 5 min con el ventilador a 4006 rpm, calefactor a 255 y
+// fototerapia al 82 %, con la salida de aire LIMPIA:
+//
+//     duty  min 186   max 188   media 187,0
+//
+// O sea que el punto de trabajo normal esta 50 cuentas por encima del baseline
+// supuesto, y el umbral de 190 dejaba **2 cuentas** de margen, no el 39 % que
+// dice el texto. Cualquier perturbacion levantaba una alarma ALTA que corta el
+// calefactor.
+//
+// Y habia algo peor que el falso positivo, que es lo que de verdad obliga a
+// tocar esto: el umbral de RETIRADA era 190-15 = 175, **por debajo** del duty
+// de trabajo. Con el ventilador girando el duty nunca baja de 175, asi que una
+// vez declarada la condicion NO SE PODIA RETIRAR: calefactor cortado hasta
+// reiniciar. La histeresis apuntaba al lado equivocado del punto de trabajo.
+//
+// Valores nuevos, derivados de la medida y no de una estimacion:
+//   - retirada en 200: 12 cuentas POR ENCIMA del maximo normal observado (188),
+//     que es la condicion para que la alarma pueda irse sola.
+//   - disparo en 220: 32 por encima del maximo normal y todavia 35 por debajo
+//     de la saturacion (255). Una obstruccion real ahoga el flujo, el RPM cae y
+//     el PID empuja el duty HACIA LA SATURACION, asi que se sigue detectando.
+//
+// Se conserva el sesgo original contra el falso positivo, que sigue siendo el
+// criterio correcto: un falso positivo corta el calefactor y enfria al bebe sin
+// red, mientras que una obstruccion parcial que se cuele por debajo de 220
+// aparece igual como desviacion de temperatura o como corte termico.
+//
+// SIGUE SIENDO DE UNA SOLA UNIDAD. La dispersion entre placas —otro ventilador,
+// otro conducto, otra fototerapia— no esta medida, y es justo lo que el WARNING
+// de abajo pide. Lo que ya no es una estimacion es el orden de magnitud: el
+// punto de trabajo real de esta placa es 187, no 137.
+#define FAN_DUTY_BLOCKED_THRESHOLD 220
+#define FAN_DUTY_BLOCKED_HYSTERESIS 20 // duty below (threshold - this) required to clear ALARM_AIR_OUTLET_BLOCKED
+
+// Maximo duty observado en funcionamiento NORMAL (salida limpia, peor carga).
+// No lo usa el detector: existe para poder comprobar en compilacion que la
+// retirada queda por encima de el. Si alguien vuelve a bajar el umbral o a
+// estrechar la histeresis, el build falla en vez de dejar una alarma que no se
+// puede retirar.
+#define FAN_DUTY_NORMAL_MAX_OBSERVED 188
 // Master enable for air-outlet-blockage detection (boot check + runtime
 // monitor). IEC 60601-2-19 201.12.3.101 requires an alarm AND a heater cut
 // when the air outlet is obstructed, and a mandated alarm cannot ship
@@ -274,7 +411,8 @@
 // in3.heater_current (SECUNDARY sensor) - HW16/HW17 keep using heater_current
 // (OR'd with system_current, unchanged). in3.heater_current is still read and
 // telemetered on HW18, just not used as the throttling reference.
-#if (HW_NUM == 18)
+// (HW19 hereda este criterio de la V18.)
+#if (HW_NUM >= 18)
 #define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT true
 #else
 #define HEATER_POWER_REFERENCE_IS_SYSTEM_CURRENT false

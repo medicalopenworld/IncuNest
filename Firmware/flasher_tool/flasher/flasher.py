@@ -9,7 +9,7 @@ import esptool
 
 import esptool_io
 import nvs_gen
-from detector import Board
+from detector import Board, MB_HW_V18, MB_HW_V19
 
 
 _BOARD_FOLDER = {
@@ -17,6 +17,42 @@ _BOARD_FOLDER = {
     Board.DISPLAY_HMI: 'display_hmi',
     Board.SENSORBOARD: 'sensorboard',
 }
+
+# Una carpeta por revision de motherBoard. La V18 se queda en 'motherboard' para
+# no romper las releases ni los data/firmware/ que ya existen; la V19 tiene la
+# suya. Que revision toca la decide el hardware (detector.detect_motherboard_hw),
+# nunca lo que haya compilado en el PC: el binario de una revision en la otra no
+# sirve (V18 en una V19: el display se queda sin 5 V).
+MB_FOLDER_BY_HW = {
+    MB_HW_V18: 'motherboard',
+    MB_HW_V19: 'motherboard_hw19',
+}
+
+# Todas las carpetas de data/firmware/ que el flasher sabe flashear, con su
+# placa (para saber que ficheros lleva cada una).
+FIRMWARE_FOLDERS: tuple[tuple[str, Board], ...] = (
+    (MB_FOLDER_BY_HW[MB_HW_V18], Board.MOTHERBOARD),
+    (MB_FOLDER_BY_HW[MB_HW_V19], Board.MOTHERBOARD),
+    (_BOARD_FOLDER[Board.DISPLAY_HMI], Board.DISPLAY_HMI),
+    (_BOARD_FOLDER[Board.SENSORBOARD], Board.SENSORBOARD),
+)
+
+
+def board_folder(board: Board, hw: Optional[int] = None) -> str:
+    """Carpeta de data/firmware/ para esa placa (y revision, si es motherBoard).
+
+    Una motherBoard sin revision conocida es un ValueError: no hay forma de
+    saber que binario le toca, y adivinar es justo lo que no se puede hacer.
+    """
+    if board == Board.MOTHERBOARD:
+        folder = MB_FOLDER_BY_HW.get(hw)
+        if folder is None:
+            raise ValueError(
+                f"Revision de motherBoard desconocida ({hw!r}): no se flashea."
+            )
+        return folder
+    return _BOARD_FOLDER[board]
+
 
 _BOARD_BEFORE_RESET = {
     Board.MOTHERBOARD: 'default-reset',
@@ -45,19 +81,25 @@ _BOARD_FILES = {
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
     ],
-    # spiffs.bin lleva /heartbeat.mp3, el unico fichero que el firmware lee del
-    # filesystem (src/tasks/AudioManager.cpp). Hasta 2026-09 no se flasheaba
-    # ninguna imagen SPIFFS: una unidad recien salida de fabrica arrancaba con
-    # la particion vacia y sin sonido de latido, y el aviso quedaba en un
-    # Serial.println que nadie lee en produccion ("NOT FOUND. Run 'Upload File
-    # System Image'"). La imagen ocupa toda la particion pero va casi entera a
-    # 0xFF, asi que con --compress el coste real de escribirla es despreciable.
+    # SIN imagen SPIFFS (2026-09-20). Se flasheaba una de 6,16 MB en 0xA10000
+    # para llevar /heartbeat.mp3, y resulta que en esta linea de firmware NADIE
+    # la lee: su unico consumidor era src/tasks/AudioManager.cpp, que esta
+    # excluido del build (`build_src_filter = +<*> -<tasks/AudioManager.cpp>` en
+    # Display_HMI/platformio.ini) y ni siquiera genera objeto. El boton de audio
+    # de la interfaz esta oculto de forma permanente.
+    #
+    # Quitarla ademas cierra dos molestias: el flasheo fallaba con "Archivo no
+    # encontrado" si nadie habia corrido `pio run -t buildfs` (la imagen no sale
+    # de un build normal), y reflashear una unidad ya no pisa esa particion.
+    #
+    # Si algun dia se reactiva el audio, hay que volver a anadir la linea
+    # ('0xA10000', 'spiffs.bin') -- el offset sale de
+    # Display_HMI/partitions/hmi_16mb_ota.csv -- y volver a generar la imagen.
     Board.DISPLAY_HMI: [
         ('0x0000', 'bootloader.bin'),
         ('0x8000', 'partitions.bin'),
         ('0xE000', 'ota_data_initial.bin'),
         ('0x10000', 'firmware.bin'),
-        ('0xA10000', 'spiffs.bin'),
     ],
     # ESP-IDF native layout (bootloader offset 0x0, partition table at
     # 0x8000, primera app en 0x10000 — see SensorBoard_v2/partitions.csv).
@@ -84,13 +126,13 @@ def required_files(board: Board) -> list[str]:
 
 
 def missing_files(firmware_base: Path) -> dict[str, list[str]]:
-    """Devuelve {carpeta → ficheros que faltan} para las tres placas.
+    """Devuelve {carpeta → ficheros que faltan} para todas las carpetas de firmware.
 
     Sirve para que un hueco salga en el registro al refrescar los binarios y no
     en un FileNotFoundError delante de la placa, en fabrica.
     """
     out: dict[str, list[str]] = {}
-    for board, folder in _BOARD_FOLDER.items():
+    for folder, board in FIRMWARE_FOLDERS:
         absent = [
             fname for fname in required_files(board)
             if not (firmware_base / folder / fname).is_file()
@@ -111,7 +153,7 @@ def write_initial_ota_data(firmware_base: Path) -> list[str]:
     Devuelve las carpetas escritas.
     """
     written: list[str] = []
-    for board, folder in _BOARD_FOLDER.items():
+    for folder, board in FIRMWARE_FOLDERS:
         if _OTA_DATA_NAME not in required_files(board):
             continue
         dest = firmware_base / folder / _OTA_DATA_NAME
@@ -191,14 +233,72 @@ def has_firmware_flashed(port: str) -> bool:
             pass
 
 
+def serial_to_write(current: Optional[int], requested: int) -> Optional[int]:
+    """Serial que hay que escribir en la NVS, o None si no hay que tocarla.
+
+    Escribir la NVS borra la identidad del equipo (ver read_device_serial), asi
+    que solo se escribe cuando el serial cambia de verdad. `current is None`
+    --placa virgen o lectura fallida-- cuenta como cambio: no se puede dar por
+    bueno lo que no se ha podido leer.
+    """
+    return None if current is not None and requested == current else requested
+
+
+def read_device_serial(port: str, firmware_base: Path,
+                       hw: int = MB_HW_V18) -> Optional[int]:
+    """Numero de serie que la placa ya tiene en NVS, o None si no se puede leer.
+
+    Sirve para NO reescribir la NVS cuando el serial no cambia. Escribirla
+    cuesta la identidad entera del equipo: generate_serial_nvs produce una
+    imagen del tamano de la particion con un unico dato (mb_cfg/serial), asi
+    que borra tambien el token de ThingsBoard, la marca de provisionado
+    (mb_gprs) y las credenciales WiFi (mb_wifi). La placa vuelve a arrancar
+    como virgen, se conecta al SSID por defecto compilado --que fuera de
+    fabrica no suele existir-- y, si llega a la red, pide provisionarse otra
+    vez con un nombre que ya esta cogido en ThingsBoard.
+
+    None significa "no se sabe" (placa virgen, lectura fallida): el llamante
+    tiene que asumir lo peor y avisar antes de escribir.
+    """
+    # V18 y V19 comparten tabla de particiones (ESP32S3_8MB.csv); se lee la de
+    # la revision por si algun dia se separan.
+    folder = firmware_base / board_folder(Board.MOTHERBOARD, hw)
+    offset, size = nvs_gen.find_nvs_partition(folder / 'partitions.bin')
+
+    fd, tmp = tempfile.mkstemp(suffix='.bin')
+    os.close(fd)
+    try:
+        with esptool_io.capture():  # discard all esptool output
+            esptool.main([
+                '--port', port,
+                '--chip', 'esp32s3',
+                '--no-stub',
+                '--before', 'no-reset',
+                '--after', 'no-reset',
+                'read_flash',
+                hex(offset), hex(size), tmp,
+            ])
+        return nvs_gen.parse_nvs_serial(Path(tmp).read_bytes())
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def flash_board(
     port: str,
     board: Board,
     firmware_base: Path,
     progress_callback: Callable[[str, Optional[int]], None],
     serial_number: Optional[int] = None,
+    hw: Optional[int] = None,
 ) -> None:
-    folder = firmware_base / _BOARD_FOLDER[board]
+    """Flashea la placa. `hw` es obligatorio para la motherBoard (MB_HW_V18 o
+    MB_HW_V19, de detector.detect_motherboard_hw)."""
+    folder = firmware_base / board_folder(board, hw)
     file_pairs = list(_BOARD_FILES[board])
 
     for _, filename in file_pairs:
@@ -235,14 +335,21 @@ def flash_board(
     for addr, fname in file_pairs:
         args += [addr, fname if os.path.isabs(fname) else str(folder / fname)]
 
-    reset_seen = False
+    # Una excepcion solo se perdona si TODOS los ficheros se han escrito y
+    # verificado (esptool imprime "Hash of data verified." tras comprobar el
+    # MD5 de cada uno): con USB nativo el puerto puede desaparecer en el reset
+    # final. No vale buscar "resetting": en esptool 5 el teardown hace el reset
+    # tambien cuando el comando falla, y un fallo tras conectar salia en verde.
+    verified = 0
+    lost_connection = False
 
     class _Writer(io.StringIO):
         def write(self, text: str) -> int:
-            nonlocal reset_seen
+            nonlocal verified, lost_connection
             result = super().write(text)
-            if 'resetting' in text.lower():
-                reset_seen = True
+            verified += text.count('Hash of data verified')
+            if 'Lost connection' in text:
+                lost_connection = True
             if text.strip():
                 progress_callback(text.rstrip(), tracker.parse(text))
             return result
@@ -257,8 +364,16 @@ def flash_board(
                 "Flasheo fallido. Vuelve a intentarlo."
             )
     except Exception as e:
-        if not reset_seen:
-            raise RuntimeError(str(e))
+        if verified < len(file_pairs):
+            msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            if lost_connection:
+                # Motherboard 373 (2026-11-19): la placa dejaba de responder al
+                # escribir por lo que tenia conectado ademas del USB, y se
+                # quedaba colgada hasta volver a ponerla en boot.
+                msg += ("\nLa placa ha dejado de responder durante la escritura. "
+                        "Desconecta todo menos el cable USB, vuelve a poner la "
+                        "placa en modo boot y reintenta.")
+            raise RuntimeError(msg)
     finally:
         esptool_io.set_thread_writer(None)
         if nvs_tmp:

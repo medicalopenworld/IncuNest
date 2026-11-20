@@ -1,0 +1,96 @@
+#pragma once
+// Decisiones puras de la tendencia: que consignas gobiernan algo, a que pixel
+// cae una ranura y como se clasifica una marca de alarma. Sin LVGL.
+
+#include "modules/trend/trend_types.h"
+
+// Que consignas tiene sentido registrar, segun el ECO de la placa
+// (CTRL,STATE: actuation y controlMode). Una consigna que no gobierna nada se
+// guarda como "sin dato": pintar una linea de consigna con el control apagado
+// sugeriria un objetivo que el equipo no persigue.
+struct TrendSetpointValidity {
+  bool air;
+  bool skin;
+  bool hum;
+};
+
+// actuation: ActuationMode (0 apagado, 1 temperatura, 2 humedad, 3 ambas).
+// airMode:   true = control por aire, false = control por piel (CONTROL_AIR).
+// Un valor de actuation fuera de rango no valida ninguna consigna.
+TrendSetpointValidity trend_setpoint_validity(int actuation, bool airMode);
+
+// Columna (0..widthPx-1) del area de datos de un grafico cuyo eje X cubre
+// `totalSlots` ranuras desde `startSlot`. -1 si la ranura cae fuera de la
+// ventana o los parametros no son validos.
+int trend_slot_to_px(int64_t slot, int64_t startSlot, int64_t totalSlots,
+                     int widthPx);
+
+// ---- Politica de volcado (hmi-trend, persistencia) ------------------------
+// Cada 30 min si han entrado muestras nuevas, y al entrar en bloqueo con una
+// separacion minima de 20 min respecto al volcado anterior: el auto-bloqueo se
+// dispara tras cada interaccion (20 s) y sin tope cada toque seria un volcado.
+// Cada escritura en flash para la cache de PSRAM y descuadra la imagen del
+// panel un instante (el rearme la recoloca): con 5 min se veia un tiron cada
+// 5 min. A cambio, un corte de corriente pierde hasta 30 min de tendencia
+// (decision del responsable de producto, 2026-10-26).
+constexpr uint32_t TREND_DUMP_PERIOD_MS = 30u * 60u * 1000u;
+constexpr uint32_t TREND_DUMP_LOCK_MIN_MS = 20u * 60u * 1000u;
+// El volcado se escribe en trozos: uno por pasada del bucle y no mas de uno
+// cada TREND_CHUNK_GAP_MS. 4 KB = un bloque de LittleFS = un borrado (~45 ms
+// con la cache de flash parada): troceado, el refresco respira entre trozos.
+constexpr size_t TREND_CHUNK_BYTES = 4096;
+constexpr uint32_t TREND_CHUNK_GAP_MS = 50;
+
+struct TrendDumpState {
+  uint32_t lastDumpMs;      // ultimo volcado (o el arranque, o el ultimo fallo)
+  int64_t lastDumpedSlot;   // ultima ranura incluida en el ultimo volcado bueno
+  bool haveDumped;          // false hasta el primer volcado bueno
+};
+
+// `nowMs` es el instante de arranque del servicio: el primer volcado llega a
+// los 5 min, no en el primer instante.
+void trend_dump_init(TrendDumpState *d, uint32_t nowMs);
+
+// true si toca iniciar un volcado. Nunca sin hora sincronizada (las ranuras
+// serian monotonas, no epoch) ni sin muestras, ni si la ultima ranura es la que
+// ya se guardo. La aritmetica de milisegundos es segura ante la vuelta de
+// millis() (49 dias).
+bool trend_dump_due(const TrendDumpState *d, bool clockSynced, bool haveSamples,
+                    int64_t newestSlot, uint32_t nowMs, bool lockEntered);
+
+// Volcado terminado bien: anota ranura y hora.
+void trend_dump_done(TrendDumpState *d, uint32_t nowMs, int64_t newestSlot);
+
+// Volcado fallido: se reintenta tras un periodo COMPLETO, nunca en bucle, y no
+// se da por guardada ninguna ranura.
+void trend_dump_failed(TrendDumpState *d, uint32_t nowMs);
+
+// true si ya puede escribirse el siguiente trozo.
+bool trend_chunk_due(uint32_t nowMs, uint32_t lastChunkMs);
+
+// ---- E/S solo con la casa en orden (C2) -------------------------------------
+// Ni se empieza ni se continua un volcado, una restauracion o el formateo
+// diferido de la particion mientras haya una alarma activa (de cualquier
+// prioridad) o el enlace con la placa este caido: una escritura de flash para
+// la cache y puede retrasar el refresco, el sonido de la alarma o la lectura
+// del UART. Un volcado a medias se aborta limpio (el .tmp se descarta).
+bool trend_io_allowed(bool anyAlarmActive, bool boardLinkLost);
+
+// ---- Fichero rechazado por el reloj (A3) -------------------------------------
+// Si la restauracion rechaza un fichero por FUTURE o STALE puede ser que el
+// reloj estuviera mal. El volcado no lo sobrescribe hasta que el reloj se
+// corrija (el reintento unico) o pase esta gracia: un fichero realmente viejo
+// no debe dejar la persistencia bloqueada para siempre.
+constexpr uint32_t TREND_REJECT_GRACE_MS = 30u * 60u * 1000u;
+bool trend_dump_blocked_by_rejected_file(bool rejectedPending, uint32_t rejectedAtMs,
+                                         uint32_t nowMs);
+
+// Clase visual de una marca de alarma. Una prioridad desconocida se trata
+// como ALTA: ante la duda, la marca mas severa.
+enum TrendMarkKind : int {
+  TREND_MARK_HIGH = 0,
+  TREND_MARK_MEDIUM = 1,
+  TREND_MARK_LOW = 2,
+  TREND_MARK_CLEARED = 3,
+};
+TrendMarkKind trend_mark_kind(uint8_t priority, bool raised);

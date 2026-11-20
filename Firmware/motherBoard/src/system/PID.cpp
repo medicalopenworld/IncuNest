@@ -28,6 +28,10 @@
 
 #include "main.h"
 #include "system/hw_selftest.h"
+#if (HW_NUM >= 19)
+#include "modules/control/heater_supply_limit.h"
+#include "system/power_rails.h"
+#endif
 
 double HeaterPIDOutput;
 double skinControlPIDInput;
@@ -165,6 +169,32 @@ void heaterPowerConsumptionCheck()
   }
 }
 
+// Duty que de verdad se escribe en el calefactor. En la V19 se recorta segun
+// la fuente (heater_supply_limit.h; CHANGELOG de la motherboard, firmware 6):
+// J9, R59 y las pistas del calefactor no aguantan los ~12 A de V_SYS con el
+// calefactor a tope desde bateria. El recorte va aqui, en la escritura, y no
+// en los limites del PID: asi no lo deshace heaterPowerConsumptionCheck() al
+// reescribir SetOutputLimits().
+static uint32_t heaterDutyForSupply(double pidOutput) {
+  if (pidOutput < 0) pidOutput = 0;
+#if (HW_NUM >= 19)
+  const bool vbusFresh = g_bq_status_valid &&
+                         (millis() - g_bq_status_ms) < HEATER_SUPPLY_VBUS_MAX_AGE_MS;
+  const HeaterSupply supply =
+      heater_supply_classify(mainsPresentPin(), vbusFresh, g_bq_status.vbus_mv);
+  static int lastSupply = -1;
+  if ((int)supply != lastSupply) {
+    lastSupply = (int)supply;
+    logI(String("[PID] -> Fuente del calefactor: ") + heater_supply_name(supply) +
+         ", duty maximo " + String(heater_supply_max_pwm(supply, HEATER_MAX_PWM)) +
+         "/" + String((int)HEATER_MAX_PWM));
+  }
+  const double cap = heater_supply_max_pwm(supply, HEATER_MAX_PWM);
+  if (pidOutput > cap) pidOutput = cap;
+#endif
+  return (uint32_t)pidOutput;
+}
+
 void PIDHandler()
 {
   // El test de fabrica ha entrado en estado seguro y tiene el control de los
@@ -204,7 +234,8 @@ void PIDHandler()
       airControlPID.SetTunings(Kp[airPID], false, Kd[airPID]);
     }
     airControlPID.Compute();
-    ledcWrite(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
+    ledcWrite(HEATER_PWM_CHANNEL,
+              heaterDutyForSupply(HeaterPIDOutput) * !ongoingCriticalAlarm());
   }
   if (skinControlPID.GetMode() == AUTOMATIC)
   {
@@ -214,7 +245,8 @@ void PIDHandler()
       skinControlPID.SetTunings(Kp[skinPID], Ki[skinPID], Kd[skinPID]);
     }
     skinControlPID.Compute();
-    ledcWrite(HEATER_PWM_CHANNEL, HeaterPIDOutput * !ongoingCriticalAlarm());
+    ledcWrite(HEATER_PWM_CHANNEL,
+              heaterDutyForSupply(HeaterPIDOutput) * !ongoingCriticalAlarm());
   }
   if (humidityControlPID.GetMode() == AUTOMATIC)
   {

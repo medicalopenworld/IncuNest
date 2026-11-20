@@ -14,7 +14,7 @@
 - `Credentials_public.h` is committed — it must compile from a fresh clone with no `Credentials.h` present.
 - Do not change any authentication logic in Display HMI — it already works. Only move credentials to macros.
 - Motherboard `/` route (JS login page) is left unchanged.
-- Username: `incunestadmin` | Password: `savinglives` | Placeholder username: `incunest` | Placeholder password: `changeme`
+- Username: `incunestadmin` | Password: `<WEB_SERVER_PASSWORD>` | Placeholder username: `incunest` | Placeholder password: `changeme`
 
 ---
 
@@ -46,7 +46,7 @@ Open `Display_HMI/include/Credentials.h`. Add before the closing `#endif`:
 
 ```cpp
 #define WEB_SERVER_USERNAME "incunestadmin"
-#define WEB_SERVER_PASSWORD "savinglives"
+#define WEB_SERVER_PASSWORD "<WEB_SERVER_PASSWORD>"
 ```
 
 Final file should look like:
@@ -66,15 +66,15 @@ Final file should look like:
 #define PROVISION_DEVICE_KEY "bztump0738iuc2ggreix"
 #define PROVISION_DEVICE_SECRET "0znp47gkyh9hbljq1opm"
 #elif (THINGSBOARD_PROVISION_SERVER == FACTORY_SERVER)
-#define PROVISION_DEVICE_KEY "1ea5qharvbfdwzhdqinm"
-#define PROVISION_DEVICE_SECRET "agamc0dtsrfdg9738sf7"
+#define PROVISION_DEVICE_KEY "<PROVISION_DEVICE_KEY>"
+#define PROVISION_DEVICE_SECRET "<PROVISION_DEVICE_SECRET>"
 #endif
 
 #define WIFI_SSID "in3wifi"
 #define WIFI_PASSWORD "12345678"
 
 #define WEB_SERVER_USERNAME "incunestadmin"
-#define WEB_SERVER_PASSWORD "savinglives"
+#define WEB_SERVER_PASSWORD "<WEB_SERVER_PASSWORD>"
 #endif // _CREDENTIALS_
 ```
 
@@ -134,7 +134,7 @@ git commit -m "feat(display_hmi): add WEB_SERVER_USERNAME/PASSWORD to credential
 In `Display_HMI/src/tasks/Wifi_OTA.cpp`, remove lines 62–63:
 ```cpp
 const char *www_username = "in3admin";
-const char *www_password = "savinglives";
+const char *www_password = "<WEB_SERVER_PASSWORD>";
 ```
 
 - [ ] **Step 2: Replace all uses of the removed variables**
@@ -183,7 +183,7 @@ Open `motherBoard/include/Credentials.h`. Add before the closing `#endif`:
 
 ```cpp
 #define WEB_SERVER_USERNAME "incunestadmin"
-#define WEB_SERVER_PASSWORD "savinglives"
+#define WEB_SERVER_PASSWORD "<WEB_SERVER_PASSWORD>"
 ```
 
 Final file:
@@ -194,14 +194,14 @@ Final file:
 #define THINGSBOARD_SERVER "mon.medicalopenworld.org"
 #define THINGSBOARD_PORT 1883
 
-#define PROVISION_DEVICE_KEY "8f9yvlkqxirz2pq9n5co"
-#define PROVISION_DEVICE_SECRET "bz9fwzi8t3pnqxdlipqz"
+#define PROVISION_DEVICE_KEY "<PROVISION_DEVICE_KEY>"
+#define PROVISION_DEVICE_SECRET "<PROVISION_DEVICE_SECRET>"
 
 #define WIFI_SSID "in3wifi"
 #define WIFI_PASSWORD "12345678"
 
 #define WEB_SERVER_USERNAME "incunestadmin"
-#define WEB_SERVER_PASSWORD "savinglives"
+#define WEB_SERVER_PASSWORD "<WEB_SERVER_PASSWORD>"
 #endif // _CREDENTIALS_
 ```
 

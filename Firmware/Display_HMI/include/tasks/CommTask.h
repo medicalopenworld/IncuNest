@@ -8,6 +8,10 @@
 #include "control_types.h"
 #include "alarm_ids.h"
 #include "factory_test.h"
+#include "modules/patient/patient_session.h"  // PatientBoardView (Communication_GetBoardView)
+#include "modules/comm/sb_env.h"
+#include "modules/comm/batt_report.h"
+#include "service_hours_proto.h"
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -63,6 +67,17 @@ bool Display_IsBoardLinkLost(void);
 // todavia no se sabe nada, como al arrancar el display sin motherBoard.
 bool Display_BoardEverSeen(void);
 
+// Que pintar del entorno de la SensorBoard (puerta abierta, nivel de ruido),
+// a partir del ultimo CTRL,ENV. Todo "no pintar" si nunca ha llegado (equipo sin
+// SensorBoard), si esta rancio, o si el enlace con la placa esta caido. Ver
+// sb_env.h; la consume sb_env_heading_update() en UITask.cpp.
+SbEnvView Display_GetSbEnvView(void);
+
+// Que pintar del indicador de bateria, a partir del ultimo CTRL,BATT. Mismo
+// criterio que Display_GetSbEnvView(). Ver batt_report.h; la consume
+// battery_indicator_update() en UITask.cpp.
+BattRepView Display_GetBattView(void);
+
 // Expected prefix of incoming messages
 #if IS_HMI
 #define EXPECTED_PREFIX "CTRL"
@@ -117,6 +132,11 @@ typedef struct {
   // de este estado: la pausa caduca sola (60601-2-19 201.12.3.104) y el
   // display no puede saberlo por su cuenta.
   uint32_t silencedBitmask;
+  // Bit por AlarmId de las alarmas ENCLAVADAS: siguen avisando pero su
+  // condicion ya se fue, asi que admiten el reset manual que pide
+  // 201.15.4.2.1 aa)/bb). Con esto el display ofrece la accion solo cuando de
+  // verdad hace algo. Se pide con HMI,ALM_RESET[,<id>].
+  uint32_t latchedBitmask;
   // Prioridad que reproduce la prueba de funcionamiento de alarmas
   // (201.12.3.105), o ALARM_TEST_IDLE_HMI si no hay prueba en curso.
   int      alarmTestPriority;
@@ -134,31 +154,21 @@ typedef struct {
   bool     newState;
 } ControlBoard_Message_State;
 
-// Legacy name for the probe state enum
-typedef SkinProbeState ProbeContactState;
-// SPO2_PROBE_* aliases (HMI code uses these names)
-// El contrato numerico lo fija ProbeState de la libreria incunest_afe4490 (la
-// motherboard reenvia el valor crudo en CTRL,PROBE): 0=DISCONNECTED,
-// 1=NOT_APPLIED, 2=APPLIED, 3=SATURATING. Si la libreria anade un estado
-// nuevo, hay que anadirlo aqui y en PROTOCOL.md: el HMI trata cualquier
-// estado desconocido como "sin contacto" (fail-safe), no lo descarta.
-#define SPO2_PROBE_DISCONNECTED SKIN_PROBE_NOT_CONNECTED
-#define SPO2_PROBE_NOT_APPLIED  SKIN_PROBE_PENDING_VALIDATION
-#define SPO2_PROBE_APPLIED      SKIN_PROBE_VALID
-// Canal saturado desde arriba (exceso de luz): la presencia de tejido es
-// DESCONOCIDA, por lo que no implica APPLIED. Es el estado tipico al retirar
-// la sonda, que queda expuesta a la luz ambiente.
-#define SPO2_PROBE_SATURATING   SKIN_PROBE_INVALID
+// Estado de la sonda de SpO2: espejo de ProbeState de incunest_afe4490, con su
+// propio tipo desde la 4.3.0 (antes eran alias del enum de la sonda de PIEL).
+// Contrato, historia y conversion fail-safe en protocol/spo2_probe.h. Si la
+// libreria anade un estado, se anade alli y en PROTOCOL.md.
+#include "protocol/spo2_probe.h"
 
-// PPG waveform sample (CTRL,PPG — 25 Hz)
-typedef struct {
-  uint8_t ppg;     // normalised 0-255
-  bool    updated; // true after each new sample, cleared by consumer
-} ControlBoard_Message_PPG;
+// PPG waveform samples (CTRL,PPG: 50 Hz since motherBoard 18.57.0, 25 Hz
+// before), queued from the parser to the chart: see modules/comm/ppg_fifo.h.
+#include "modules/comm/ppg_fifo.h"
+bool ctrlPpgFifoPush(uint8_t v);   // producer; false = full, sample dropped
+bool ctrlPpgFifoPop(uint8_t *v);   // consumer; false = empty
 
 // Vital signs (CTRL,VIT — 1 Hz)
 typedef struct {
-  uint8_t hr;   // 40-240 bpm; 0 = no valid signal
+  uint16_t hr;  // 30-260 bpm; 0 = no valid signal
   uint8_t spo2; // 0-100 %; 0 = no valid signal
   float   pi;   // Perfusion Index [%]; 0.0 = no valid signal
   bool    updated;
@@ -166,8 +176,8 @@ typedef struct {
 
 // SpO2 probe contact state
 typedef struct {
-  ProbeContactState state;
-  bool              updated;
+  Spo2ProbeState state;
+  bool           updated;
 } ControlBoard_Message_Probe;
 
 // Sensor data message (HMI-internal, not a protocol type)
@@ -192,7 +202,7 @@ extern ControlBoard_Message           ctrl_msg;
 extern ControlBoard_Message_Telemetry ctrl_tel_msg;
 extern ControlBoard_Message_Alarm     ctrl_msg_alarm;
 extern ControlBoard_Message_State     ctrl_state_msg;
-extern ControlBoard_Message_PPG       ctrl_ppg_msg;
+extern PpgFifo                        ctrl_ppg_fifo;
 extern ControlBoard_Message_VIT       ctrl_vit_msg;
 extern ControlBoard_Message_Probe     ctrl_probe_msg;
 extern int  g_skinProbeState;
@@ -230,14 +240,35 @@ struct BabyProfileRangeMsg {
 
 extern volatile bool     g_pendingProfileList;
 extern BabyProfileListMsg g_profileList;
+
+// Copia de solo lectura de cada CTRL,PROFILE_LIST valida, para quien necesita
+// los minutos de terapia sin ser el consumidor de g_pendingProfileList (que
+// tiene UNO: el asistente o el visor de bebes). Nunca toca ese flag.
+//
+// `*seenGen` es la generacion que este lector ya vio (empezar en 0). Devuelve
+// true y rellena `*out` solo si hay una lista mas reciente; actualiza
+// `*seenGen`. Segura entre tareas.
+bool Communication_TakeProfileListMirror(uint32_t *seenGen,
+                                         BabyProfileListMsg *out);
+
+// Lo que el ultimo CTRL,STATE dice del bebe al mando (`activeSeq`, campo 24;
+// terapia viva; sn de la placa), como una sola instantanea coherente. Devuelve
+// false (y `out->stateSeen` a false) hasta que llegue el primer CTRL,STATE.
+// `sendsActiveSeq` es false con una placa que no manda el campo: ahi
+// `activeSeq` NO vale 0, es desconocido. Segura entre tareas.
+bool Communication_GetBoardView(PatientBoardView *out);
 extern volatile bool     g_pendingProfileAck;
 extern uint32_t          g_profileAck;
 
 // --- Wall clock, owned by the motherBoard (CTRL,TIME) ---------------------
-// The HMI has no RTC and does no NTP of its own, so the motherBoard's synced
-// epoch is the only clock available here. Returns 0 while the motherBoard
-// reports "not synced" (or before the first CTRL,TIME arrives).
-// Interpolates with millis() between the 10 s broadcasts.
+// La motherBoard es la unica AUTORIDAD de hora: arbitra entre manual, NTP, el
+// RTC de aqui y NITZ, y es la unica que fija el reloj. El HMI SI tiene un
+// PCF8563 con pila (I2C 0x51), pero no decide nada con el: lo lee al arrancar
+// para ofrecerle la semilla a la placa (HMI,RTC_TIME) y lo escribe con lo que
+// ella difunda. Es memoria entre apagados, no un segundo reloj.
+//
+// Devuelve 0 mientras la motherBoard diga "sin sincronizar" (o antes del
+// primer CTRL,TIME). Interpola con millis() entre las difusiones de 10 s.
 uint32_t HMI_GetEpochNow();
 
 // --- Zona horaria, tambien propiedad de la motherBoard --------------------
@@ -326,8 +357,21 @@ extern volatile bool        g_pendingAlarmHistory;
 extern AlarmHistoryMsg      g_alarmHistory;
 void Communication_SendAlarmHistoryReq(void);
 
+// Avisos de servicio por horas de uso (CTRL,SERVICE; ver PROTOCOL.md). Comm_Task
+// deja el ultimo informe aqui y levanta el flag; lo consume
+// MaintenanceDialog_Poll() en UI_Task y lo pasa a modules/service/service_state.
+// Cada informe es una foto completa, asi que si llegan dos seguidas basta la
+// ultima.
+extern volatile bool        g_pendingService;
+extern ServiceReport        g_serviceReport;
+void Communication_SendServiceReq(void);
+// Registra el servicio hecho de un actuador (ServiceActuator). No hace nada en
+// formacion. La placa contesta con un CTRL,SERVICE actualizado.
+void Communication_SendServiceDone(uint8_t id);
+
 extern volatile bool        g_pendingAlarmDesc;
 extern AlarmDescMsg         g_alarmDesc;
+void Communication_SendAlarmReset(uint8_t id);
 void Communication_SendAlarmDescReq(uint8_t id);
 
 // AUDIO PAUSED de UNA condicion. on=false lo cancela, que es lo que exige
@@ -397,7 +441,12 @@ void Communication_SendFtestConfirm(uint8_t id, bool ok);
 void Communication_SendProfileListReq(void);
 void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);
 void Communication_SendProfileSelect(uint32_t seq);
-void Communication_SendProfileWeight(uint32_t seq, uint16_t grams); // 0 = SKIP
+// 0 = SKIP. `stampOnSend`: sella la pesada para el recordatorio diario al
+// enviarla (asistente y pantalla Bebes, que no esperan respuesta). El dialogo
+// de PESAR AHORA pasa false: espera CTRL,PROFILE_RANGE y sella al recibirla
+// (WeighTracker_NoteWeighed()).
+void Communication_SendProfileWeight(uint32_t seq, uint16_t grams,
+                                     bool stampOnSend = true);
 void Communication_SendProfileAgeManual(uint32_t seq, uint16_t ageDays);
 void Communication_SendProfileDischarge(uint32_t seq, uint8_t outcome,
                                         uint8_t cause);
