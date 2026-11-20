@@ -12,11 +12,13 @@ permissions:
   contents: read
 
 jobs:
-  # The three PlatformIO gates share one recipe (install PlatformIO, restore
+  # The four PlatformIO gates share one recipe (install PlatformIO, restore
   # its cache, run one command in one directory) and differ only in that
-  # command, so they run as a matrix instead of three near-identical jobs.
+  # command, so they run as a matrix instead of four near-identical jobs.
   # fail-fast is off: a broken Display_HMI build must not hide a broken
   # motherBoard test run.
+  # motherBoard builds the same environments release.yml publishes (V18 and
+  # V19); V17 is no longer released.
   platformio:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -27,7 +29,7 @@ jobs:
           - id: motherboard-build
             name: Build motherBoard
             directory: Firmware/motherBoard
-            command: pio run -e IncuNest_V17
+            command: pio run -e IncuNest_V18 -e IncuNest_V19
           - id: display-hmi-build
             name: Build Display_HMI
             directory: Firmware/Display_HMI
@@ -36,12 +38,16 @@ jobs:
             name: Test motherBoard (native)
             directory: Firmware/motherBoard
             command: pio test -e native
+          - id: display-hmi-test
+            name: Test Display_HMI (native)
+            directory: Firmware/Display_HMI
+            command: pio test -e native
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Same cache as release.yml, keyed per matrix entry as well: the three
+      # Same cache as release.yml, keyed per matrix entry as well: the
       # entries pull different toolchains and would otherwise overwrite each
       # other's entry under a single key.
       - name: Cache PlatformIO
@@ -51,29 +57,38 @@ jobs:
           key: ${{ runner.os }}-pio-${{ matrix.id }}-${{ hashFiles('Firmware/motherBoard/platformio.ini', 'Firmware/Display_HMI/platformio.ini') }}
           restore-keys: ${{ runner.os }}-pio-${{ matrix.id }}-
 
-      # motherBoard pins medicalopenworld/incunest_afe4490 in lib_deps and
-      # that repository is not publicly readable, so PlatformIO cannot clone
-      # it with the anonymous credentials of a runner (GITHUB_TOKEN only
-      # grants access to this repository). Give a PIO_GIT_TOKEN secret read
-      # access to it and the build resolves; without the secret this step
-      # does nothing. Secrets are never exposed to pull requests from forks,
-      # so a fork cannot build motherBoard either way.
-      - name: Authenticate private library dependencies
-        env:
-          PIO_GIT_TOKEN: ${{ secrets.PIO_GIT_TOKEN }}
-        run: |
-          if [ -n "$PIO_GIT_TOKEN" ]; then
-            git config --global \
-              url."https://x-access-token:$PIO_GIT_TOKEN@github.com/".insteadOf \
-              "https://github.com/"
-          fi
-
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
       - name: ${{ matrix.name }}
         run: ${{ matrix.command }}
         working-directory: ${{ matrix.directory }}
+
+  test-flasher:
+    name: Test flasher
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Firmware/flasher_tool/flasher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            Firmware/flasher_tool/flasher/requirements.txt
+            Firmware/flasher_tool/flasher/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run pytest
+        run: pytest
 
   # SensorBoard_v2 is native ESP-IDF (CMake + idf.py), not PlatformIO, so it
   # builds inside Espressif's own image. The version is pinned to the one
@@ -98,6 +113,9 @@ jobs:
   # Formatting is defined against the diff of the pull request, so this job
   # only runs for pull_request events; a push to dev has no such diff and is
   # already covered by the build and test jobs above.
+  # Informative for now: it is not a required check in branch protection, so a
+  # red result here does not block the merge. Make it required once its noise
+  # on day-to-day pull requests is known.
   format:
     name: Check formatting
     if: github.event_name == 'pull_request'
