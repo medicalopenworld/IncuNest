@@ -33,6 +33,9 @@
 
 // Común a ambos transportes.
 #define TX_THINGSBOARD_RECONNECT_MS 30000UL
+// Keepalive MQTT (PINGREQ con la conexión callada): 120 s. NO está aquí sino
+// en platformio.ini (-D MQTT_KEEPALIVE=120), porque lo lee PubSubClient.cpp,
+// que es una librería y no ve esta cabecera. Ver known_issues.md #30.
 
 // Zona horaria: una vez resuelta (por NITZ o por IP) se refresca cada 24 h en
 // vez de darse por buena para siempre, para que un cambio de horario de

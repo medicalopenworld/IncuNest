@@ -59,6 +59,12 @@ TinyGsmClient client(modem);
 // Initalize the Mqtt client instance
 Arduino_MQTT_Client mqttClientGPRS(client);
 
+// El keepalive lo fija platformio.ini (-D MQTT_KEEPALIVE=120). Si ese flag se
+// pierde, PubSubClient vuelve a su defecto de 15 s y el modem emite un ping
+// cada 15 s en reposo: zumbido en el audio y datos de pago (known_issues #30).
+static_assert(MQTT_KEEPALIVE >= 60,
+              "MQTT_KEEPALIVE debe venir de platformio.ini (120 s)");
+
 // Initialize ThingsBoard instance
 // ThingsBoardSized<THINGSBOARD_BUFFER_SIZE, THINGSBOARD_FIELDS_AMOUNT>
 // tb(client);
