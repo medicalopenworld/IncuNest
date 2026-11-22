@@ -1297,3 +1297,37 @@ corner case.
         (`RGB panel initialized OK bounce=N lineas`). `g_lcd_bounce_lines` is
         exposed neither in Settings nor in the factory test, so a deployed
         unit running with degraded bounce buffers goes unnoticed.
+
+## 30. GSM buzz in the audio every few seconds while idle on GPRS — FIXED (motherBoard 18.66.0)
+
+Heard on the V19 bench on 2026-11-22 (motherBoard 18.65.0, `IncuNest_V19_bench`):
+with no WiFi in range the board was on ThingsBoard over GPRS, in standby
+(one publication per hour), and the speaker buzzed loudly from the modem's
+transmissions every 5-10 s.
+
+*   **What the log said**: 90 s captured on both boards with modem logging on.
+    `CTRL,STATE` carried `serverCommStatus=2` (GPRS + server) and there was no
+    `Posting`, `Connecting`, `Attach FAIL` or `ForceReset` line: no
+    publication, reconnection or attach retry in that window.
+*   **Cause**: the ThingsBoard MQTT connection stays open between
+    publications and `GPRS_Handler()` calls `tb.loop()` on every pass.
+    TBPubSubClient sends a `PINGREQ` whenever the connection has been quiet
+    for `MQTT_KEEPALIVE` seconds, and its default is 15 s (`PubSubClient.h`,
+    `#ifndef`). Nothing overrode it and `Arduino_MQTT_Client` does not expose
+    `setKeepAlive()`. Each ping is an uplink burst plus the ACK of the
+    `PINGRESP` a moment later: two bursts every 15 s, ~240 pings an hour
+    against one publication, heard as a near-constant buzz and paid for as
+    cellular data.
+*   **Fix**: `-D MQTT_KEEPALIVE=120` in the build flags of every motherBoard
+    environment (PubSubClient is a library, so only a build flag reaches it),
+    and a `static_assert` in `GPRS.cpp` that fails the build if the flag is
+    dropped. ThingsBoard closes a connection after 1.5 x keepalive with no
+    traffic, so 120 s holds.
+*   **Benched** on 2026-11-22 with 18.65.0 plus the flag (V19): the board
+    reconnected to ThingsBoard over GPRS, was still connected after 4 min, and
+    the buzz dropped to one burst every ~2 min. The 18.66.0 build of this
+    change was compiled but not flashed.
+*   **Still open**: the loudness itself is hardware — the modem's bursts
+    couple into the audio path. Which transducer picks it up (HMI speaker or
+    motherBoard buzzer) has not been identified, and a longer keepalive only
+    makes it rarer.
