@@ -31,6 +31,7 @@
 #include "fw_image_tag.h"
 #include "main.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/debug/rx_diag.h"
 #include "UITask.h"
 #include "CommTask.h"
 
@@ -345,6 +346,29 @@ void configWifiServer() {
     }
     // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
     debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // Diagnostics of the board -> display link (modules/debug/rx_diag.h): the
+  // counters and the last events. Read only, always there. The buffer comes
+  // from PSRAM for the same reason as in /debug/state.
+  wifiServer.on("/debug/rx", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    const size_t cap = 4096;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap);
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    rx_diag_json(buf, cap, millis());
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", (const char *)buf);
     free(buf);

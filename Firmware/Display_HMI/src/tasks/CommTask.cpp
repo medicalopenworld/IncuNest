@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "main.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/debug/rx_diag.h"
 #include "modules/maintenance/weigh_tracker.h"
 #include "state/training_mode.h"
 #include "ui.h"
@@ -1513,6 +1514,7 @@ static bool ReceiveMessageFromOtherESP() {
     // solo porque la UI haya tenido a la tarea esperando LVGL_Lock().
     if (rxIndex > 0 && (millis() - lastRxTime > COMM_RX_TIMEOUT_MS)) {
       rxIndex = 0;
+      rx_diag_rx_timeout(millis());
       COMM_LOG("[COMM] RX Timeout, buffer cleared\n");
     }
 
@@ -1531,8 +1533,11 @@ static bool ReceiveMessageFromOtherESP() {
           // vigila es que la placa siga hablando, no lo que diga.
           g_lastCtrlLineMs = millis();
           g_ctrlEverSeen = true;
+          rx_diag_line(rxBuffer, millis());  // observes only
           parse_message(rxBuffer);
           msgReceived = true;
+        } else {
+          rx_diag_no_prefix(rxBuffer, millis());
         }
       }
       rxIndex = 0; // Reset buffer
@@ -1542,6 +1547,7 @@ static bool ReceiveMessageFromOtherESP() {
       } else {
         // Buffer overflow protection: overflowed, reset and ignore this line
         rxIndex = 0;
+        rx_diag_line_too_long(millis());
         COMM_LOG("[COMM] Buffer overflow, line too long\n");
       }
     }
@@ -1863,6 +1869,12 @@ void Comm_Task(void *pvParameters) {
   // PRIMER begin(). Cambiarlo aqui no serviria de nada (el driver ya esta
   // instalado y setRxBufferSize() lo rechaza); ver el comentario en setup().
   COMM_SERIAL.begin(COMM_BAUD_RATE);
+  // Link diagnostics (modules/debug/rx_diag.h): what the UART driver reports
+  // (FIFO overflow, ring full, framing, parity, break) is counted, nothing
+  // else. Until now these events were lost: nobody listened to them.
+  COMM_SERIAL.onReceiveError([](hardwareSerial_error_t err) {
+    rx_diag_uart_error((int)err, millis());
+  });
 
   Communication_SendBootInfo();
   // Antes de pedir el estado: si la placa arranca sin red, cuanto antes tenga
