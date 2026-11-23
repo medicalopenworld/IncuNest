@@ -1,0 +1,4 @@
+# Generated binary blobs, not hand-written source: LVGL image assets exported
+# by the asset pipeline and the WAV dump used by the buzzer.
+src/ui/assets/*
+include/ui/hmi_ding.h
