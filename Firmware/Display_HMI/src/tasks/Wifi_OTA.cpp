@@ -31,6 +31,8 @@
 #include "fw_image_tag.h"
 #include "main.h"
 #include "modules/debug/debug_mode.h"
+#include "modules/debug/bmp565.h"
+#include "display_config.h"
 #include "UITask.h"
 #include "CommTask.h"
 
@@ -454,6 +456,57 @@ void configWifiServer() {
       return;
     }
     wifiServer.send(200, "text/plain", "OK");
+  });
+
+  // GET /debug/screenshot -> image/bmp, the screen as the user sees it.
+  //
+  // For the user manual's screenshots. 16-bit BMP (BI_BITFIELDS, RGB565),
+  // 800x480, 768,066 bytes; the PC script converts it to PNG. It reads the
+  // panel's framebuffer, so menus, dialogs and toasts on lv_layer_top() are
+  // in it. The copy goes to a temporary PSRAM buffer under LVGL_Lock (a few
+  // ms) and is sent outside the lock, so the UI does not freeze while the
+  // ~1 s of WiFi transfer runs. Debug mode only: nothing is allocated or
+  // touched in normal use.
+  wifiServer.on("/debug/screenshot", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!debug_mode_enabled()) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    const size_t n_px = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT;
+    const size_t n_bytes = n_px * sizeof(uint16_t);
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) < n_bytes) {
+      wifiServer.send(503, "text/plain", "sin PSRAM para la copia");
+      return;
+    }
+    uint16_t *px = (uint16_t *)heap_caps_malloc(n_bytes, MALLOC_CAP_SPIRAM);
+    if (px == nullptr) {
+      wifiServer.send(503, "text/plain", "sin PSRAM para la copia");
+      return;
+    }
+    if (!UI_CopyScreen(px, n_px)) {
+      free(px);
+      wifiServer.send(503, "text/plain", "panel no disponible");
+      return;
+    }
+    uint8_t header[BMP565_HEADER_SIZE];
+    bmp565_write_header(header, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+    wifiServer.setContentLength(
+        bmp565_file_size(DISPLAY_WIDTH, DISPLAY_HEIGHT));
+    wifiServer.send(200, "image/bmp", "");
+    wifiServer.sendContent((const char *)header, sizeof(header));
+    // 800 px x 2 = 1600 bytes per row is already a multiple of 4: no padding.
+    const size_t kChunk = 16 * 1024;
+    const char *p = (const char *)px;
+    for (size_t off = 0; off < n_bytes; off += kChunk) {
+      const size_t len = (n_bytes - off < kChunk) ? (n_bytes - off) : kChunk;
+      wifiServer.sendContent(p + off, len);
+      if (!wifiServer.client().connected()) break;
+    }
+    free(px);
   });
 
   wifiServer.on(
