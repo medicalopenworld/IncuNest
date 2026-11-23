@@ -106,8 +106,6 @@ Before you start:
 
 ## 5.5 Humidity control
 
-[PENDING: this section depends on whether the humidifier is covered by this manual (decision 6).]
-
 1. Make sure the humidifier water tank is filled (see 4.6).
 2. Press **TURN ON** in the HUMIDITY block. If no baby is registered yet, identify the baby first.
 3. Set the humidity with the up and down arrows: steps of 5 %, from 20 % to 90 %.

@@ -135,7 +135,7 @@ The screen can also show **BOARD LINK LOST**: the screen has lost contact with t
 | Alarm | What it means | What to do |
 |---|---|---|
 | **SKIN PROBE UNUSABLE** | In air mode, the skin probe was working and has stopped giving readings. Air control continues normally. | Check that the probe is attached and connected. |
-| **HUMIDITY DEVIATION** | The humidity is more than 10 % away from the set value. | Check the water level in the humidifier tank. [PENDING: depends on decision 6.] |
+| **HUMIDITY DEVIATION** | The humidity is more than 10 % away from the set value. | Check the water level in the humidifier tank. |
 | **DOOR SENSOR SUSPECT** | The door sensor has changed state many times in a short time. It may be faulty. | Check that the cover closes properly. Contact technical support if it continues. |
 | **HIGH NOISE** | The noise level has been 65 dB or higher for 10 seconds. | Reduce the noise near the incubator: voices, equipment, alarms of other devices. |
 

@@ -43,7 +43,7 @@ Clean and disinfect the incubator as described in this chapter. Regular cleaning
 6. Disinfect the mattress tray with 70 % alcohol before you put it back in the chamber.
 7. Wipe the skin temperature probe with a pre-moistened 70 % alcohol wipe.
 8. Clean the pulse oximetry probe as described in its own instructions for use. [PENDING: which probe is supplied and its cleaning instructions.]
-9. Empty and clean the humidifier water tank. [PENDING: depends on whether the humidifier is covered by this manual, and on its cleaning procedure.]
+9. Empty and clean the humidifier water tank. [PENDING: cleaning procedure and agents for the water tank.]
 10. Wipe the touchscreen with a soft cloth lightly moistened with disinfectant.
 11. Reassemble in reverse order: mattress tray, mattress, then the probe and power cables.
 12. Make sure everything is completely dry before you switch the incubator on again.

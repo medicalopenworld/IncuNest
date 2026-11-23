@@ -60,8 +60,6 @@ If the heater fails, the TEMPERATURE block is replaced by a warning sign with th
 
 ![Humidity control on](img/main_humidity_on_en.png)
 
-[PENDING: whether the humidifier is covered by this manual (decision 6). If it is not, this block is removed and humidity control stays switched off in the settings.]
-
 The HUMIDITY block appears only when **HUMIDITY CONTROL** is enabled in the settings (see 3.5).
 
 | Element | What it shows or does |
