@@ -39,6 +39,7 @@
 #include "modules/config/runtime_config_tb.h"
 #include "tasks/CrashReporter.h"
 #include "system/power_rails.h"
+#include "modules/debug/afe_diag.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/service/service_hours.h"
 #include "modules/util/tz_source.h"
@@ -844,6 +845,29 @@ void configWifiServer() {
     }
     // ?tasks=1 anade la tabla de tareas; ver debug_state_json_ex().
     debug_state_json_ex(buf, cap, wifiServer.hasArg("tasks"));
+    wifiServer.sendHeader("Connection", "close");
+    wifiServer.send(200, "application/json", (const char *)buf);
+    free(buf);
+  });
+
+  // DIAGNOSTIC BUILD. The AFE4490 sample stream seen sample by sample
+  // (modules/debug/afe_diag.h): counters, the last events and the captures.
+  // Read only. 24 KB: five captures of 64 samples are ~17 KB of JSON.
+  wifiServer.on("/debug/afe", HTTP_GET, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    const size_t cap = 24576;
+    char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+      buf = (char *)malloc(cap); // placa sin PSRAM
+    }
+    if (buf == nullptr) {
+      wifiServer.sendHeader("Connection", "close");
+      wifiServer.send(503, "application/json", "{\"error\":\"sin memoria\"}");
+      return;
+    }
+    afe_diag_json(buf, cap, millis());
     wifiServer.sendHeader("Connection", "close");
     wifiServer.send(200, "application/json", (const char *)buf);
     free(buf);

@@ -3,6 +3,7 @@
 #include "esp32-hal-gpio.h"
 #include "config/telemetry_keys.h"
 #include "modules/control/afe_watchdog.h"
+#include "modules/debug/afe_diag.h"
 #include "modules/util/vitals_out.h"
 #include "main.h"
 
@@ -105,6 +106,24 @@ static_assert(1000 / SPO2_TASK_PERIOD_MS == PPG_SNAPSHOT_SRC_HZ,
 // initSPO2() lo arma antes de lanzarla. NO reinicia la libreria: ver el
 // porque en afe_watchdog.h.
 static AfeWatchdog s_afeWd;
+
+#ifndef AFE_DIAG_DRAIN_ALL
+#define AFE_DIAG_DRAIN_ALL 1
+#endif
+
+// DIAGNOSTIC BUILD (modules/debug/afe_diag.h): hands one sample to the
+// detector of spikes. Observes only.
+[[maybe_unused]] static void afeDiagFeed(const AFE4490Data &d, uint32_t now_ms) {
+  AfeDiagSample s;
+  s.led1 = d.led1;
+  s.led2 = d.led2;
+  s.aled1 = d.aled1;
+  s.aled2 = d.aled2;
+  s.ppg_disp = d.ppg_disp;
+  s.diag_code = d.diag_code;
+  s.applied = d.probe_state == ProbeState::PROBE_APPLIED;
+  afe_diag_feed(&s, now_ms);
+}
 
 uint32_t afeDiagCode(void) { return spo2Snapshot().diag_code; }
 uint32_t afeStallCount(void) { return afe_wd_stalls(&s_afeWd); }
@@ -212,6 +231,29 @@ void SPO2_Task(void *pvParameters) {
                  (double)data.hr3_sqi, (unsigned long)data.diag_code);
         logSPO2(line);
       }
+
+      // DIAGNOSTIC BUILD (modules/debug/afe_diag.h). What was published above
+      // is the same sample as without it: the oldest in the queue. The other
+      // samples of this turn, which the normal build leaves in the queue for
+      // the library to drop, are taken here and looked at one by one, so that
+      // the detector sees all 500 a second. Nothing of them is published.
+      // AFE_DIAG_DRAIN_ALL=0 is the control: one sample per turn and the rest
+      // left in the queue, exactly as 18.60.0, with the detector unfed.
+      {
+        const uint32_t now = millis();
+        int drained = 1;
+#if AFE_DIAG_DRAIN_ALL
+        afeDiagFeed(data, now);
+        AFE4490Data more;
+        while (afe.getData(more)) {
+          afeDiagFeed(more, now);
+          drained++;
+        }
+#endif
+        afe_diag_turn(drained, now);
+      }
+    } else {
+      afe_diag_turn(0, millis());
     }
     // A fixed period, not a delay after the work: CTRL,PPG goes out once per
     // sample read here, and a period that stretched by a tick now and then
@@ -271,6 +313,7 @@ void initSPO2() {
 
   // Antes de lanzar SPO2_Task, que es quien lo consulta.
   afe_wd_init(&s_afeWd, millis());
+  afe_diag_init();  // DIAGNOSTIC BUILD
 
   // Launch application consumer task
   logSPO2("Creating SPO2 task ...\n");
