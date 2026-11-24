@@ -33,7 +33,7 @@ jobs:
           - id: display-hmi-build
             name: Build Display_HMI
             directory: Firmware/Display_HMI
-            command: pio run -e main
+            command: pio run -e main -e hmi_screenshots
           - id: motherboard-test
             name: Test motherBoard (native)
             directory: Firmware/motherBoard

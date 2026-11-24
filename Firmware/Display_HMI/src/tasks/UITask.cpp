@@ -21,6 +21,9 @@
 #include "modules/maintenance/maintenance.h"
 #include "drivers/lcd_recover.h"
 #include "modules/debug/bmp565.h"
+#if HMI_DEBUG_UI_AUTOMATION
+#include "modules/debug/touch_sim.h"
+#endif
 #include "modules/maintenance/weigh_tracker.h"
 #include "modules/trend/trend_policy.h"
 #include "display_config.h"
@@ -347,6 +350,22 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   // LVGL reads faster than the controller updates. Require 3 consecutive
   // "not touched" frames (~30ms at 10ms/frame) before reporting RELEASED.
   const uint8_t DEBOUNCE_FRAMES = 3;
+
+#if HMI_DEBUG_UI_AUTOMATION
+  // Simulated finger from POST /debug/touch: it wins over the panel while it
+  // is down, and LVGL treats it as a real touch (click feedback, inactivity
+  // reset, long press). Its release is reported at once, without debounce.
+  const TouchSimPoint sim = touch_sim_poll(millis());
+  if (sim.pressed) {
+    releaseCount = DEBOUNCE_FRAMES;
+    lastX = sim.x;
+    lastY = sim.y;
+    data->state = LV_INDEV_STATE_PR;
+    data->point.x = sim.x;
+    data->point.y = sim.y;
+    return;
+  }
+#endif
 
   ts.read();
   if (ts.isTouched) {
@@ -4155,7 +4174,20 @@ static void update_autolock_ring(uint32_t inactive_ms) {
     lv_arc_set_value(ui_LockAutoArc, pct);
 }
 
+#if HMI_DEBUG_UI_AUTOMATION
+// POST /debug/ui?autolock=0: no auto-lock and an empty ring, until reboot.
+static volatile bool s_dbg_autolock = true;
+#endif
+
 void inactivity_timer_cb(lv_timer_t *timer) {
+#if HMI_DEBUG_UI_AUTOMATION
+  // The inactivity counter keeps running, so help and maintenance still
+  // close at their own caps; only the lock and the ring are held.
+  if (!s_dbg_autolock) {
+    update_autolock_ring(0);
+    return;
+  }
+#endif
   // Exentos del auto-bloqueo: la pantalla de alarmas y la pantalla de test de
   // hardware (esperar una bateria lleva mas de INACTIVITY_TIMEOUT_MS sin
   // tocar). La ayuda, la formacion y el aviso de mantenimiento gestionan su
@@ -5685,6 +5717,37 @@ bool UI_CopyScreen(uint16_t *dst, size_t cap_px) {
 #endif
   return true;
 }
+
+#if HMI_DEBUG_UI_AUTOMATION
+bool UI_DebugTouch(int16_t x, int16_t y, uint32_t ms) {
+  LVGL_Lock();
+  const bool ok = touch_sim_push(x, y, ms, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  LVGL_Unlock();
+  return ok;
+}
+
+bool UI_DebugTouchBusy() {
+  LVGL_Lock();
+  const bool busy = touch_sim_busy();
+  LVGL_Unlock();
+  return busy;
+}
+
+// Same effect as picking the language in Settings (LanguagesDropDown_cb):
+// texts, NVS and the state sent to the board.
+bool UI_DebugSetLanguage(int lang) {
+  if (!UI_LangIsValid(lang)) return false;
+  LVGL_Lock();
+  UI_ApplyLanguage((ui_lang_t)lang);
+  hmi_msg.language = lang;
+  hmi_msg.shouldSendData = true;
+  LVGL_Unlock();
+  return true;
+}
+
+void UI_DebugSetAutolock(bool on) { s_dbg_autolock = on; }
+bool UI_DebugAutolock() { return s_dbg_autolock; }
+#endif
 
 void CreateUITask() {
   xTaskCreatePinnedToCore(UI_Task, "UI", UI_TASK_STACK_SIZE, NULL,
