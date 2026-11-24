@@ -244,7 +244,8 @@ void test_attributes_and_discharge_carry_baby_sex(void) {
       0, babyCloud_buildAttributesJson(&p, 7, buf, sizeof(buf)));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":2"));
   BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 1460, p};
-  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+  TEST_ASSERT_GREATER_THAN_INT(0,
+                               babyCloud_buildEventJson(&d, buf, sizeof(buf)));
   TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":2"));
 }
 

@@ -558,7 +558,7 @@ bool babyStore_setSex(uint32_t seq, uint8_t sex) {
   int i = baby_find_slot_by_seq(s_slots, seq);
   if (i < 0) return false;
   sex = baby_sex_sanitize(sex);
-  if (s_slots[i].sex == sex) return true;  // no NVS write for a repeat
+  if (s_slots[i].sex == sex) return true; // no NVS write for a repeat
   s_slots[i].sex = sex;
   persistSlot(i);
   s_attributesDirty = true;

@@ -420,14 +420,14 @@ void showSexScreen() {
   lv_obj_t *row = SexPicker_Create(s_content, onSexPicked);
   lv_obj_align(row, LV_ALIGN_CENTER, 0, -20);
 
-  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onSexBack,
-                          lv_color_hex(0x888888));
+  lv_obj_t *back =
+      makeBtn(s_content, TR(STR_BACK_UC), onSexBack, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 56);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 10, -10);
 
   // Mismo escape que el resto de pasos: sin datos del bebe, control manual.
   lv_obj_t *skip = makeBtn(s_content, TR(STR_SKIP_UC), onSkipClicked,
-                          lv_color_hex(0xE08800));
+                           lv_color_hex(0xE08800));
   lv_obj_set_size(skip, 180, 56);
   lv_obj_align(skip, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
 }

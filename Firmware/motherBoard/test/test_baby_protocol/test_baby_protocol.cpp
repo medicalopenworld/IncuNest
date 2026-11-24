@@ -308,13 +308,17 @@ void test_parse_sex(void) {
 
 void test_parse_sex_rejects_malformed(void) {
   BabyProtoMsg m;
-  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,3", &m));
-  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,9", &m));
-  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,F", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_SEX,42,3", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_SEX,42,9", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_SEX,42,F", &m));
   TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,", &m));
   TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42", &m));
   TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,x,1", &m));
-  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,1,1", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_SEX,42,1,1", &m));
 }
 
 // El registro sigue siendo de 4 campos: un HMI nuevo no puede romper una

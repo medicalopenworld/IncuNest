@@ -18,12 +18,12 @@ namespace {
 
 enum class HistStep {
   Closed,
-  LoadingActive,    // waiting CTRL,PROFILE_LIST
-  LoadingArchived,  // waiting CTRL,PROFILE_HISTORY
+  LoadingActive,   // waiting CTRL,PROFILE_LIST
+  LoadingArchived, // waiting CTRL,PROFILE_HISTORY
   Showing,
-  DischargeDialog,      // outcome selection open (pure UI)
-  WaitingDischargeAck,  // waiting CTRL,PROFILE_ACK
-  LoadingChart,         // waiting CTRL,WEIGHT_HISTORY
+  DischargeDialog,     // outcome selection open (pure UI)
+  WaitingDischargeAck, // waiting CTRL,PROFILE_ACK
+  LoadingChart,        // waiting CTRL,WEIGHT_HISTORY
   ShowingChart,
   // Registro de un bebe nuevo (BEBE NUEVO). Tres pantallas de solo UI y un
   // unico punto de envio, REGISTRAR, en la ultima: hasta entonces la X no
@@ -32,8 +32,8 @@ enum class HistStep {
   NewSex,
   NewGest,
   NewWeight,
-  WaitingNewAck,    // waiting CTRL,PROFILE_ACK to HMI,PROFILE_NEW
-  WaitingNewRange,  // waiting CTRL,PROFILE_RANGE to HMI,PROFILE_WEIGHT (ignored)
+  WaitingNewAck,   // waiting CTRL,PROFILE_ACK to HMI,PROFILE_NEW
+  WaitingNewRange, // waiting CTRL,PROFILE_RANGE to HMI,PROFILE_WEIGHT (ignored)
   // Tras registrar con un bebe bajo terapia: PROFILE_SELECT de ese bebe para
   // que la placa vuelva a tenerlo como "bebe del asistente" (ver
   // afterRegistered()).
@@ -75,7 +75,7 @@ char s_chartName[24] = "";
 // introducido todavia.
 char s_newName[BABY_NAME_LEN_LOCAL] = "";
 uint8_t s_newGest = 0;
-uint8_t s_newSex = 0;  // ISO/IEC 5218, 0 = no consta
+uint8_t s_newSex = 0; // ISO/IEC 5218, 0 = no consta
 uint16_t s_newWeight = 0;
 uint32_t s_newSeq = 0;
 uint32_t s_lastRegisteredSeq = 0;
@@ -611,8 +611,8 @@ void showNewSexScreen() {
   lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
   lv_obj_t *row = SexPicker_Create(s_content, onNewSexPicked);
   lv_obj_align(row, LV_ALIGN_CENTER, 0, -20);
-  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onNewSexBack,
-                          lv_color_hex(0x888888));
+  lv_obj_t *back =
+      makeBtn(s_content, TR(STR_BACK_UC), onNewSexBack, lv_color_hex(0x888888));
   lv_obj_set_size(back, 150, 56);
   lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 10, -10);
 }
@@ -1045,7 +1045,8 @@ BabyHistoryStep BabyHistory_GetStep(void) {
     case HistStep::DischargeDialog:
     case HistStep::WaitingDischargeAck: return BH_LIST;
     case HistStep::NewName: return BH_NEW_NAME;
-    case HistStep::NewSex: return BH_NEW_SEX;
+    case HistStep::NewSex:
+      return BH_NEW_SEX;
     case HistStep::NewGest: return BH_NEW_GEST;
     case HistStep::NewWeight: return BH_NEW_WEIGHT;
     case HistStep::WaitingNewAck:

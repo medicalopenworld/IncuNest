@@ -27,7 +27,7 @@ lv_obj_t *addBtn(lv_obj_t *row, const char *text, uint8_t sex, lv_color_t bg) {
   return btn;
 }
 
-}  // namespace
+} // namespace
 
 lv_obj_t *SexPicker_Create(lv_obj_t *parent, SexPickerCb onPick) {
   s_onPick = onPick;
