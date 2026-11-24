@@ -20,6 +20,7 @@ enum BabyProtoMsgType : uint8_t {
   BABY_MSG_KANGAROO,            // HMI,PROFILE_KANGAROO,<seq>
   BABY_MSG_HISTORY_REQ,         // HMI,PROFILE_HISTORY_REQ,<page>
   BABY_MSG_WEIGHT_HISTORY_REQ,  // HMI,WEIGHT_HISTORY_REQ,<seq>
+  BABY_MSG_SEX,                 // HMI,PROFILE_SEX,<seq>,<0|1|2>
 };
 
 struct BabyProtoMsg {
@@ -31,6 +32,7 @@ struct BabyProtoMsg {
   uint8_t cause;       // validated 0-6; only meaningful for outcome==2
   uint32_t page;
   uint8_t gestWeeks;
+  uint8_t sex;         // BabySex, validated 0-2
   char name[BABY_NAME_LEN];
 };
 

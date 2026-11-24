@@ -712,7 +712,8 @@ void Training_Poll(void) {
     // dialogo.
     const BabyHistoryStep bh = BabyHistory_GetStep();
     const bool babyKeypad =
-        bh == BH_NEW_NAME || bh == BH_NEW_GEST || bh == BH_NEW_WEIGHT;
+        bh == BH_NEW_NAME || bh == BH_NEW_SEX || bh == BH_NEW_GEST ||
+        bh == BH_NEW_WEIGHT;
     const bool mainDialog = BabyWizard_IsOpen() || BabyExitDialog_IsOpen() ||
                             TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
                             babyKeypad;

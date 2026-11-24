@@ -570,6 +570,15 @@ void Communication_SendProfileNew(const char *name, uint8_t gestWeeks) {
 #endif
 }
 
+void Communication_SendProfileSex(uint32_t seq, uint8_t sex) {
+#if IS_HMI
+  if (sex != 1 && sex != 2) return;  // 0 = no consta: ya es lo que guarda la placa
+  // En formacion los bebes son de practica y la placa no los tiene.
+  if (Training_IsActive() || Training_IsPracticeSeq(seq)) return;
+  COMM_SERIAL.printf("HMI,PROFILE_SEX,%u,%u\n", (unsigned)seq, (unsigned)sex);
+#endif
+}
+
 void Communication_SendProfileSelect(uint32_t seq) {
 #if IS_HMI
   // En formacion la lista trae a ZOE (TRAINING_BABY_SEQ) y, si el alumno lo

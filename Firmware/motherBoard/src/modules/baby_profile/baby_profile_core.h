@@ -52,11 +52,26 @@ enum BabyCause : uint8_t {
   BABY_CAUSE_OTHER = 6,
 };
 
+// Sex at birth, ISO/IEC 5218 codes. Optional: the nurse may leave it as
+// "not recorded". Published as the baby_sex client attribute (IncuTwin uses it
+// to pick the boy/girl drawing; when it is 0 the cloud chooses one).
+enum BabySex : uint8_t {
+  BABY_SEX_UNKNOWN = 0,
+  BABY_SEX_MALE = 1,
+  BABY_SEX_FEMALE = 2,
+};
+
 struct BabyProfile {
   bool slotUsed;
   uint32_t seq;
   char name[BABY_NAME_LEN];
   uint8_t gestWeeks;
+  // BabySex. Sits in what used to be the padding byte after gestWeeks: active
+  // slots are persisted as raw struct blobs, and a size change makes
+  // babyStore_init() wipe all three on upgrade. Slots written by older
+  // firmware had 0 here (they are zeroed before use) = BABY_SEX_UNKNOWN.
+  // Read it through baby_sex_sanitize(). Not kept in the audit history.
+  uint8_t sex;
   uint16_t weightGrams;      // last known; 0 = never provided (SKIP)
   uint32_t admissionEpoch;   // 0 = unknown (no synced time at creation)
   uint32_t dischargeEpoch;   // 0 = not explicitly discharged
@@ -78,6 +93,19 @@ struct BabyProfile {
   // whenever the actuation includes humidity, alone or with temperature.
   uint32_t humidityMinutes;
 };
+
+// Active slots are raw NVS blobs: this layout is frozen. Adding a field means
+// using existing padding (none left today) or a migration in babyStore_init().
+static_assert(sizeof(BabyProfile) == 64,
+              "BabyProfile is an NVS blob: a size change wipes every active "
+              "slot on upgrade");
+static_assert(offsetof(BabyProfile, sex) == 33 &&
+                  offsetof(BabyProfile, weightGrams) == 34,
+              "BabyProfile field offsets are part of the NVS blob format");
+
+// BABY_SEX_UNKNOWN for anything outside 0..2 (a corrupt blob or a bad line
+// must never publish a code the cloud cannot read).
+uint8_t baby_sex_sanitize(uint8_t sex);
 
 // ---------------- Active slots ----------------
 // Index of the first free slot, or -1 if all 3 are used.

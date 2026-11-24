@@ -181,6 +181,7 @@ void test_widest_discharge_payload_fits_transport_buffer(void) {
   p.seq = 4294967295u;
   memset(p.name, 'W', BABY_NAME_LEN - 1);
   p.gestWeeks = 255;
+  p.sex = BABY_SEX_FEMALE;
   p.weightGrams = 65535;
   p.admissionEpoch = 1700000000u;
   p.dischargeEpoch = 4294967295u;
@@ -205,6 +206,7 @@ void test_widest_attributes_payload_fits_transport_buffer(void) {
   p.seq = 4294967295u;
   memset(p.name, 'W', BABY_NAME_LEN - 1);
   p.gestWeeks = 255;
+  p.sex = BABY_SEX_FEMALE;
   p.weightGrams = 65535;
   p.admissionEpoch = 4294967295u;
   p.kangarooCount = 65535;
@@ -232,6 +234,44 @@ void test_unknown_event_type_builds_nothing(void) {
   TEST_ASSERT_EQUAL_INT(0, babyCloud_buildEventJson(&e, buf, sizeof(buf)));
 }
 
+// --- Sexo del bebe (ISO/IEC 5218): IncuTwin lo usa para elegir el dibujo ---
+
+void test_attributes_and_discharge_carry_baby_sex(void) {
+  BabyProfile p = mk();
+  p.sex = BABY_SEX_FEMALE;
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 7, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":2"));
+  BabyCloudEvent d = {BABY_EVT_DISCHARGE, 1700000700u, 1460, p};
+  TEST_ASSERT_GREATER_THAN_INT(0, babyCloud_buildEventJson(&d, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":2"));
+}
+
+// Siempre presente, tambien con 0: ThingsBoard conserva el valor anterior de
+// una clave omitida, y el bebe siguiente heredaria el sexo del anterior.
+void test_unknown_sex_is_published_as_zero(void) {
+  BabyProfile p = mk();
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 7, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":0"));
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildEmptyAttributesJson(7, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":0"));
+}
+
+// Un byte fuera de rango (un blob corrupto) sale como "no consta", nunca como
+// un codigo que la nube no sabe leer.
+void test_out_of_range_sex_is_published_as_unknown(void) {
+  BabyProfile p = mk();
+  p.sex = 200;
+  char buf[512];
+  TEST_ASSERT_GREATER_THAN_INT(
+      0, babyCloud_buildAttributesJson(&p, 7, buf, sizeof(buf)));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"baby_sex\":0"));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_every_payload_carries_baby_seq);
@@ -249,5 +289,8 @@ int main(void) {
   RUN_TEST(test_widest_attributes_payload_fits_transport_buffer);
   RUN_TEST(test_small_buffer_fails_closed);
   RUN_TEST(test_unknown_event_type_builds_nothing);
+  RUN_TEST(test_attributes_and_discharge_carry_baby_sex);
+  RUN_TEST(test_unknown_sex_is_published_as_zero);
+  RUN_TEST(test_out_of_range_sex_is_published_as_unknown);
   return UNITY_END();
 }

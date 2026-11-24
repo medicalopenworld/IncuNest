@@ -12,6 +12,7 @@
 #include "ui.h"
 #include "ui/BabyWizard.h"  // BabyWizard_HasLiveSession(), GetActiveSeq()
 #include "ui/InputKeypad.h"
+#include "ui/SexPicker.h"
 
 namespace {
 
@@ -28,6 +29,7 @@ enum class HistStep {
   // unico punto de envio, REGISTRAR, en la ultima: hasta entonces la X no
   // deja rastro ni en la placa ni en ThingsBoard.
   NewName,
+  NewSex,
   NewGest,
   NewWeight,
   WaitingNewAck,    // waiting CTRL,PROFILE_ACK to HMI,PROFILE_NEW
@@ -73,6 +75,7 @@ char s_chartName[24] = "";
 // introducido todavia.
 char s_newName[BABY_NAME_LEN_LOCAL] = "";
 uint8_t s_newGest = 0;
+uint8_t s_newSex = 0;  // ISO/IEC 5218, 0 = no consta
 uint16_t s_newWeight = 0;
 uint32_t s_newSeq = 0;
 uint32_t s_lastRegisteredSeq = 0;
@@ -488,6 +491,7 @@ void showList() {
 // final, donde el operador espera que este.
 
 void showNewNameScreen();
+void showNewSexScreen();
 void showNewGestScreen();
 void showNewWeightScreen();
 
@@ -570,8 +574,8 @@ void onNewNameContinue(lv_event_t *) {
     UI_ShowToast(TR(STR_ENTER_A_NAME), 2500);
     return;
   }
-  showNewGestScreen();
-  s_step = HistStep::NewGest;
+  showNewSexScreen();
+  s_step = HistStep::NewSex;
 }
 
 void showNewNameScreen() {
@@ -585,10 +589,38 @@ void showNewNameScreen() {
   if (s_newName[0] != '\0') lv_textarea_set_text(ta, s_newName);
 }
 
-// Paso 2: semanas de gestacion.
-void onNewGestBack(lv_event_t *) {
+// Paso 2: sexo al nacer. Un toque elige y avanza; NO CONSTA tambien avanza.
+void onNewSexBack(lv_event_t *) {
   showNewNameScreen();
   s_step = HistStep::NewName;
+}
+
+void onNewSexPicked(uint8_t sex) {
+  s_newSex = sex;
+  showNewGestScreen();
+  s_step = HistStep::NewGest;
+}
+
+void showNewSexScreen() {
+  clearContent();
+  setCardSize(false);
+  makeTitle(TR(STR_BABY_SEX));
+  lv_obj_t *close =
+      makeBtn(s_content, "X", onNewCancel, lv_color_hex(0xAA3333));
+  lv_obj_set_size(close, 44, 44);
+  lv_obj_align(close, LV_ALIGN_TOP_RIGHT, 0, 0);
+  lv_obj_t *row = SexPicker_Create(s_content, onNewSexPicked);
+  lv_obj_align(row, LV_ALIGN_CENTER, 0, -20);
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onNewSexBack,
+                          lv_color_hex(0x888888));
+  lv_obj_set_size(back, 150, 56);
+  lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+}
+
+// Paso 3: semanas de gestacion.
+void onNewGestBack(lv_event_t *) {
+  showNewSexScreen();
+  s_step = HistStep::NewSex;
 }
 
 void onNewGestContinue(lv_event_t *) {
@@ -615,7 +647,7 @@ void showNewGestScreen() {
   }
 }
 
-// Paso 3: peso al ingreso (opcional) y REGISTRAR.
+// Paso 4: peso al ingreso (opcional) y REGISTRAR.
 void submitNew() {
   if (Display_IsBoardLinkLost()) {
     // Nada sale al vacio. El operador se queda en la pantalla de peso con lo
@@ -681,6 +713,7 @@ void onNewBabyClicked(lv_event_t *) {
     return;
   }
   s_newName[0] = '\0';
+  s_newSex = 0;
   s_newGest = 0;
   s_newWeight = 0;
   s_newSeq = 0;
@@ -1012,6 +1045,7 @@ BabyHistoryStep BabyHistory_GetStep(void) {
     case HistStep::DischargeDialog:
     case HistStep::WaitingDischargeAck: return BH_LIST;
     case HistStep::NewName: return BH_NEW_NAME;
+    case HistStep::NewSex: return BH_NEW_SEX;
     case HistStep::NewGest: return BH_NEW_GEST;
     case HistStep::NewWeight: return BH_NEW_WEIGHT;
     case HistStep::WaitingNewAck:
@@ -1127,6 +1161,8 @@ void BabyHistory_Poll(void) {
         } else {
           s_newSeq = g_profileAck;
           s_lastRegisteredSeq = s_newSeq;
+          // Sin respuesta de la placa: sale ya, antes del peso.
+          Communication_SendProfileSex(s_newSeq, s_newSex);
           if (s_newWeight > 0) {
             // El rango que contesta la placa no se usa aqui (no hay terapia
             // que proponer), pero se espera para consumirlo: una respuesta

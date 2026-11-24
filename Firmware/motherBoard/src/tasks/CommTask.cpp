@@ -257,6 +257,16 @@ static void handleBabyLine(const char *line) {
       hmiSerial.print(buf);
       break;
     }
+    case BABY_MSG_SEX: {
+      // No reply: the HMI fires it after PROFILE_ACK and moves on to the
+      // weight step, which already waits for its own CTRL,PROFILE_RANGE.
+      if (!babyStore_setSex(m.seq, m.sex) &&
+          xSemaphoreTakeRecursive(log_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ESP_LOGW(TAG, "PROFILE_SEX for unknown seq=%u", (unsigned)m.seq);
+        xSemaphoreGiveRecursive(log_mutex);
+      }
+      break;
+    }
     case BABY_MSG_HISTORY_REQ: {
       uint32_t total = 0;
       uint32_t n = babyStore_readHistoryPage(m.page, 10, s_babyHistPage, &total);

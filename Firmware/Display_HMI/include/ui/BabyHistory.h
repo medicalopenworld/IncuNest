@@ -26,6 +26,7 @@ typedef enum {
   BH_CLOSED = 0,
   BH_LIST,         // cargando o mostrando la lista (incluye el dialogo de alta)
   BH_NEW_NAME,     // registro: nombre
+  BH_NEW_SEX,      // registro: sexo al nacer
   BH_NEW_GEST,     // registro: semanas de gestacion
   BH_NEW_WEIGHT,   // registro: peso al ingreso (o SIN PESO) y REGISTRAR
   BH_NEW_WAITING,  // registro enviado, esperando a la placa

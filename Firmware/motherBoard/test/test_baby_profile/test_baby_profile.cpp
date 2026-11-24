@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <unity.h>
@@ -253,6 +254,57 @@ void test_circular_oldest_before_and_after_wrap(void) {
   TEST_ASSERT_EQUAL_UINT32(1, circ_oldest(&c, 4));
 }
 
+// ---------------- Sexo y layout del blob NVS ----------------
+// Los slots activos se guardan como blob crudo del struct: si su tamano
+// cambia, babyStore_init() vacia los tres slots al actualizar y la sala pierde
+// a sus bebes activos. El sexo ocupa el byte de relleno tras gestWeeks.
+
+void test_profile_blob_layout_is_unchanged(void) {
+  TEST_ASSERT_EQUAL(64, sizeof(BabyProfile));
+  TEST_ASSERT_EQUAL(32, offsetof(BabyProfile, gestWeeks));
+  TEST_ASSERT_EQUAL(33, offsetof(BabyProfile, sex));
+  TEST_ASSERT_EQUAL(34, offsetof(BabyProfile, weightGrams));
+  TEST_ASSERT_EQUAL(60, offsetof(BabyProfile, humidityMinutes));
+}
+
+// Un slot escrito por el firmware anterior tenia ese byte a 0 (los slots se
+// ponen a cero antes de usarse): se lee como "no consta".
+void test_old_blob_reads_as_unknown_sex(void) {
+  uint8_t blob[sizeof(BabyProfile)];
+  memset(blob, 0, sizeof(blob));
+  blob[0] = 1;   // slotUsed
+  blob[32] = 31; // gestWeeks
+  BabyProfile p;
+  memcpy(&p, blob, sizeof(p));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_UNKNOWN, baby_sex_sanitize(p.sex));
+  TEST_ASSERT_EQUAL_UINT8(31, p.gestWeeks);
+}
+
+void test_sex_sanitize(void) {
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_UNKNOWN, baby_sex_sanitize(0));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_MALE, baby_sex_sanitize(1));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_FEMALE, baby_sex_sanitize(2));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_UNKNOWN, baby_sex_sanitize(3));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_UNKNOWN, baby_sex_sanitize(255));
+}
+
+// El registro de auditoria (60 B) NO guarda el sexo: cambiar su tamano
+// borraria el historial clinico. Decodificar deja el sexo en "no consta".
+void test_history_decode_leaves_sex_unknown(void) {
+  BabyProfile in;
+  memset(&in, 0, sizeof(in));
+  in.seq = 5;
+  in.sex = BABY_SEX_FEMALE;
+  uint8_t rec[BABY_HISTORY_RECORD_SIZE];
+  baby_history_encode(&in, true, rec);
+  BabyProfile out;
+  memset(&out, 0xAB, sizeof(out));
+  baby_history_decode(rec, &out);
+  TEST_ASSERT_EQUAL_UINT32(5, out.seq);
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_UNKNOWN, out.sex);
+  TEST_ASSERT_EQUAL(60, BABY_HISTORY_RECORD_SIZE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_find_free_slot_returns_first_free);
@@ -275,5 +327,9 @@ int main(void) {
   RUN_TEST(test_history_record_tombstone_flag);
   RUN_TEST(test_circular_cursor_advances_and_saturates);
   RUN_TEST(test_circular_oldest_before_and_after_wrap);
+  RUN_TEST(test_profile_blob_layout_is_unchanged);
+  RUN_TEST(test_old_blob_reads_as_unknown_sex);
+  RUN_TEST(test_sex_sanitize);
+  RUN_TEST(test_history_decode_leaves_sex_unknown);
   return UNITY_END();
 }

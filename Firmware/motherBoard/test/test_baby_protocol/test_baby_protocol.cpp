@@ -290,6 +290,41 @@ void test_build_history_worst_case_fits_response_buffer(void) {
   TEST_ASSERT_LESS_THAN_INT(1280, n);
 }
 
+// ---------------- PROFILE_SEX ----------------
+// ISO/IEC 5218: 0 no consta, 1 nino, 2 nina. Va en su propio mensaje (y no
+// como quinto campo de PROFILE_NEW) para que una placa sin soporte lo
+// descarte en silencio en vez de rechazar el registro del bebe.
+
+void test_parse_sex(void) {
+  BabyProtoMsg m;
+  TEST_ASSERT_EQUAL(BABY_MSG_SEX, baby_proto_parse("HMI,PROFILE_SEX,42,2", &m));
+  TEST_ASSERT_EQUAL_UINT32(42, m.seq);
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_FEMALE, m.sex);
+  TEST_ASSERT_EQUAL(BABY_MSG_SEX, baby_proto_parse("HMI,PROFILE_SEX,7,1", &m));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_MALE, m.sex);
+  TEST_ASSERT_EQUAL(BABY_MSG_SEX, baby_proto_parse("HMI,PROFILE_SEX,7,0", &m));
+  TEST_ASSERT_EQUAL_UINT8(BABY_SEX_UNKNOWN, m.sex);
+}
+
+void test_parse_sex_rejects_malformed(void) {
+  BabyProtoMsg m;
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,3", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,9", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,F", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,x,1", &m));
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE, baby_proto_parse("HMI,PROFILE_SEX,42,1,1", &m));
+}
+
+// El registro sigue siendo de 4 campos: un HMI nuevo no puede romper una
+// placa antigua mandando un PROFILE_NEW de 5.
+void test_profile_new_stays_four_fields(void) {
+  BabyProtoMsg m;
+  TEST_ASSERT_EQUAL(BABY_MSG_NONE,
+                    baby_proto_parse("HMI,PROFILE_NEW,Garcia,31,2", &m));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_parse_list_req);
@@ -318,5 +353,8 @@ int main(void) {
   RUN_TEST(test_build_weight_history);
   RUN_TEST(test_build_weight_history_max_size_fits_1024);
   RUN_TEST(test_build_returns_zero_when_buffer_too_small);
+  RUN_TEST(test_parse_sex);
+  RUN_TEST(test_parse_sex_rejects_malformed);
+  RUN_TEST(test_profile_new_stays_four_fields);
   return UNITY_END();
 }
