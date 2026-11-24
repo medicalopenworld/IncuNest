@@ -20,6 +20,7 @@
 #include "ui/BabyWizard.h"
 #include "modules/maintenance/maintenance.h"
 #include "drivers/lcd_recover.h"
+#include "modules/debug/bmp565.h"
 #include "modules/maintenance/weigh_tracker.h"
 #include "modules/trend/trend_policy.h"
 #include "display_config.h"
@@ -5662,6 +5663,28 @@ void UI_Task(void *pvParameters) {
 }
 
 bool UI_IsLcdPanelReady() { return s_lcdPanelReady; }
+
+// Copy of what the panel shows, for /debug/screenshot. The single RGB
+// framebuffer (num_fbs = 1) already holds every layer composited, including
+// lv_layer_top() (menu, dialogs, wizard, toasts), which lv_snapshot would miss.
+// The copy is taken under LVGL_Lock so no flush is half written; it costs a
+// 768 KB PSRAM-to-PSRAM memcpy, a few ms of UI. The 180-degree mirror is
+// undone afterwards, outside the lock.
+bool UI_CopyScreen(uint16_t *dst, size_t cap_px) {
+  const size_t n = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT;
+  if (dst == nullptr || cap_px < n || !s_lcdPanelReady || lcd_panel == NULL)
+    return false;
+  void *fb = nullptr;
+  LVGL_Lock();
+  const esp_err_t err = esp_lcd_rgb_panel_get_frame_buffer(lcd_panel, 1, &fb);
+  if (err == ESP_OK && fb != nullptr) memcpy(dst, fb, n * sizeof(uint16_t));
+  LVGL_Unlock();
+  if (err != ESP_OK || fb == nullptr) return false;
+#if DISPLAY_ROTATE_180
+  bmp565_rotate180(dst, n);
+#endif
+  return true;
+}
 
 void CreateUITask() {
   xTaskCreatePinnedToCore(UI_Task, "UI", UI_TASK_STACK_SIZE, NULL,

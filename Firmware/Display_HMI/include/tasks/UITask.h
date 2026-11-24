@@ -21,6 +21,11 @@ static inline void LVGL_Unlock(void) {
 // setup() lo espera antes de arrancar WiFi (ver main.cpp).
 bool UI_IsLcdPanelReady();
 
+// Copies the screen as the user sees it (DISPLAY_WIDTH x DISPLAY_HEIGHT,
+// RGB565, rows top to bottom) into dst. Takes LVGL_Lock only for the memcpy.
+// false if the panel is not up or cap_px is too small. For /debug/screenshot.
+bool UI_CopyScreen(uint16_t *dst, size_t cap_px);
+
 // Cambiar freq_write del bus RGB en runtime (reinicia el display)
 void lcd_set_freq_write(uint32_t freq_hz);
 uint32_t lcd_get_freq_write();
