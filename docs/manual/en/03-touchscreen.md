@@ -105,14 +105,11 @@ While the help, training or reminder windows are open, the screen does not lock.
 | Vital signs | Pulse oximetry: see below. |
 | Alarm banner | A band at the top with the most important active alarm (see chapter 6). |
 
-The header repeats the clock, the connectivity and the baby identity, and adds two indicators:
+The header repeats the clock, the connectivity and the baby identity, and adds a **noise** indicator: an icon with three levels of measured noise, below 65 dBA, from 65 to 74 dBA, and 75 dBA or more. [PENDING: where the noise is measured (inside the chamber or in the room).]
 
-- **Door**: shows **Open** when the cover is open.
-- **Noise**: an icon with three levels of measured noise: below 65 dBA, from 65 to 74 dBA, and 75 dBA or more. [PENDING: where the noise is measured (inside the chamber or in the room).]
+[PENDING: confirm that every V19 unit has the noise sensor.]
 
-[PENDING: confirm that every V19 unit has the door and noise sensors.]
-
-![Lock screen with door open and high noise](img/lock_screen_door_noise_en.png)
+![Lock screen with the noise indicator](img/lock_screen_noise_en.png)
 
 ### Vital signs (pulse oximetry)
 

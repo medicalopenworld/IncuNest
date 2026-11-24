@@ -74,7 +74,7 @@ The warnings below are grouped by topic. The most important ones are repeated in
 :::
 
 ::: warning
-**WARNING** Keep the cover and the access ports closed while the incubator is controlling temperature. The door indicator on the lock screen shows when the cover is open (units with a door sensor).
+**WARNING** Keep the cover and the access ports closed while the incubator is controlling temperature.
 :::
 
 - Keep the room between 22 °C and 26 °C, and always below the temperature set on the incubator.

@@ -18,7 +18,7 @@ wizard_summary_range,5.1,"Wizard summary in air mode with proposed range (e.g. 3
 wizard_summary_skin_sensor,5.4,"Wizard summary in skin mode, with the skin probe placement picture."
 lock_screen_air,3.3,"Lock screen with temperature ON in air mode (touch the lock button)."
 lock_screen_spo2,3.3 5.7,"Lock screen with the SpO2 probe applied: waveform, PR, SpO2 and PI."
-lock_screen_door_noise,3.3,"Lock screen with the cover open (door indicator) and high noise icon."
+lock_screen_noise,3.3,"Lock screen with the noise indicator in the header (units with a noise sensor)."
 lock_unlock_prompt,3.3,"Lock screen: touch and hold until the unlock border is half filled."
 lock_alarm_banner_high,6.1,"Lock screen with a HIGH priority alarm banner (e.g. AIR SENSOR FAULT). Needs a forced state."
 lock_alarm_banner_med,6.1,"Lock screen with a MEDIUM priority alarm banner (e.g. AIR TEMP HIGH). Needs a forced state."

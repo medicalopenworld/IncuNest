@@ -51,8 +51,20 @@ IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)(\{[^}]*\})?")
 PENDING_RE = re.compile(r"\[PENDING:([^\]]*)\]")
 
 
-def prepare_chapter(text, lang_dir):
-    """Mark PENDING notes, size screenshots, and flag missing ones."""
+QUICK_GUIDE = "00-quick-guide.md"
+
+
+def fill_placeholders(text, meta):
+    """Replace {{key}} with values from metadata.yaml (manufacturer fields too)."""
+    values = {k: v for k, v in meta.items() if isinstance(v, str)}
+    values.update({k: v for k, v in meta.get("manufacturer", {}).items() if isinstance(v, str)})
+    return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), text)
+
+
+def prepare_chapter(text, lang_dir, meta):
+    """Fill placeholders, mark PENDING notes, size screenshots, flag missing ones."""
+    text = fill_placeholders(text, meta)
+
     def image(m):
         alt, src, attrs = m.group(1), m.group(2), m.group(3)
         if not (lang_dir / src).exists():
@@ -147,7 +159,7 @@ def main():
     BUILD_DIR.mkdir(exist_ok=True)
     base = BUILD_DIR / f"IncuNest_IFU_{meta['hardware']}_{args.lang}"
     src_md = base.with_suffix(".md")
-    src_md.write_text("\n\n".join(prepare_chapter(p.read_text(encoding="utf-8"), lang_dir)
+    src_md.write_text("\n\n".join(prepare_chapter(p.read_text(encoding="utf-8"), lang_dir, meta)
                                   for p in chapters), encoding="utf-8")
     print(f"chapters: {', '.join(p.name for p in chapters)}")
 
@@ -163,14 +175,35 @@ def main():
                 "--reference-doc", str(reference), "-o", str(docx)])
     add_covers(docx, cover_png, back_png)
     print(f"wrote {docx.relative_to(MANUAL_DIR)}")
+    outputs = [docx]
+
+    # The quick guide is chapter 0 of the manual and is also exported on its own,
+    # to print and keep next to the incubator. Same text, same reference and revision.
+    guide_src = lang_dir / QUICK_GUIDE
+    if guide_src.exists():
+        guide_base = BUILD_DIR / f"IncuNest_QuickGuide_{meta['hardware']}_{args.lang}"
+        text = prepare_chapter(guide_src.read_text(encoding="utf-8"), lang_dir, meta)
+        text = re.sub(r"\A#\s+[^\n]*\n", "", text.lstrip())   # the title replaces the heading
+        guide_md = guide_base.with_suffix(".md")
+        guide_md.write_text(text, encoding="utf-8")
+        guide_docx = guide_base.with_suffix(".docx")
+        warn += run([build_reference.find_pandoc(), str(guide_md), "--from", "markdown",
+                     "--resource-path", str(lang_dir),
+                     "--metadata", f"title={meta['product']} — Quick guide",
+                     "--metadata", f"subtitle=IncuNest · hardware {meta['hardware']}",
+                     "--lua-filter", str(TOOLS_DIR / "callouts.lua"),
+                     "--reference-doc", str(reference), "-o", str(guide_docx)])
+        print(f"wrote {guide_docx.relative_to(MANUAL_DIR)}")
+        outputs.append(guide_docx)
 
     if not args.no_pdf:
         if not LO_PYTHON.exists():
             print("LibreOffice not found: PDF skipped")
         else:
-            pdf = base.with_suffix(".pdf")
-            run([str(LO_PYTHON), str(TOOLS_DIR / "lo_pdf.py"), str(docx), str(pdf)])
-            print(f"wrote {pdf.relative_to(MANUAL_DIR)}" if pdf.exists() else "PDF failed")
+            for out in outputs:
+                pdf = out.with_suffix(".pdf")
+                run([str(LO_PYTHON), str(TOOLS_DIR / "lo_pdf.py"), str(out), str(pdf)])
+                print(f"wrote {pdf.relative_to(MANUAL_DIR)}" if pdf.exists() else "PDF failed")
 
     for w in sorted(set(warn)):
         print(f"pandoc: {w}")

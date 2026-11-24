@@ -65,7 +65,7 @@ The hardware test checks the touchscreen and the control board, and asks the ope
     | **WAIT** | The test is running. |
     | **CONFIRM** | The test needs you to answer a question. |
 
-4. Answer the questions when they appear: whether the door sensor responds, whether the lamp lights up, and whether you hear the buzzer. Each row of tests waits up to 150 seconds.
+4. Answer the questions when they appear, for example whether the lamp lights up and whether you hear the buzzer. Each row of tests waits up to 150 seconds.
 5. At the end, the screen shows a summary. Touch a test to see its details, or press **RETRY** to repeat the test.
 
 ![Hardware test](img/hw_test_grid_en.png)
@@ -136,7 +136,6 @@ For reference, the conditions that raise each alarm in the current firmware. Cha
 | HUMIDITY DEVIATION | Humidity control on, more than 10 % from the set value, after the first 30 min | Difference under 5 % |
 | HEATER SENSOR FAULT | The heater current sensor does not answer for 10 cycles | [PENDING: in the current firmware it does not clear.] |
 | SENSORBOARD LINK LOST | No signal from the sensor board for more than 90 s (60 s of grace at start-up) | The next signal arrives |
-| DOOR SENSOR SUSPECT | 4 or more door changes in 60 s | The changes stop |
 | PHOTOTHERAPY LAMP FAULT | Lamp on and current below 0.05 A for 5 s | Current of 0.08 A or more, or lamp off |
 | HIGH NOISE | Noise of 65 dB or more for 10 s | Under 63 dB for 10 s |
 
