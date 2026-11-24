@@ -33,6 +33,10 @@
 #include "modules/debug/debug_mode.h"
 #include "modules/debug/bmp565.h"
 #include "display_config.h"
+#if HMI_DEBUG_UI_AUTOMATION
+#include "modules/debug/touch_sim.h"
+#include "ui/i18n.h"
+#endif
 #include "UITask.h"
 #include "CommTask.h"
 
@@ -508,6 +512,95 @@ void configWifiServer() {
     }
     free(px);
   });
+
+#if HMI_DEBUG_UI_AUTOMATION
+  // ---- Remote UI driving, for the user manual's screenshots ----
+  // Only in the hmi_screenshots build (platformio.ini): a simulated touch
+  // operates the incubator, and the /debug credentials are public. In
+  // env:main none of this exists and these paths answer 404.
+
+  // POST /debug/touch?x=<0-799>&y=<0-479>[&ms=80]
+  // Presses (x, y) for ms milliseconds (80 = tap, 2000 = the unlock long
+  // press) and answers 200 once the finger has been released, so the next
+  // request starts from a settled UI. Coordinates are those of
+  // /debug/screenshot.
+  wifiServer.on("/debug/touch", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!debug_mode_enabled()) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    if (!wifiServer.hasArg("x") || !wifiServer.hasArg("y")) {
+      wifiServer.send(400, "text/plain", "faltan x e y");
+      return;
+    }
+    const long x = wifiServer.arg("x").toInt();
+    const long y = wifiServer.arg("y").toInt();
+    const long ms = wifiServer.hasArg("ms") ? wifiServer.arg("ms").toInt()
+                                            : (long)TOUCH_SIM_DEFAULT_MS;
+    if (x < 0 || y < 0 || x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT ||
+        ms <= 0 || ms > (long)TOUCH_SIM_MAX_MS) {
+      wifiServer.send(400, "text/plain", "x 0-799, y 0-479, ms 1-10000");
+      return;
+    }
+    if (!UI_DebugTouch((int16_t)x, (int16_t)y, (uint32_t)ms)) {
+      wifiServer.send(503, "text/plain", "cola de toques llena");
+      return;
+    }
+    // Wait for the release (plus any touches queued before this one).
+    const uint32_t t0 = millis();
+    const uint32_t limit =
+        (uint32_t)ms + 3000u + TOUCH_SIM_QUEUE_LEN * TOUCH_SIM_MAX_MS;
+    while (UI_DebugTouchBusy() && millis() - t0 < limit) {
+      delay(10);
+    }
+    wifiServer.send(200, "application/json",
+                    String("{\"x\":") + x + ",\"y\":" + y + ",\"ms\":" + ms +
+                        ",\"waited_ms\":" + (millis() - t0) + "}");
+  });
+
+  // POST /debug/ui?lang=en|es|fr|pt   -> same as Settings > LANGUAGE
+  // POST /debug/ui?autolock=0|1       -> auto-lock off/on, not saved
+  // Both can go in one request; with neither it just reports the state.
+  wifiServer.on("/debug/ui", HTTP_POST, []() {
+    if (!wifiServer.authenticate(WEB_SERVER_USERNAME, WEB_SERVER_PASSWORD)) {
+      return wifiServer.requestAuthentication();
+    }
+    wifiServer.sendHeader("Connection", "close");
+    if (!debug_mode_enabled()) {
+      wifiServer.send(409, "text/plain", "el modo depuracion esta apagado");
+      return;
+    }
+    static const char *const kLangCodes[] = {"es", "en", "fr",
+                                             "pt"}; // ui_lang_t
+    if (wifiServer.hasArg("lang")) {
+      const String code = wifiServer.arg("lang");
+      int lang = -1;
+      for (int i = 0; i < (int)(sizeof(kLangCodes) / sizeof(kLangCodes[0]));
+           i++) {
+        if (code == kLangCodes[i]) lang = i;
+      }
+      if (lang < 0 || !UI_DebugSetLanguage(lang)) {
+        wifiServer.send(400, "text/plain", "lang=en|es|fr|pt");
+        return;
+      }
+    }
+    if (wifiServer.hasArg("autolock")) {
+      UI_DebugSetAutolock(wifiServer.arg("autolock").toInt() != 0);
+    }
+    const int cur = (int)g_lang;
+    const char *code =
+        (cur >= 0 && cur < (int)(sizeof(kLangCodes) / sizeof(kLangCodes[0])))
+            ? kLangCodes[cur]
+            : "?";
+    wifiServer.send(200, "application/json",
+                    String("{\"lang\":\"") + code + "\",\"autolock\":" +
+                        (UI_DebugAutolock() ? 1 : 0) + "}");
+  });
+#endif
 
   wifiServer.on(
       "/update", HTTP_POST,

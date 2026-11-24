@@ -26,6 +26,17 @@ bool UI_IsLcdPanelReady();
 // false if the panel is not up or cap_px is too small. For /debug/screenshot.
 bool UI_CopyScreen(uint16_t *dst, size_t cap_px);
 
+#if HMI_DEBUG_UI_AUTOMATION
+// Remote UI driving for the user manual's screenshots. Only in the
+// hmi_screenshots build (platformio.ini), never in env:main: simulated touches
+// operate the incubator. Each takes LVGL_Lock itself.
+bool UI_DebugTouch(int16_t x, int16_t y, uint32_t ms); // false: rejected
+bool UI_DebugTouchBusy();
+bool UI_DebugSetLanguage(int lang); // ui_lang_t value; false if invalid
+void UI_DebugSetAutolock(bool on);  // not saved: on again after reboot
+bool UI_DebugAutolock();
+#endif
+
 // Cambiar freq_write del bus RGB en runtime (reinicia el display)
 void lcd_set_freq_write(uint32_t freq_hz);
 uint32_t lcd_get_freq_write();
