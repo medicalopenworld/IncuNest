@@ -1,0 +1,26 @@
+# Data printed on the cover, the page header and footer and the back cover.
+# Change it here: export.py puts it in every place it appears.
+# Values marked PENDING are waiting for a decision (see the open questions).
+
+product: "Low-Cost Neonatal Incubator"            # PENDING: official product name (decision 8)
+manual_title: "USER MANUAL"
+manual_subtitle: "Instructions for Use"
+header_text: "Low-cost neonatal incubator | User manual"
+
+hardware: "V19"
+firmware: "Display firmware 4.10 · Motherboard firmware 18.6x"
+
+doc_ref: "IFU-INC-001"                            # PENDING: numbering scheme (decision 7)
+revision: "DRAFT"
+draft: true                                       # prints "DRAFT — not for clinical use"
+
+manufacturer:
+  name: "Medical Open World Association"
+  address:
+    - "C/ Estella 1, 1.º Izqda."
+    - "31002 Pamplona, Navarra (Spain)"           # PENDING: postal code (v6 had 31001 and 31002)
+  email: "support@medicalopenworld.org"           # PENDING: support@ or contact@
+  website: "medicalopenworld.org"
+assembled_by: "Salesianos Pamplona"
+
+copyright: "© {year} Medical Open World Association. All rights reserved."

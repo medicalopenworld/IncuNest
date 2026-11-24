@@ -12,24 +12,36 @@ Run it again after changing the look; commit the resulting reference.docx.
 Requires pandoc on PATH (or in %LOCALAPPDATA%\\Pandoc) and python-docx.
 """
 
+import datetime
+import shutil
+import os
 import subprocess
-import sys
 from pathlib import Path
 
+import yaml
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.text import WD_COLOR_INDEX
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from export import find_pandoc  # noqa: E402
+from docx.shared import Cm, Pt, RGBColor
 
 TOOLS_DIR = Path(__file__).resolve().parent
+MANUAL_DIR = TOOLS_DIR.parent
+ASSETS = TOOLS_DIR / "assets"
 OUT = TOOLS_DIR / "reference.docx"
 
-FONT = "Open Sans"          # same family as the previous manual (v6)
+
+def find_pandoc():
+    exe = shutil.which("pandoc")
+    if exe:
+        return exe
+    local = Path(os.environ.get("LOCALAPPDATA", "")) / "Pandoc" / "pandoc.exe"
+    if local.exists():
+        return str(local)
+    raise SystemExit("pandoc not found: winget install JohnMacFarlane.Pandoc")
+
+FONT = "Calibri"  # installed with Office; LibreOffice uses the metric-compatible Carlito
 BLUE = RGBColor(0x1B, 0x3A, 0x6B)  # dark blue for headings
 
 BOXES = {
@@ -91,13 +103,68 @@ def set_table_borders(style, colour="C8C8C8"):
     tblpr.append(borders)
 
 
-def main():
+def add_field(paragraph, instr):
+    """Insert a Word field (PAGE, NUMPAGES...) at the end of a paragraph."""
+    fld = OxmlElement("w:fldSimple")
+    fld.set(qn("w:instr"), instr)
+    run = OxmlElement("w:r")
+    text = OxmlElement("w:t")
+    text.text = "1"
+    run.append(text)
+    fld.append(run)
+    paragraph._p.append(fld)
+
+
+def set_border(paragraph, side, colour="1B3A6B"):
+    ppr = paragraph._p.get_or_add_pPr()
+    borders = OxmlElement("w:pBdr")
+    b = OxmlElement(f"w:{side}")
+    b.set(qn("w:val"), "single")
+    b.set(qn("w:sz"), "6")
+    b.set(qn("w:space"), "4")
+    b.set(qn("w:color"), colour)
+    borders.append(b)
+    ppr.append(borders)
+
+
+def page_setup(doc, meta, year):
+    """A4 page, margins, and the running header and footer of the manual."""
+    sec = doc.sections[0]
+    sec.page_width, sec.page_height = Cm(21.0), Cm(29.7)
+    sec.left_margin = sec.right_margin = Cm(2.2)
+    sec.top_margin, sec.bottom_margin = Cm(2.6), Cm(2.2)
+    sec.header_distance = sec.footer_distance = Cm(1.0)
+    text_width = sec.page_width - sec.left_margin - sec.right_margin
+
+    hp = sec.header.paragraphs[0]
+    hp.paragraph_format.tab_stops.add_tab_stop(text_width, WD_TAB_ALIGNMENT.RIGHT)
+    hp.add_run().add_picture(str(ASSETS / "mow_logo_color.jpg"), height=Cm(0.9))
+    r = hp.add_run("\t" + meta["header_text"])
+    r.font.size, r.font.color.rgb, r.font.name = Pt(9), BLUE, FONT
+    set_border(hp, "bottom")
+
+    fp = sec.footer.paragraphs[0]
+    fp.paragraph_format.tab_stops.add_tab_stop(text_width, WD_TAB_ALIGNMENT.RIGHT)
+    set_border(fp, "top")
+    for piece in ("Page ", ("PAGE",), " of ", ("NUMPAGES",),
+                  f"\tRef: {meta['doc_ref']} (Rev. {meta['revision']}) | {year}"):
+        if isinstance(piece, tuple):
+            add_field(fp, piece[0])
+        else:
+            r = fp.add_run(piece)
+            r.font.size, r.font.name = Pt(9), FONT
+
+
+def build(meta, out=OUT, year=None):
+    """Write the reference docx for this manual's metadata."""
+    year = year or datetime.date.today().year
     pandoc = find_pandoc()
     data = subprocess.run([pandoc, "--print-default-data-file", "reference.docx"],
                           capture_output=True, check=True).stdout
-    OUT.write_bytes(data)
+    out.write_bytes(data)
 
-    doc = Document(str(OUT))
+    doc = Document(str(out))
+    page_setup(doc, meta, year)
     styles = doc.styles
 
     names = [s.name for s in styles]
@@ -127,6 +194,20 @@ def main():
     if "Table" in names:
         set_table_borders(styles["Table"])
 
+    # Screenshots: centred, with room above, caption right under the picture.
+    for name in ("Figure", "Captioned Figure"):
+        if name in names:
+            pf = styles[name].paragraph_format
+            pf.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pf.space_before, pf.space_after = Pt(18), Pt(2)
+            pf.keep_with_next = True
+    if "Image Caption" in names:
+        st = styles["Image Caption"]
+        st.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        st.paragraph_format.space_before, st.paragraph_format.space_after = Pt(2), Pt(20)
+        st.font.size, st.font.italic = Pt(9), True
+        st.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+
     for name, (border, fill) in BOXES.items():
         st = styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
         st.base_style = styles["Normal"]
@@ -140,8 +221,13 @@ def main():
     pending.font.highlight_color = WD_COLOR_INDEX.YELLOW
     pending.font.italic = True
 
-    doc.save(str(OUT))
-    print(f"wrote {OUT}")
+    doc.save(str(out))
+    return out
+
+
+def main():
+    meta = yaml.safe_load((MANUAL_DIR / "en" / "metadata.yaml").read_text(encoding="utf-8"))
+    print(f"wrote {build(meta)}")
 
 
 if __name__ == "__main__":

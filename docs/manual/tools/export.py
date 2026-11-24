@@ -1,66 +1,54 @@
 #!/usr/bin/env python3
 """Export the IncuNest user manual to Word (.docx) and PDF.
 
-Joins the chapters in docs/manual/<lang>/ (in file-name order), adds a cover
-and a table of contents, and writes to docs/manual/build/:
+Joins the chapters in docs/manual/<lang>/ (in file-name order) and writes to
+docs/manual/build/ (not versioned):
 
-    IncuNest_IFU_V19_<lang>.docx   via pandoc + tools/reference.docx
-    IncuNest_IFU_V19_<lang>.html   via pandoc + tools/manual.css (self-contained)
-    IncuNest_IFU_V19_<lang>.pdf    the HTML printed with Microsoft Edge (headless)
+    IncuNest_IFU_V19_<lang>.docx   A4, with cover, table of contents, running
+                                   header and footer, and back cover
+    IncuNest_IFU_V19_<lang>.pdf    the same document printed by LibreOffice,
+                                   with the table of contents filled in
 
-Callouts (::: warning / caution / note) become coloured boxes; [PENDING: ...]
-markers are highlighted; screenshots that do not exist yet are replaced by a
-highlighted "screenshot pending" line, so the draft shows what is missing.
+What goes where:
+- Text: the chapters (NN-*.md).
+- Data on cover, header, footer and back cover: <lang>/metadata.yaml.
+- Look: build_reference.py (styles, page, header, footer), covers.py (cover
+  and back cover), callouts.lua (warning/caution/note boxes, PENDING marks).
 
 Usage:
-    python export.py                 # English, Word + PDF
+    python export.py              # English, Word + PDF
     python export.py --lang es
     python export.py --no-pdf
 
-Requires pandoc (winget install JohnMacFarlane.Pandoc) and, for the PDF,
-Microsoft Edge.
+Requires pandoc (winget install JohnMacFarlane.Pandoc), python-docx, PyYAML,
+Pillow and, for the PDF, LibreOffice.
 """
 
 import argparse
+import copy
 import datetime
-import os
 import re
-import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
+import yaml
+from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Pt
+
 TOOLS_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS_DIR))
+import build_reference  # noqa: E402
+import covers  # noqa: E402
+
 MANUAL_DIR = TOOLS_DIR.parent
 BUILD_DIR = MANUAL_DIR / "build"
-
-TITLE = "IncuNest — Instructions for Use"
-SUBTITLE = "Neonatal incubator · hardware V19"
-DRAFT_TEXT = ("DRAFT — not for clinical use. Sections marked PENDING are still "
-              "waiting for a decision or a check.")
+LO_PYTHON = Path("C:/Program Files/LibreOffice/program/python.exe")
 
 IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)(\{[^}]*\})?")
 PENDING_RE = re.compile(r"\[PENDING:([^\]]*)\]")
-
-
-def find_pandoc():
-    exe = shutil.which("pandoc")
-    if exe:
-        return exe
-    local = Path(os.environ.get("LOCALAPPDATA", "")) / "Pandoc" / "pandoc.exe"
-    if local.exists():
-        return str(local)
-    sys.exit("pandoc not found: winget install JohnMacFarlane.Pandoc")
-
-
-def find_edge():
-    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
-        if base:
-            p = Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
-            if p.exists():
-                return str(p)
-    return shutil.which("msedge")
 
 
 def prepare_chapter(text, lang_dir):
@@ -68,94 +56,120 @@ def prepare_chapter(text, lang_dir):
     def image(m):
         alt, src, attrs = m.group(1), m.group(2), m.group(3)
         if not (lang_dir / src).exists():
-            name = Path(src).stem
-            return f"[Screenshot pending: {name}]{{.pending}}"
-        return f"![{alt}]({src}){attrs or '{width=12cm}'}"
+            return f"[Screenshot pending: {Path(src).stem}]{{.pending}}"
+        return f"![{alt}]({src}){attrs or '{width=10cm}'}"
 
     text = IMAGE_RE.sub(image, text)
-    text = PENDING_RE.sub(lambda m: f"[PENDING:{m.group(1)}]{{.pending}}", text)
-    return text
+    return PENDING_RE.sub(lambda m: f"[PENDING:{m.group(1)}]{{.pending}}", text)
 
 
-def build_source(lang, versions):
-    lang_dir = MANUAL_DIR / lang
-    chapters = sorted(p for p in lang_dir.glob("*.md") if p.name[0].isdigit())
-    if not chapters:
-        sys.exit(f"no chapters found in {lang_dir}")
-    today = datetime.date.today().isoformat()
-    front = (
-        "---\n"
-        f"title: \"{TITLE}\"\n"
-        f"subtitle: \"{SUBTITLE}{' · ' + versions if versions else ''}\"\n"
-        f"date: \"{DRAFT_TEXT} ({today})\"\n"
-        f"lang: {lang}\n"
-        "---\n\n"
-    )
-    body = "\n\n".join(prepare_chapter(p.read_text(encoding="utf-8"), lang_dir) for p in chapters)
-    return front + body, lang_dir, [p.name for p in chapters]
+def full_page_picture_paragraph(doc, image):
+    """A paragraph holding one A4 picture, with no spacing around it."""
+    p = doc.add_paragraph()
+    pf = p.paragraph_format
+    pf.space_before = pf.space_after = Pt(0)
+    pf.line_spacing = 1.0
+    p.add_run().add_picture(str(image), width=Cm(20.99), height=Cm(29.65))
+    p._p.getparent().remove(p._p)  # caller places it
+    return p._p
+
+
+def section_break(sect_pr):
+    """An empty paragraph that ends a section with the given properties."""
+    p = OxmlElement("w:p")
+    ppr = OxmlElement("w:pPr")
+    ppr.append(sect_pr)
+    p.append(ppr)
+    return p
+
+
+def zero_margins(sect_pr):
+    mar = sect_pr.find(qn("w:pgMar"))
+    for side in ("w:top", "w:bottom", "w:left", "w:right", "w:header", "w:footer", "w:gutter"):
+        mar.set(qn(side), "0")
+
+
+def add_covers(docx_path, cover_png, back_png):
+    """Put the cover first and the back cover last, each on a page of its own
+    without header, footer or margins; ask Word to refresh the contents table."""
+    doc = Document(str(docx_path))
+    body = doc.element.body
+    main_sect = body.find(qn("w:sectPr"))
+
+    # Cover: first section, no header/footer references, no margins.
+    cover_sect = copy.deepcopy(main_sect)
+    for ref in cover_sect.findall(qn("w:headerReference")) + cover_sect.findall(qn("w:footerReference")):
+        cover_sect.remove(ref)
+    zero_margins(cover_sect)
+    body.insert(0, section_break(cover_sect))
+    body.insert(0, full_page_picture_paragraph(doc, cover_png))
+
+    # Back cover: close the main section with its own header/footer, then a last
+    # section with empty header/footer and no margins.
+    body.insert(list(body).index(main_sect), section_break(copy.deepcopy(main_sect)))
+    body.insert(list(body).index(main_sect), full_page_picture_paragraph(doc, back_png))
+    zero_margins(main_sect)
+    # The last section still points at the shared header/footer parts: drop
+    # those references and give it new, empty ones.
+    for ref in main_sect.findall(qn("w:headerReference")) + main_sect.findall(qn("w:footerReference")):
+        main_sect.remove(ref)
+    last = doc.sections[-1]
+    last.header.is_linked_to_previous = False
+    last.footer.is_linked_to_previous = False
+
+    settings = doc.settings.element
+    upd = OxmlElement("w:updateFields")
+    upd.set(qn("w:val"), "true")
+    settings.append(upd)
+    doc.save(str(docx_path))
 
 
 def run(cmd):
     res = subprocess.run(cmd, capture_output=True, text=True)
-    warnings = [l for l in res.stderr.splitlines() if l.strip()]
     if res.returncode != 0:
-        sys.exit("command failed:\n  " + " ".join(cmd) + "\n" + res.stderr)
-    return warnings
+        sys.exit("command failed:\n  " + " ".join(map(str, cmd)) + "\n" + res.stderr + res.stdout)
+    return [line for line in res.stderr.splitlines() if line.strip()]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lang", default="en")
-    ap.add_argument("--versions", default="display firmware 4.10 · motherboard firmware 18.6x",
-                    help="firmware versions shown on the cover")
     ap.add_argument("--no-pdf", action="store_true")
     args = ap.parse_args()
 
-    pandoc = find_pandoc()
-    reference = TOOLS_DIR / "reference.docx"
-    if not reference.exists():
-        sys.exit("tools/reference.docx missing: run build_reference.py first")
+    lang_dir = MANUAL_DIR / args.lang
+    meta = yaml.safe_load((lang_dir / "metadata.yaml").read_text(encoding="utf-8"))
+    chapters = sorted(p for p in lang_dir.glob("*.md") if p.name[0].isdigit())
+    if not chapters:
+        sys.exit(f"no chapters found in {lang_dir}")
+    today = datetime.date.today().isoformat()
 
-    source, lang_dir, chapters = build_source(args.lang, args.versions)
     BUILD_DIR.mkdir(exist_ok=True)
-    base = BUILD_DIR / f"IncuNest_IFU_V19_{args.lang}"
+    base = BUILD_DIR / f"IncuNest_IFU_{meta['hardware']}_{args.lang}"
     src_md = base.with_suffix(".md")
-    src_md.write_text(source, encoding="utf-8")
-    print(f"chapters: {', '.join(chapters)}")
+    src_md.write_text("\n\n".join(prepare_chapter(p.read_text(encoding="utf-8"), lang_dir)
+                                  for p in chapters), encoding="utf-8")
+    print(f"chapters: {', '.join(p.name for p in chapters)}")
 
-    common = [pandoc, str(src_md), "--from", "markdown", "--resource-path", str(lang_dir),
-              "--toc", "--toc-depth", "2", "--lua-filter", str(TOOLS_DIR / "callouts.lua")]
+    reference = build_reference.build(meta, BUILD_DIR / "reference.docx", year=today[:4])
+    cover_png = covers.cover(meta, BUILD_DIR / "cover.png", today)
+    back_png = covers.back_cover(meta, BUILD_DIR / "back_cover.png", today)
 
-    warn = run(common + ["--reference-doc", str(reference), "-o", str(base.with_suffix(".docx"))])
-    print(f"wrote {base.with_suffix('.docx').relative_to(MANUAL_DIR)}")
-
-    warn += run(common + ["--standalone", "--embed-resources", "--css", str(TOOLS_DIR / "manual.css"),
-                          "--metadata", f"pagetitle={TITLE}", "-o", str(base.with_suffix(".html"))])
-    print(f"wrote {base.with_suffix('.html').relative_to(MANUAL_DIR)}")
+    docx = base.with_suffix(".docx")
+    warn = run([build_reference.find_pandoc(), str(src_md), "--from", "markdown",
+                "--resource-path", str(lang_dir), "--toc", "--toc-depth", "2",
+                "--metadata", "toc-title=Contents",
+                "--lua-filter", str(TOOLS_DIR / "callouts.lua"),
+                "--reference-doc", str(reference), "-o", str(docx)])
+    add_covers(docx, cover_png, back_png)
+    print(f"wrote {docx.relative_to(MANUAL_DIR)}")
 
     if not args.no_pdf:
-        edge = find_edge()
-        if not edge:
-            print("Edge not found: PDF skipped")
+        if not LO_PYTHON.exists():
+            print("LibreOffice not found: PDF skipped")
         else:
             pdf = base.with_suffix(".pdf")
-            if pdf.exists():
-                pdf.unlink()
-            # A separate profile keeps a running Edge window from taking over the job.
-            profile = BUILD_DIR / ".edge-profile"
-            subprocess.run([edge, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
-                            f"--user-data-dir={profile}", f"--print-to-pdf={pdf}",
-                            base.with_suffix(".html").as_uri()],
-                           capture_output=True, timeout=180)
-            # Edge can hand the job to a child process and return before the
-            # file is written: wait for it to appear and stop growing.
-            last = -1
-            for _ in range(120):
-                size = pdf.stat().st_size if pdf.exists() else -1
-                if size > 0 and size == last:
-                    break
-                last = size
-                time.sleep(1)
+            run([str(LO_PYTHON), str(TOOLS_DIR / "lo_pdf.py"), str(docx), str(pdf)])
             print(f"wrote {pdf.relative_to(MANUAL_DIR)}" if pdf.exists() else "PDF failed")
 
     for w in sorted(set(warn)):
