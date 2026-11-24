@@ -1,4 +1,13 @@
-# Protocolo de Comunicación IncuNest (v2.3.3)
+# Protocolo de Comunicación IncuNest (v2.4.0)
+
+> Nota (v2.4.0): nuevo mensaje `HMI,PROFILE_SEX,seq,sex` con el sexo al nacer
+> del bebé (ISO/IEC 5218: `0` no consta, `1` niño, `2` niña). El HMI lo envía
+> justo después del `CTRL,PROFILE_ACK` de un `PROFILE_NEW`; la placa no
+> contesta. **NO es breaking en ningún sentido**: `PROFILE_NEW` sigue con 4
+> campos, una placa antigua descarta la línea desconocida (solo un log) y un
+> HMI antiguo simplemente nunca la manda (el sexo queda en `0`). La placa lo
+> publica como client attribute `baby_sex` (IncuTwin elige con él el dibujo
+> de niño o niña).
 
 > Nota (v2.3.3): se añade el test de fábrica `sim_act` (id 28), que activa la
 > SIM Onomondo de la unidad contra la API de Onomondo por WiFi.
@@ -692,6 +701,23 @@ peso → REGISTRAR; en este camino la HMI no lo envía si ya hay 3 activos).
   **persiste en NVS en este mismo mensaje** (`babyStore_createProfile`):
   un reinicio después del ACK conserva el bebé aunque nunca llegue
   `PROFILE_WEIGHT`.
+
+#### HMI,PROFILE_SEX
+Sexo al nacer del bebé recién creado (v2.4.0). Lo envían el wizard de
+activación y la pantalla Bebes tras el `CTRL,PROFILE_ACK` de su
+`PROFILE_NEW`, antes del peso.
+**Formato**: `HMI,PROFILE_SEX,seq,sex`
+- `sex`: ISO/IEC 5218. `0` = no consta, `1` = niño, `2` = niña. Cualquier
+  otro valor descarta la línea.
+- Sin respuesta. Un `seq` que no está en los slots activos se ignora (log).
+- El HMI no lo envía cuando la enfermera elige NO CONSTA (`0` ya es lo que
+  guarda la placa), en modo formación ni para un `seq` de práctica.
+- Se guarda en el slot activo (byte que antes era relleno del struct: el
+  tamaño del blob NVS no cambia y los bebés activos sobreviven a la
+  actualización) y sale en el client attribute `baby_sex`. **No** entra en el
+  registro de auditoría de 60 bytes: los bebés archivados lo leen como `0`.
+- Es un mensaje aparte, y no un 5.º campo de `PROFILE_NEW`, para que una
+  placa antigua no rechace el registro del bebé.
 
 #### HMI,PROFILE_SELECT
 Selecciona un bebé existente para el wizard.
