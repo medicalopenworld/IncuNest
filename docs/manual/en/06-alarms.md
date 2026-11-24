@@ -139,12 +139,12 @@ The screen can also show **BOARD LINK LOST**: the screen has lost contact with t
 | **DOOR SENSOR SUSPECT** | The door sensor has changed state many times in a short time. It may be faulty. | Check that the cover closes properly. Contact technical support if it continues. |
 | **HIGH NOISE** | The noise level has been 65 dB or higher for 10 seconds. | Reduce the noise near the incubator: voices, equipment, alarms of other devices. |
 
-## 6.6 Heater error on the main screen
+## 6.6 Heater or fan fault on the main screen
 
-When **HEATER FAULT** is active, the TEMPERATURE block on the main screen is replaced by a warning sign with **"Heater error — Touch for more information"**. Only phototherapy can be used.
+While **HEATER FAULT** or **FAN FAILURE** is active, the TEMPERATURE block disappears from the main screen: temperature control cannot be used. Phototherapy and the other functions can still be used. Open the alarm centre to see the active alarm.
 
-![Heater error](img/main_heater_error_en.png)
+![Main screen with a heater or fan fault](img/main_heater_error_en.png)
 
-When the cause has been solved by technical support, switch the incubator off and on to return to normal operation.
+**HEATER FAULT** stays until the incubator is switched off. When technical support has solved the cause, switch the incubator off and on to return to normal operation.
 
-[PENDING: touching the warning opens an older alarm screen; this may change in the firmware.]
+[PENDING: the screen gives no message where the TEMPERATURE block was. A visible message has been proposed to the firmware team.]

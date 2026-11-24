@@ -170,7 +170,8 @@ def main():
         unknown = set(wanted) - names
         if unknown:
             sys.exit(f"unknown capture names: {', '.join(sorted(unknown))}")
-        entries = [e for e in entries if e["name"] in wanted]
+        by_name = {e["name"]: e for e in entries}
+        entries = [by_name[n] for n in wanted]  # keep the operator's order
     if args.missing:
         entries = [e for e in entries if not out_path(e["name"], args.lang).exists()]
 

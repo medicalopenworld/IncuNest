@@ -112,6 +112,8 @@ If the screen shows "Waiting for data from the board...", wait a few seconds for
 | Support report | Sending the support email with the technical report |
 | Safe shutdown | Explanation of how to switch off safely |
 
+[PENDING: the screen shows 9 technician lessons; the list above has 8. Check the missing one.]
+
 ## 10.7 Alarm conditions
 
 For reference, the conditions that raise each alarm in the current firmware. Chapter 6 tells clinical staff what each alarm means and what to do.

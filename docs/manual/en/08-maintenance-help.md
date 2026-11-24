@@ -95,7 +95,7 @@ Problems that do not raise an alarm. For alarms, see chapter 6.
 |---|---|---|
 | The clock shows **No time**. | The date and time have not been set, or have been lost. | Set them in Menu > DATE AND TIME (see 4.4). |
 | **SKIN MODE** cannot be switched on ("Skin mode unavailable"). | The skin temperature probe is not connected. | Connect the probe, then switch skin mode on. |
-| **TURN ON** of TEMPERATURE does nothing. | A **FAN FAILURE** or **HEATER FAULT** alarm is active. | See chapter 6. |
+| The TEMPERATURE block has disappeared from the main screen. | A **FAN FAILURE** or **HEATER FAULT** alarm is active. | See chapter 6. |
 | The SKIN panel does not appear on the main screen. | Skin mode is not enabled, or the probe is not connected. | Enable skin mode in Settings > MODES and connect the probe. |
 | The HUMIDITY block does not appear. | Humidity control is disabled in the settings. | Enable **HUMIDITY CONTROL** in Settings > MODES. |
 | The baby data wizard shows no proposed temperature. | No weight was entered, the gestational age is under 24 weeks, or the table has no value for that baby. | Set the air temperature by hand (see 5.3). |

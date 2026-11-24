@@ -29,7 +29,7 @@ From left to right:
 | Lock button | Locks the screen (see 3.3). The ring around it fills during 20 seconds without touching the screen; when it is full, the screen locks by itself. |
 | Baby identity | When a baby has been registered: the baby's name and, on the second line, the corrected gestational age and days of life (for example "CGA 32+3 - 5d"). |
 | Menu button (three lines) | Opens the menu (see 3.4). |
-| Alarm button | A **green check** when there are no active alarms. With active alarms, a red badge shows how many. Either way, touching it opens the alarm centre (see chapter 6). |
+| Alarm button (bell) | A bell with a **green check** when there are no active alarms. With active alarms, a red badge shows how many. Either way, touching it opens the alarm centre (see chapter 6). |
 
 If the screen loses contact with the control board for more than 5 seconds, a flashing **LINK LOST** label appears in the header and the measured values disappear. This is also an alarm: see chapter 6.
 
@@ -42,19 +42,18 @@ If the screen loses contact with the control board for more than 5 seconds, a fl
 | Element | What it shows or does |
 |---|---|
 | **TURN ON / TURN OFF** button | Switches temperature control on or off. Blue (TURN ON) when control is off, red (TURN OFF) when it is on. Switching it on opens the baby data wizard first (see 5.1). |
-| **AIR** panel | The measured air temperature, in °C, and a bar from 20 °C to 40 °C with the set temperature marked on it. Touch the panel to select air mode. |
-| **SKIN** panel (baby icon) | The infant's skin temperature. It appears only when skin mode is enabled in the settings and the skin temperature probe is connected. Touch the panel to select skin mode. |
+| **AIR** panel | The measured air temperature and, after the arrow, the set temperature, in °C (for example "22.7 °C ⇒ 30.0 °C"). Touch the panel to select air mode. |
+| **SKIN** panel (baby icon) | The infant's skin temperature. It appears only when skin mode is enabled in the settings and the skin temperature probe is connected. It is shown in grey while air mode is selected. Touch the panel to select skin mode. |
 | **SET** with up and down arrows | Changes the set air temperature in steps of 0.2 °C, from 30.0 °C to 39.0 °C. The arrows work only in air mode. In skin mode the set temperature is fixed at 36.5 °C. |
-| Power bar | How much the heater is working at the moment. |
 | Therapy time | Under the title: how long this baby has been under temperature control (for example "3h 20m"). |
 
 ![Temperature control on in skin mode](img/main_skin_mode_on_en.png)
 
 You cannot switch temperature control on while a fan failure or heater fault alarm is active.
 
-If the heater fails, the TEMPERATURE block is replaced by a warning sign with the text **"Heater error — Touch for more information"**. Touch it to see what to do. See chapter 6.
+While a **FAN FAILURE** or **HEATER FAULT** alarm is active, the TEMPERATURE block disappears from the main screen and temperature control cannot be used. See chapter 6.
 
-![Heater error](img/main_heater_error_en.png)
+![Main screen with a heater or fan fault: no TEMPERATURE block](img/main_heater_error_en.png)
 
 ### HUMIDITY block
 
@@ -65,9 +64,8 @@ The HUMIDITY block appears only when **HUMIDITY CONTROL** is enabled in the sett
 | Element | What it shows or does |
 |---|---|
 | **TURN ON / TURN OFF** button | Switches humidity control on or off. If no baby is registered yet, the incubator asks you to identify the baby first. |
-| Measured humidity | Relative humidity in %, with a bar from 0 to 100 % and the set value marked on it. |
+| Measured humidity | The measured relative humidity and, after the arrow, the set value, in % (for example "39 % ⇒ 50 %"). |
 | **SET** with up and down arrows | Changes the set humidity in steps of 5 %, from 20 % to 90 %. |
-| Power bar | How much the humidifier is working at the moment. |
 
 ### PHOTOTHERAPY block
 

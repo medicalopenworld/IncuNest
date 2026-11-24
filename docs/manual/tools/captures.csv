@@ -4,7 +4,7 @@ main_all_off,3.2,"Main screen, all functions off, no alarms (green check), clock
 main_patient_heading,3.2,"Main screen with a registered baby: name and CGA line in the header."
 main_air_mode_on,3.2 5.3,"Temperature ON in air mode (TURN ON > wizard > APPLY or SKIP). Power bar visible."
 main_skin_mode_on,3.2 5.4,"Skin probe connected, SKIN MODE enabled in Settings > MODES; select SKIN panel and TURN ON."
-main_heater_error,3.2 6.6,"HEATER FAULT active: TEMPERATURE block replaced by 'Heater error'. Needs a forced state."
+main_heater_error,3.2 6.6,"Main screen (unlocked, alarm centre closed) with HEATER FAULT active: the TEMPERATURE block is hidden. Start the board with the heater disconnected."
 main_humidity_on,3.2 5.5,"HUMIDITY CONTROL enabled; humidity TURN ON."
 main_photo_on_continuous,3.2,"Phototherapy ON (eye-protection popup > TURN ON), timer not started."
 main_photo_timer_running,3.2 5.6,"Phototherapy ON and START pressed: RUNNING and red X visible."
