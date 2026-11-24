@@ -44,11 +44,16 @@ def find_pandoc():
 FONT = "Calibri"  # installed with Office; LibreOffice uses the metric-compatible Carlito
 BLUE = RGBColor(0x1B, 0x3A, 0x6B)  # dark blue for headings
 
+GUIDE_HEX = "E8505B"  # coral of the MOW logo: marks the quick guide pages
+GUIDE = RGBColor.from_string(GUIDE_HEX)
+
 BOXES = {
     # style name: (border colour, fill colour)
     "Warning Box": ("C62828", "FDECEA"),
     "Caution Box": ("E08800", "FFF4E0"),
     "Note Box": ("1565C0", "E8F1FB"),
+    "Guide Intro": (GUIDE_HEX, "FDECEC"),
+    "Guide End": (GUIDE_HEX, "FDECEC"),
 }
 
 
@@ -127,6 +132,17 @@ def set_border(paragraph, side, colour="1B3A6B"):
     ppr.append(borders)
 
 
+def fill_header(header, text, text_width, colour=BLUE, bold=False, border_hex="1B3A6B"):
+    """MOW logo on the left, the given text on the right, a line underneath."""
+    hp = header.paragraphs[0]
+    hp.paragraph_format.tab_stops.add_tab_stop(text_width, WD_TAB_ALIGNMENT.RIGHT)
+    hp.add_run().add_picture(str(ASSETS / "mow_logo_color.jpg"), height=Cm(0.9))
+    r = hp.add_run("\t" + text)
+    r.font.size, r.font.color.rgb, r.font.name, r.font.bold = Pt(9), colour, FONT, bold
+    set_border(hp, "bottom", border_hex)
+    return hp
+
+
 def page_setup(doc, meta, year):
     """A4 page, margins, and the running header and footer of the manual."""
     sec = doc.sections[0]
@@ -136,12 +152,7 @@ def page_setup(doc, meta, year):
     sec.header_distance = sec.footer_distance = Cm(1.0)
     text_width = sec.page_width - sec.left_margin - sec.right_margin
 
-    hp = sec.header.paragraphs[0]
-    hp.paragraph_format.tab_stops.add_tab_stop(text_width, WD_TAB_ALIGNMENT.RIGHT)
-    hp.add_run().add_picture(str(ASSETS / "mow_logo_color.jpg"), height=Cm(0.9))
-    r = hp.add_run("\t" + meta["header_text"])
-    r.font.size, r.font.color.rgb, r.font.name = Pt(9), BLUE, FONT
-    set_border(hp, "bottom")
+    fill_header(sec.header, meta["header_text"], text_width)
 
     fp = sec.footer.paragraphs[0]
     fp.paragraph_format.tab_stops.add_tab_stop(text_width, WD_TAB_ALIGNMENT.RIGHT)
@@ -216,6 +227,12 @@ def build(meta, out=OUT, year=None):
         st.paragraph_format.space_before = Pt(4)
         st.paragraph_format.space_after = Pt(4)
         set_box(st, border, fill)
+    for name in ("Guide Intro", "Guide End"):
+        st = styles[name]
+        st.font.size = Pt(11)
+        st.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        st.paragraph_format.space_before = Pt(10)
+        st.paragraph_format.space_after = Pt(10)
 
     pending = styles.add_style("Pending", WD_STYLE_TYPE.CHARACTER)
     pending.font.highlight_color = WD_COLOR_INDEX.YELLOW

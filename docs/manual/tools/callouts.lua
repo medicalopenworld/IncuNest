@@ -9,6 +9,8 @@ local box_styles = {
   caution = "Caution Box",
   note = "Note Box",
   ["draft-banner"] = "Warning Box",
+  ["guide-intro"] = "Guide Intro",
+  ["guide-end"] = "Guide End",
 }
 
 function Div(el)

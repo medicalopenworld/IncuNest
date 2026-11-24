@@ -121,6 +121,27 @@ def back_cover(meta, out, today=None):
     return out
 
 
+GUIDE_RGB = (0xE8, 0x50, 0x5B)  # coral of the MOW logo, as in build_reference.GUIDE_HEX
+BAND_W_CM = 0.9
+
+
+def guide_band(out, label="QUICK GUIDE"):
+    """Coloured strip for the right edge of the quick guide pages, with the label
+    written vertically, so the guide is easy to find even with the manual closed."""
+    w, h = round(BAND_W_CM / 2.54 * DPI), H
+    band = Image.new("RGB", (w, h), GUIDE_RGB)
+    f = font("bold", 11)
+    text = Image.new("RGB", (h, w), GUIDE_RGB)
+    d = ImageDraw.Draw(text)
+    step = mm(70)
+    tw = d.textlength(label, font=f)
+    for x in range(mm(30), h - int(tw), step):
+        d.text((x, (w - f.size) // 2 - 4), label, font=f, fill=WHITE)
+    band.paste(text.rotate(90, expand=True), (0, 0))
+    band.save(out, dpi=(DPI, DPI))
+    return out
+
+
 if __name__ == "__main__":
     import yaml
     meta = yaml.safe_load((TOOLS_DIR.parent / "en" / "metadata.yaml").read_text(encoding="utf-8"))
