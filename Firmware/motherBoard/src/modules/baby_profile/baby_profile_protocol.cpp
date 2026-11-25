@@ -126,6 +126,20 @@ BabyProtoMsgType baby_proto_parse(const char *line, BabyProtoMsg *out) {
     return out->type;
   }
 
+  // Its own message instead of a 5th PROFILE_NEW field: a board without this
+  // support discards an unknown line silently, but would reject a 5-field
+  // PROFILE_NEW and leave the incubator unable to register babies.
+  if (fieldEquals(cmd, cmdLen, "PROFILE_SEX")) {
+    uint32_t sex;
+    if (n != 4 || !parseU32(f[2], fl[2], &out->seq) ||
+        !parseU32(f[3], fl[3], &sex) || sex > BABY_SEX_FEMALE) {
+      return BABY_MSG_NONE;
+    }
+    out->sex = (uint8_t)sex;
+    out->type = BABY_MSG_SEX;
+    return out->type;
+  }
+
   if (fieldEquals(cmd, cmdLen, "PROFILE_HISTORY_REQ")) {
     if (n != 3 || !parseU32(f[2], fl[2], &out->page)) return BABY_MSG_NONE;
     out->type = BABY_MSG_HISTORY_REQ;

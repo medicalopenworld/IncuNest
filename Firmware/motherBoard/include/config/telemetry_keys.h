@@ -125,6 +125,8 @@
 #define PPG_SNAPSHOT_N_KEY "PPG_snapshot_n_v1"   // nº de muestras de la última captura
 #define BABY_WEIGHT_KEY "baby_weight_g"
 #define BABY_GEST_AGE_KEY "baby_gest_weeks"
+// ISO/IEC 5218: 0 not recorded, 1 male, 2 female. Always sent, also as 0.
+#define BABY_SEX_KEY "baby_sex"
 #define BABY_AGE_DAYS_KEY "baby_age_days"
 // Intentional PII publication (Ministry of Health access via ThingsBoard) —
 // see openspec design decision 14; not an accidental leak.

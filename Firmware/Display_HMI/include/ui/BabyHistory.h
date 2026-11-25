@@ -24,12 +24,13 @@ void BabyHistory_Close(void);
 // necesita para saber por donde va el alumno sin exponer el enum interno.
 typedef enum {
   BH_CLOSED = 0,
-  BH_LIST,         // cargando o mostrando la lista (incluye el dialogo de alta)
-  BH_NEW_NAME,     // registro: nombre
-  BH_NEW_GEST,     // registro: semanas de gestacion
-  BH_NEW_WEIGHT,   // registro: peso al ingreso (o SIN PESO) y REGISTRAR
-  BH_NEW_WAITING,  // registro enviado, esperando a la placa
-  BH_CHART,        // curva de peso de un bebe
+  BH_LIST,        // cargando o mostrando la lista (incluye el dialogo de alta)
+  BH_NEW_NAME,    // registro: nombre
+  BH_NEW_SEX,     // registro: sexo al nacer
+  BH_NEW_GEST,    // registro: semanas de gestacion
+  BH_NEW_WEIGHT,  // registro: peso al ingreso (o SIN PESO) y REGISTRAR
+  BH_NEW_WAITING, // registro enviado, esperando a la placa
+  BH_CHART,       // curva de peso de un bebe
 } BabyHistoryStep;
 BabyHistoryStep BabyHistory_GetStep(void);
 

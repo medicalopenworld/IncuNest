@@ -11,15 +11,16 @@
 
 enum BabyProtoMsgType : uint8_t {
   BABY_MSG_NONE = 0,
-  BABY_MSG_LIST_REQ,            // HMI,PROFILE_LIST_REQ
-  BABY_MSG_NEW,                 // HMI,PROFILE_NEW,<name>,<gestWeeks>
-  BABY_MSG_SELECT,              // HMI,PROFILE_SELECT,<seq>
-  BABY_MSG_WEIGHT,              // HMI,PROFILE_WEIGHT,<seq>,<grams|SKIP>
-  BABY_MSG_AGE_MANUAL,          // HMI,PROFILE_AGE_MANUAL,<seq>,<ageDays>
-  BABY_MSG_DISCHARGE,           // HMI,PROFILE_DISCHARGE,<seq>,<outcome>,<cause>
-  BABY_MSG_KANGAROO,            // HMI,PROFILE_KANGAROO,<seq>
-  BABY_MSG_HISTORY_REQ,         // HMI,PROFILE_HISTORY_REQ,<page>
-  BABY_MSG_WEIGHT_HISTORY_REQ,  // HMI,WEIGHT_HISTORY_REQ,<seq>
+  BABY_MSG_LIST_REQ,           // HMI,PROFILE_LIST_REQ
+  BABY_MSG_NEW,                // HMI,PROFILE_NEW,<name>,<gestWeeks>
+  BABY_MSG_SELECT,             // HMI,PROFILE_SELECT,<seq>
+  BABY_MSG_WEIGHT,             // HMI,PROFILE_WEIGHT,<seq>,<grams|SKIP>
+  BABY_MSG_AGE_MANUAL,         // HMI,PROFILE_AGE_MANUAL,<seq>,<ageDays>
+  BABY_MSG_DISCHARGE,          // HMI,PROFILE_DISCHARGE,<seq>,<outcome>,<cause>
+  BABY_MSG_KANGAROO,           // HMI,PROFILE_KANGAROO,<seq>
+  BABY_MSG_HISTORY_REQ,        // HMI,PROFILE_HISTORY_REQ,<page>
+  BABY_MSG_WEIGHT_HISTORY_REQ, // HMI,WEIGHT_HISTORY_REQ,<seq>
+  BABY_MSG_SEX,                // HMI,PROFILE_SEX,<seq>,<0|1|2>
 };
 
 struct BabyProtoMsg {
@@ -31,6 +32,7 @@ struct BabyProtoMsg {
   uint8_t cause;       // validated 0-6; only meaningful for outcome==2
   uint32_t page;
   uint8_t gestWeeks;
+  uint8_t sex; // BabySex, validated 0-2
   char name[BABY_NAME_LEN];
 };
 

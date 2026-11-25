@@ -37,6 +37,11 @@ bool babyStore_recordWeight(uint32_t seq, uint16_t grams);
 // for an unknown seq.
 bool babyStore_recordKangaroo(uint32_t seq);
 
+// Sex at birth (BabySex, sanitized) for an active profile. Sent by the HMI
+// right after PROFILE_ACK of a new baby; marks the client attributes dirty so
+// baby_sex reaches ThingsBoard. Returns false for an unknown seq.
+bool babyStore_setSex(uint32_t seq, uint8_t sex);
+
 // Adds accumulated phototherapy exposure to a profile. Caller batches the
 // minutes (see CommTask): one NVS slot write per minute would wear flash
 // for nothing. Returns false for an unknown seq.

@@ -505,6 +505,10 @@ UI_STR(STR_ENTER_A_NAME,       "Introduce un nombre",
                                "Introduza um nome")
 UI_STR(STR_BABY_NAME,          "Nombre del bebe","Baby name", "Nom du bebe", "Nome do bebe")
 UI_STR(STR_LETTERS_ONLY,       "Solo letras",  "Letters only","Lettres uniquement","Apenas letras")
+UI_STR(STR_BABY_SEX,           "Sexo del bebe","Baby's sex",  "Sexe du bebe","Sexo do bebe")
+UI_STR(STR_SEX_MALE_UC,        "NINO",         "BOY",         "GARCON",      "MENINO")
+UI_STR(STR_SEX_FEMALE_UC,      "NINA",         "GIRL",        "FILLE",       "MENINA")
+UI_STR(STR_SEX_UNKNOWN_UC,     "NO CONSTA",    "NOT RECORDED","NON RENSEIGNE","NAO REGISTADO")
 UI_STR(STR_GEST_AGE_WEEKS,     "Edad gestacional (semanas)",
                                "Gestational age (weeks)",
                                "Age gestationnel (semaines)",

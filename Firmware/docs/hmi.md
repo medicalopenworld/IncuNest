@@ -593,21 +593,13 @@ count starts at the capture and not at admission. A baby picked only for a
 lamp or humidifier (`targetIsIdentityOnly`) never goes through the weight/age
 screens, so it has no age until another wizard run captures one.
 
-### Accumulated therapy (panel headers)
+### Accumulated therapy (not shown on Main)
 
-Each of the three panel headers (temperature, humidity, phototherapy) carries
-a one-line 12 pt label with no caption, `3h 20m` (`patient_fmt_minutes()`, the
-same format the baby viewer already used; its private copy was moved there),
-**under the title** and aligned like it: left in humidity and phototherapy
-(titles at x = 20), right in temperature (title at x = -20). A first version
-put a two-line `Total / 3h 20m` between the title and the toggle button, and
-`100h 5m` under the French `PHOTOTHERAPIE` overlapped the title: there is no
-reliable horizontal gap. Vertically there is: the headers are 50-54 px and a
-14 pt title takes about 16 centred, so about 14 px are free below it. The label
-is hidden unless the identity is confirmed and the minutes are known (see
-below). `ui_HumidityLabel` sits at x = 20, y = -98, the same row as its button
-and background, so the hum label hangs 16 px below that row. Fit with `100h 5m`
-in the four languages is a bench item.
+The panel headers of Main (temperature, humidity, phototherapy) do **not**
+show how long each therapy has been running: a one-line `3h 20m` label under
+each title was removed on 25-Nov-2026 (product decision: no treatment time on
+the main screen). The baby viewer still shows each baby's totals. The HMI
+keeps counting and persisting the minutes as described below.
 
 Minutes per baby reach the HMI only in `CTRL,PROFILE_LIST`, on demand, and
 `g_pendingProfileList` has **a single consumer** (wizard or baby viewer), so

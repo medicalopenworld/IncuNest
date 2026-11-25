@@ -695,47 +695,6 @@ void patient_identity_update(void) {
   }
 }
 
-// Pone `txt` en una etiqueta de terapia acumulada solo si cambio; un texto
-// vacio la oculta. `last` es la copia de lo ultimo escrito.
-static void therapy_label_set(lv_obj_t *label, char *last, size_t lastSize,
-                              const char *txt) {
-  if (!label || strcmp(txt, last) == 0) return;
-  snprintf(last, lastSize, "%s", txt);
-  if (txt[0] == '\0') {
-    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(label, "");
-  } else {
-    lv_label_set_text(label, txt);
-    lv_obj_clear_flag(label, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-// Terapia acumulada del bebe al mando en la cabecera de cada panel de Main
-// (una linea, "3h 20m", bajo el titulo). Mismo contrato que patient_identity_update():
-// dentro de LVGL_Lock, escribe solo si cambia, y solo con sesion viva, identidad
-// confirmada y minutos conocidos. Los
-// minutos los cuenta state/patient_state a 1 Hz; esto solo los pinta.
-void patient_therapy_update(void) {
-  static char lastTemp[24] = {0};
-  static char lastHum[24] = {0};
-  static char lastPhoto[24] = {0};
-
-  char temp[24] = "";
-  char hum[24] = "";
-  char photo[24] = "";
-  PatientMinutes m;
-  if (BabyWizard_HasLiveSession() &&
-      PatientState_IsConfirmed(BabyWizard_GetActiveSeq()) &&
-      PatientState_GetTherapy(BabyWizard_GetActiveSeq(), &m)) {
-    patient_fmt_minutes(m.thermo, temp, sizeof(temp));
-    patient_fmt_minutes(m.humidity, hum, sizeof(hum));
-    patient_fmt_minutes(m.photo, photo, sizeof(photo));
-  }
-  therapy_label_set(ui_TempTotalLabel, lastTemp, sizeof(lastTemp), temp);
-  therapy_label_set(ui_HumTotalLabel, lastHum, sizeof(lastHum), hum);
-  therapy_label_set(ui_PhotoTotalLabel, lastPhoto, sizeof(lastPhoto), photo);
-}
-
 static char s_lastMbStatus[80] = {0};
 static char s_lastHmiStatus[80] = {0};
 
@@ -5615,7 +5574,6 @@ void UI_Task(void *pvParameters) {
     link_lost_blank_update();
     clock_update();
     patient_identity_update();
-    patient_therapy_update();
     wifi_link_status_update();
     connectivity_heading_update();
     sb_env_heading_update();
