@@ -33,6 +33,10 @@ UI_STR(STR_AIR,                "AIRE",         "AIR",         "AIR",         "AR
 UI_STR(STR_SKIN,               "PIEL",         "SKIN",        "PEAU",        "PELE")
 UI_STR(STR_ON,                 "ON",           "ON",          "ON",          "ON")
 UI_STR(STR_OFF,                "OFF",          "OFF",         "OFF",         "OFF")
+// Boton de cada cabecera de la pantalla principal (temperatura, humedad,
+// fototerapia).
+UI_STR(STR_TURN_ON,            "ACTIVAR",      "TURN ON",     "ACTIVER",     "LIGAR")
+UI_STR(STR_TURN_OFF,           "DESACTIVAR",   "TURN OFF",    "DESACTIVER",  "DESLIGAR")
 UI_STR(STR_SET,                "AJUSTAR",      "SET",         "REGLER",      "DEFINIR")
 
 // ------------------------------------------------------- servicio por horas
@@ -247,7 +251,7 @@ UI_STR(STR_PHOTO_SAFETY_BODY,
        "Protect the patient's eyes with eye\nshields before activating phototherapy.",
        "Protegez les yeux du patient avec des\nlunettes adaptees avant d'activer\nla phototherapie.",
        "Coloque protecao ocular no paciente\nantes de ativar a fototerapia.")
-UI_STR(STR_PHOTO_SAFETY_TURN_ON, "ENCENDER",   "TURN ON",     "ACTIVER",     "LIGAR")
+UI_STR(STR_PHOTO_SAFETY_TURN_ON, "ACTIVAR",    "TURN ON",     "ACTIVER",     "LIGAR")
 
 // ------------------------------------------------------- modo piel
 UI_STR(STR_SKIN_MODE_UNAVAILABLE,
