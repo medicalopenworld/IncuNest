@@ -146,6 +146,53 @@ void test_accepts_is_side_effect_free(void) {
   TEST_ASSERT_EQUAL_UINT32(E_2026, time_source_epoch());
 }
 
+// --- Cuando hay que salir a buscar NTP -------------------------------------
+//
+// IncuNest 353, 2026-11-25: el reloj llevaba ~2 h adelantado desde, como
+// poco, el 4 de octubre, y lo seguia llevando tras cada reinicio. La semilla
+// del RTC del HMI ponia la hora al arrancar y las tres rutas de red (SNTP por
+// WiFi, NITZ y NTP sobre PDP) solo se ponian en marcha si el reloj seguia
+// SIN hora (< 2021). Con semilla, ninguna arrancaba nunca: la hora que
+// guardase el RTC, buena o mala, quedaba como verdad para siempre. Eso
+// contradice el escenario "NTP llega despues de la semilla del RTC" de la
+// spec, que solo se probaba a nivel de arbitro.
+//
+// La pregunta correcta no es "hay hora?" sino "hay ya una hora de red o
+// puesta a mano?".
+void test_seeks_ntp_while_clock_is_unset(void) {
+  TEST_ASSERT_TRUE(time_source_should_seek_ntp(PROTO_TIME_SOURCE_NONE));
+}
+
+void test_seeks_ntp_over_an_rtc_seed(void) {
+  TEST_ASSERT_TRUE(time_source_set(E_2026, PROTO_TIME_SOURCE_RTC));
+  TEST_ASSERT_TRUE(time_source_should_seek_ntp(time_source_origin()));
+}
+
+void test_seeks_ntp_over_nitz(void) {
+  TEST_ASSERT_TRUE(time_source_should_seek_ntp(PROTO_TIME_SOURCE_NITZ));
+}
+
+void test_stops_seeking_once_ntp_set_the_clock(void) {
+  TEST_ASSERT_FALSE(time_source_should_seek_ntp(PROTO_TIME_SOURCE_NTP));
+}
+
+// Lo que ya hacia esp_sntp_stop(): la hora tecleada manda hasta el reinicio.
+void test_never_seeks_ntp_over_manual(void) {
+  TEST_ASSERT_FALSE(time_source_should_seek_ntp(PROTO_TIME_SOURCE_MANUAL));
+}
+
+// Solo NITZ y NTP traen un instante UTC medido por la red. RTC y MANUAL
+// devuelven lo que alguien guardo o tecleo, y la hora manual es hora LOCAL
+// con offset 0 (ver system_clock.cpp): su huso solo tiene sentido mientras
+// el epoch siga siendo el manual.
+void test_network_sources_are_nitz_and_ntp(void) {
+  TEST_ASSERT_TRUE(time_source_is_network(PROTO_TIME_SOURCE_NITZ));
+  TEST_ASSERT_TRUE(time_source_is_network(PROTO_TIME_SOURCE_NTP));
+  TEST_ASSERT_FALSE(time_source_is_network(PROTO_TIME_SOURCE_NONE));
+  TEST_ASSERT_FALSE(time_source_is_network(PROTO_TIME_SOURCE_RTC));
+  TEST_ASSERT_FALSE(time_source_is_network(PROTO_TIME_SOURCE_MANUAL));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_unknown);
@@ -163,5 +210,11 @@ int main(int, char **) {
   RUN_TEST(test_invalid_epoch_does_not_clobber_good_time);
   RUN_TEST(test_reset_clears_rank);
   RUN_TEST(test_accepts_is_side_effect_free);
+  RUN_TEST(test_seeks_ntp_while_clock_is_unset);
+  RUN_TEST(test_seeks_ntp_over_an_rtc_seed);
+  RUN_TEST(test_seeks_ntp_over_nitz);
+  RUN_TEST(test_stops_seeking_once_ntp_set_the_clock);
+  RUN_TEST(test_never_seeks_ntp_over_manual);
+  RUN_TEST(test_network_sources_are_nitz_and_ntp);
   return UNITY_END();
 }

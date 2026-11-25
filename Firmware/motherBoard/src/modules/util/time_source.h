@@ -64,6 +64,18 @@ uint32_t time_source_epoch(void);
 
 bool time_source_known(void);
 
+// True si con el rango `origin` vigente merece la pena salir a buscar hora a
+// la red (SNTP por WiFi, NTP sobre PDP). La pregunta NO es "hay hora?": una
+// semilla del RTC del HMI pone hora al arrancar, y si eso bastaba para no
+// arrancar SNTP, lo que guardase el chip —derivado o tecleado en otro huso—
+// quedaba como verdad para siempre (IncuNest 353, ~2 h adelantada durante
+// semanas, 2026-11-25). Solo NTP y la hora manual dan la busqueda por cerrada.
+bool time_source_should_seek_ntp(Proto_TimeSource origin);
+
+// True para las fuentes que traen un instante UTC medido por la red (NITZ,
+// NTP). RTC y MANUAL devuelven lo que alguien guardo o tecleo.
+bool time_source_is_network(Proto_TimeSource src);
+
 #ifdef __cplusplus
 }
 #endif

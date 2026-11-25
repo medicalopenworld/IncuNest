@@ -34,6 +34,7 @@
 #include "civil_time.h"
 #include "modules/util/system_clock.h"
 #include "modules/util/therapy_off_edge.h"
+#include "modules/util/time_source.h"
 #include "modules/util/tz_source.h"
 #include <sys/time.h>
 
@@ -408,7 +409,7 @@ void GPRSEnsureTimeSynced() {
   static uint32_t s_lastAttemptMs = 0;
   if (s_synced) return;
 
-  // El reloj ya esta puesto: no hay nada que hacer aqui, gane quien gane.
+  // Ya hay una hora de fiar (NTP, manual o NITZ): no hay nada que hacer aqui.
   //
   // El mensaje decia "(WiFi NTP)" y era una suposicion, no un dato: esta rama
   // salta con el reloj puesto por CUALQUIER fuente. Se vio en banco el
@@ -416,7 +417,17 @@ void GPRSEnsureTimeSynced() {
   // otra vez con la hora sembrada desde el RTC del HMI. Mando a dos personas a
   // buscar un SNTP que nunca habia ocurrido. Ahora que time_source sabe de
   // verdad quien puso el reloj, se dice el rango y se acabo la adivinanza.
-  if (time(nullptr) >= (time_t)1609459200L) {
+  //
+  // "Puesto" ya no es "time() >= 2021": una semilla del RTC del HMI pone hora
+  // al arrancar y con aquella condicion esta funcion no hacia nada nunca mas,
+  // aunque el chip trajese ~2 h de mas (IncuNest 353, 2026-11-25). Sobre una
+  // semilla se sigue buscando NTP sobre PDP (NITZ no puede pisarla, rango
+  // menor). Con NITZ ya puesto se para, como antes: forzar NTP sobre PDP
+  // borraria la zona NITZ del modem (ver s_timeSyncedViaNtpFallback), y el
+  // SNTP por WiFi, si lo hay, ya lo mejora.
+  const Proto_TimeSource origin = systemClockSource();
+  if (!time_source_should_seek_ntp(origin) ||
+      origin == PROTO_TIME_SOURCE_NITZ) {
     s_synced = true;
     logModemData("[GPRS] -> clock already set, source rank " +
                  String((int)systemClockSource()));
@@ -442,11 +453,17 @@ void GPRSEnsureTimeSynced() {
   // por encima de NITZ— podria pisarlo.
   Proto_TimeSource src = PROTO_TIME_SOURCE_NONE;
 
-  if (modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
+  // tz llega en HORAS (TinyGSM ya divide por 4); civil_to_unix_utc() quiere
+  // CUARTOS. Antes se pasaba (int)tz: en CEST restaba 30 min en vez de 2 h.
+  int tzq = 0;
+  // NITZ solo si puede ganar: sobre una semilla del RTC seria rechazado igual.
+  if (time_source_accepts(PROTO_TIME_SOURCE_NITZ) &&
+      modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
                            &tz)) {
-    got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
+    got = tz_quarters_from_modem_hours(tz, &tzq) &&
+          civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
                             (unsigned)hour, (unsigned)minute,
-                            (unsigned)second, (int)tz, &epoch);
+                            (unsigned)second, tzq, &epoch);
     if (got) {
       src = PROTO_TIME_SOURCE_NITZ;
     } else {
@@ -461,9 +478,10 @@ void GPRSEnsureTimeSynced() {
     if (modem.NTPServerSync("pool.ntp.org", 0) == 1 &&
         modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
                              &tz)) {
-      got = civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
+      got = tz_quarters_from_modem_hours(tz, &tzq) &&
+            civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
                               (unsigned)hour, (unsigned)minute,
-                              (unsigned)second, (int)tz, &epoch);
+                              (unsigned)second, tzq, &epoch);
       if (got) {
         // Esta hora viene de pool.ntp.org, no de la red movil, aunque se lea
         // por el mismo AT+CCLK?: el CNTP de arriba acaba de reescribir el
@@ -556,15 +574,19 @@ void GPRSEnsureTimeZoneSynced() {
   }
   // Sin NITZ el SIM800 contesta con su fecha por defecto de 2004 y un tz que
   // no significa nada. Se valida la FECHA para decidir si creerse el offset.
+  // tz en HORAS (TinyGSM divide por 4); aqui todo va en CUARTOS. Antes se
+  // pasaba (int)tz: CET (+04 cuartos) se guardaba como 1 cuarto, UTC+0:15.
+  int tzq = 0;
   uint32_t epochProbe = 0;
-  if (!civil_to_unix_utc(year, (unsigned)month, (unsigned)day, (unsigned)hour,
-                         (unsigned)minute, (unsigned)second, (int)tz,
+  if (!tz_quarters_from_modem_hours(tz, &tzq) ||
+      !civil_to_unix_utc(year, (unsigned)month, (unsigned)day, (unsigned)hour,
+                         (unsigned)minute, (unsigned)second, tzq,
                          &epochProbe)) {
     logModemData("[GPRS] -> NITZ timezone not valid yet");
     return;
   }
 
-  if ((int)tz == 0) {
+  if (tzq == 0) {
     // Visto en banco con Movistar (2026-08-31): fecha/hora validas, pero el
     // campo de zona llega en 0. No es un dato de zona fiable, es lo que
     // mandan varios operadores cuando no rellenan ese campo — aceptarlo como
@@ -578,8 +600,8 @@ void GPRSEnsureTimeZoneSynced() {
     return;
   }
 
-  if (tz_source_set((int)tz, TZ_SOURCE_NITZ)) {
-    logModemData("[GPRS] -> timezone from NITZ: " + String((int)tz) +
+  if (tz_source_set(tzq, TZ_SOURCE_NITZ)) {
+    logModemData("[GPRS] -> timezone from NITZ: " + String(tzq) +
                  " quarter-hours");
   }
 }

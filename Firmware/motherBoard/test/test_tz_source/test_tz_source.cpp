@@ -213,6 +213,64 @@ void test_zone_survives_a_better_clock_source(void) {
   TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NITZ, tz_source_origin());
 }
 
+// --- El huso manual va atado al epoch manual ------------------------------
+//
+// La hora manual es hora LOCAL guardada como si fuera UTC, con huso 0 y
+// rango MANUAL. Ese huso 0 solo es verdad mientras el epoch siga siendo el
+// tecleado. Cuando NTP o NITZ ponen el UTC de verdad, un huso MANUAL a 0
+// dejaria la pantalla en UTC para siempre, porque nada pisa a MANUAL. En la
+// 353 venia ademas sembrado desde la NVS del HMI en cada arranque.
+void test_drop_manual_frees_the_zone(void) {
+  TEST_ASSERT_TRUE(tz_source_set(0, TZ_SOURCE_MANUAL));
+  tz_source_drop_manual();
+  TEST_ASSERT_FALSE(tz_source_known());
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NONE, tz_source_origin());
+  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_IP));
+  TEST_ASSERT_EQUAL_INT(4, tz_source_quarters());
+}
+
+void test_drop_manual_keeps_a_network_zone(void) {
+  TEST_ASSERT_TRUE(tz_source_set(4, TZ_SOURCE_NITZ));
+  tz_source_drop_manual();
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_NITZ, tz_source_origin());
+  TEST_ASSERT_EQUAL_INT(4, tz_source_quarters());
+
+  tz_source_reset();
+  TEST_ASSERT_TRUE(tz_source_set(-12, TZ_SOURCE_IP));
+  tz_source_drop_manual();
+  TEST_ASSERT_EQUAL_INT(TZ_SOURCE_IP, tz_source_origin());
+  TEST_ASSERT_EQUAL_INT(-12, tz_source_quarters());
+}
+
+// --- Unidades del huso del modem --------------------------------------------
+//
+// TinyGSM (TinyGsmTime.tpp) lee el AT+CCLK? en cuartos de hora y lo entrega
+// ya DIVIDIDO por 4, en horas: "+08" llega como 2.0. GPRS.cpp lo pasaba con un
+// (int) a civil_to_unix_utc() y a tz_source_set(), que esperan CUARTOS. En
+// CEST eso restaba 30 min en vez de 2 h (reloj +1 h 30) y pintaba UTC+0:30.
+void test_modem_hours_to_quarters(void) {
+  int q = 99;
+  TEST_ASSERT_TRUE(tz_quarters_from_modem_hours(2.0f, &q));
+  TEST_ASSERT_EQUAL_INT(8, q);
+  TEST_ASSERT_TRUE(tz_quarters_from_modem_hours(1.0f, &q));
+  TEST_ASSERT_EQUAL_INT(4, q);
+  TEST_ASSERT_TRUE(tz_quarters_from_modem_hours(0.0f, &q));
+  TEST_ASSERT_EQUAL_INT(0, q);
+  TEST_ASSERT_TRUE(tz_quarters_from_modem_hours(-3.5f, &q)); // Terranova
+  TEST_ASSERT_EQUAL_INT(-14, q);
+  TEST_ASSERT_TRUE(tz_quarters_from_modem_hours(5.75f, &q)); // Nepal
+  TEST_ASSERT_EQUAL_INT(23, q);
+  TEST_ASSERT_TRUE(tz_quarters_from_modem_hours(0.25f, &q));
+  TEST_ASSERT_EQUAL_INT(1, q);
+}
+
+void test_modem_hours_out_of_range_rejected(void) {
+  int q = 99;
+  TEST_ASSERT_FALSE(tz_quarters_from_modem_hours(14.25f, &q));
+  TEST_ASSERT_FALSE(tz_quarters_from_modem_hours(-12.25f, &q));
+  TEST_ASSERT_EQUAL_INT(99, q);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_starts_unknown);
@@ -238,5 +296,9 @@ int main(int, char **) {
   RUN_TEST(test_manual_counts_as_known);
   RUN_TEST(test_nitz_still_wins_the_zone_after_losing_the_clock);
   RUN_TEST(test_zone_survives_a_better_clock_source);
+  RUN_TEST(test_drop_manual_frees_the_zone);
+  RUN_TEST(test_drop_manual_keeps_a_network_zone);
+  RUN_TEST(test_modem_hours_to_quarters);
+  RUN_TEST(test_modem_hours_out_of_range_rejected);
   return UNITY_END();
 }

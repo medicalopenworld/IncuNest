@@ -41,6 +41,7 @@
 #include "system/power_rails.h"
 #include "modules/debug/debug_mode.h"
 #include "modules/service/service_hours.h"
+#include "modules/util/time_source.h"
 #include "modules/util/tz_source.h"
 #include "modules/util/ip_geoloc.h"
 #include "modules/util/wifi_dwell.h"
@@ -1818,17 +1819,24 @@ static RPC_Callback wifi_rpc_callbacks[] = {
 // La comprobación de reloj para el snapshot se hace ahora dentro de
 // ppgSnapshotPublish(), común a los dos transportes. Aquí solo queda el
 // arranque de SNTP, que sigue haciendo falta para tener hora por WiFi.
+//
+// La condición era "reloj antes de 2021". Con la semilla del RTC del HMI el
+// reloj ya tiene hora al arrancar, así que SNTP no se arrancaba NUNCA y lo
+// que guardase el chip quedaba como verdad para siempre (IncuNest 353, ~2 h
+// adelantada durante semanas, 2026-11-25). Ahora se arranca mientras nada
+// mejor que esa semilla haya fijado el reloj. Una sola vez: lwIP reintenta
+// por su cuenta y, una vez sincronizado, resincroniza solo cada hora, que
+// además corrige la deriva. Llamar a configTime() en cada vuelta (50 ms)
+// reiniciaba SNTP antes de que pudiera contestar.
 static void ensureWifiTimeStarted() {
   static bool s_requested = false;
   if (s_requested)
     return;
-  time_t now = 0;
-  time(&now);
-  if (now < 1609459200L) { // antes de 2021-01-01: aún no sincronizado
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    return; // reintenta en la siguiente vuelta hasta que SNTP conteste
-  }
   s_requested = true;
+  if (!time_source_should_seek_ntp(systemClockSource())) {
+    return; // NTP ya puso el reloj, o la hora es manual y manda
+  }
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 }
 
 // Zona horaria por WiFi, preguntando a quién sí la sabe.

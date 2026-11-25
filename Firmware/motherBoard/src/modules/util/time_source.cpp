@@ -37,3 +37,11 @@ Proto_TimeSource time_source_origin(void) { return s_origin; }
 uint32_t time_source_epoch(void) { return s_epoch; }
 
 bool time_source_known(void) { return s_origin != PROTO_TIME_SOURCE_NONE; }
+
+bool time_source_should_seek_ntp(Proto_TimeSource origin) {
+  return origin < PROTO_TIME_SOURCE_NTP;
+}
+
+bool time_source_is_network(Proto_TimeSource src) {
+  return src == PROTO_TIME_SOURCE_NITZ || src == PROTO_TIME_SOURCE_NTP;
+}
