@@ -440,6 +440,10 @@ void Communication_SendFtestConfirm(uint8_t id, bool ok);
 
 void Communication_SendProfileListReq(void);
 void Communication_SendProfileNew(const char *name, uint8_t gestWeeks);
+// HMI,PROFILE_SEX,<seq>,<1|2> (ISO/IEC 5218) right after the PROFILE_ACK of a
+// new baby. No reply. Nothing is sent for 0 ("not recorded": the board's
+// default), in training mode, or for a practice seq.
+void Communication_SendProfileSex(uint32_t seq, uint8_t sex);
 void Communication_SendProfileSelect(uint32_t seq);
 // 0 = SKIP. `stampOnSend`: sella la pesada para el recordatorio diario al
 // enviarla (asistente y pantalla Bebes, que no esperan respuesta). El dialogo

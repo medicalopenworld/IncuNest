@@ -711,8 +711,8 @@ void Training_Poll(void) {
     // Siguen valiendo el aborto por alarma e inactividad y la X del propio
     // dialogo.
     const BabyHistoryStep bh = BabyHistory_GetStep();
-    const bool babyKeypad =
-        bh == BH_NEW_NAME || bh == BH_NEW_GEST || bh == BH_NEW_WEIGHT;
+    const bool babyKeypad = bh == BH_NEW_NAME || bh == BH_NEW_SEX ||
+                            bh == BH_NEW_GEST || bh == BH_NEW_WEIGHT;
     const bool mainDialog = BabyWizard_IsOpen() || BabyExitDialog_IsOpen() ||
                             TimeDialog_IsOpen() || HelpDialog_IsOpen() ||
                             babyKeypad;

@@ -30,6 +30,7 @@ Publicados cuando cambia algo del perfil, y una vez al arrancar.
 | `baby_seq` | int | `0` = incubadora vacía |
 | `baby_name` | string | Escapado para JSON |
 | `baby_gest_weeks` | int | Edad gestacional |
+| `baby_sex` | int | ISO/IEC 5218: `0` no consta, `1` niño, `2` niña. Siempre presente (también `0`) |
 | `baby_weight_g` | int | Último peso conocido; `0` = nunca informado (SKIP) |
 | `baby_admission_epoch` | int | Unix UTC; `0` = sin hora sincronizada al ingresar |
 | `baby_kangaroo_count` | int | Salidas con la madre |
@@ -78,7 +79,7 @@ temporal; `baby_kangaroo_count` es el acumulado en ese instante.
 ### 3.3 Alta (registro de fin de estancia)
 ```json
 {"ts":1786700000000,"values":{
-  "baby_seq":7,"baby_name":"ANA","baby_gest_weeks":31,"baby_weight_g":1460,
+  "baby_seq":7,"baby_name":"ANA","baby_gest_weeks":31,"baby_sex":2,"baby_weight_g":1460,
   "baby_kangaroo_count":5,"baby_phototherapy_min":90,"baby_thermo_min":300,
   "baby_admission_epoch":1786000000,"baby_discharge_epoch":1786700000,
   "baby_outcome":1,"baby_stay_days":8}}

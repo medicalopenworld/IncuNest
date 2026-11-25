@@ -102,6 +102,7 @@ bool goalAlarmCenterClosed() { return !AlarmCenter_IsOpen(); }
 bool goalBabyHistoryOpen() { return BabyHistory_IsOpen(); }
 bool goalBabyHistoryClosed() { return !BabyHistory_IsOpen(); }
 bool goalNewBabyAtName() { return BabyHistory_GetStep() == BH_NEW_NAME; }
+bool goalNewBabyAtSex() { return BabyHistory_GetStep() == BH_NEW_SEX; }
 bool goalNewBabyAtGest() { return BabyHistory_GetStep() == BH_NEW_GEST; }
 bool goalNewBabyAtWeight() { return BabyHistory_GetStep() == BH_NEW_WEIGHT; }
 // Registro hecho y lista de vuelta (recargandose o ya pintada).
@@ -216,38 +217,47 @@ constexpr Step BABY_STEPS[] = {
          "une admission.",
          "Toca em BEBE NOVO, abaixo da lista de ativos, para registar uma "
          "admissao."),
-    FREE(&ui_ScreenMain, goalNewBabyAtGest,
-         "1/3 Nombre: escribe el nombre o las iniciales del bebe con el "
+    FREE(&ui_ScreenMain, goalNewBabyAtSex,
+         "1/4 Nombre: escribe el nombre o las iniciales del bebe con el "
          "teclado y pulsa CONTINUAR. Es como aparecera en la lista y en el "
          "historial.",
-         "1/3 Name: type the baby's name or initials on the keyboard and "
+         "1/4 Name: type the baby's name or initials on the keyboard and "
          "press CONTINUE. This is how it will appear in the list and the "
          "history.",
-         "1/3 Nom : saisissez le nom ou les initiales du bebe au clavier et "
+         "1/4 Nom : saisissez le nom ou les initiales du bebe au clavier et "
          "CONTINUER. C'est ainsi qu'il apparaitra dans la liste et "
          "l'historique.",
-         "1/3 Nome: escreve o nome ou as iniciais do bebe no teclado e toca "
+         "1/4 Nome: escreve o nome ou as iniciais do bebe no teclado e toca "
          "em CONTINUAR. E assim que aparecera na lista e no historico."),
+    FREE(&ui_ScreenMain, goalNewBabyAtGest,
+         "2/4 Sexo: toca NINO o NINA. Si no consta, NO CONSTA: el registro "
+         "sigue igual.",
+         "2/4 Sex: touch BOY or GIRL. If it is not recorded, NOT RECORDED: "
+         "the registration goes on the same.",
+         "2/4 Sexe : touchez GARCON ou FILLE. S'il n'est pas connu, NON "
+         "RENSEIGNE : l'enregistrement continue.",
+         "2/4 Sexo: toca em MENINO ou MENINA. Se nao consta, NAO REGISTADO: "
+         "o registo continua igual."),
     FREE(&ui_ScreenMain, goalNewBabyAtWeight,
-         "2/3 Semanas de gestacion al nacer (20 a 40): con ellas y el peso el "
+         "3/4 Semanas de gestacion al nacer (20 a 40): con ellas y el peso el "
          "equipo calcula cuanto calor necesita el bebe. CONTINUAR.",
-         "2/3 Gestational weeks at birth (20 to 40): with them and the weight "
+         "3/4 Gestational weeks at birth (20 to 40): with them and the weight "
          "the device computes how much warmth the baby needs. CONTINUE.",
-         "2/3 Semaines de gestation a la naissance (20 a 40) : avec le poids, "
+         "3/4 Semaines de gestation a la naissance (20 a 40) : avec le poids, "
          "l'appareil en deduit la chaleur dont le bebe a besoin. CONTINUER.",
-         "2/3 Semanas de gestacao ao nascer (20 a 40): com elas e o peso o "
+         "3/4 Semanas de gestacao ao nascer (20 a 40): com elas e o peso o "
          "equipamento calcula quanto calor precisa o bebe. CONTINUAR."),
     FREE(&ui_ScreenMain, goalNewBabyRegistered,
-         "3/3 Peso al ingreso en gramos y REGISTRAR; si aun no lo has pesado, "
+         "4/4 Peso al ingreso en gramos y REGISTRAR; si aun no lo has pesado, "
          "SIN PESO. Solo REGISTRAR crea el registro: hasta aqui la X no deja "
          "rastro. El bebe aparece en Activos.",
-         "3/3 Admission weight in grams and REGISTER; if not weighed yet, NO "
+         "4/4 Admission weight in grams and REGISTER; if not weighed yet, NO "
          "WEIGHT. Only REGISTER creates the record: until here the X leaves "
          "no trace. The baby appears under Active.",
-         "3/3 Poids a l'admission en grammes et ENREGISTRER ; pas encore "
+         "4/4 Poids a l'admission en grammes et ENREGISTRER ; pas encore "
          "pese : SANS POIDS. Seul ENREGISTRER cree le dossier ; jusqu'ici la "
          "X ne laisse aucune trace. Le bebe apparait dans Actifs.",
-         "3/3 Peso na admissao em gramas e REGISTAR; se ainda nao o pesaste, "
+         "4/4 Peso na admissao em gramas e REGISTAR; se ainda nao o pesaste, "
          "SEM PESO. So REGISTAR cria o registo: ate aqui o X nao deixa "
          "rasto. O bebe aparece em Ativos."),
     FREE(&ui_ScreenMain, goalBabyHistoryClosed,
@@ -376,15 +386,16 @@ constexpr Step AIR_STEPS[] = {
     // pantalla delante y avanza cuando el alumno pasa a la siguiente.
     FREE(&ui_ScreenMain, goalWizardAtWeight,
          "1/4 Bebe: la lista muestra los bebes registrados. Selecciona a ZOE. "
-         "Con un bebe real nuevo usarias BEBE NUEVO (nombre y semanas de "
-         "gestacion).",
+         "Con un bebe real nuevo usarias BEBE NUEVO (nombre, sexo y semanas "
+         "de gestacion).",
          "1/4 Baby: the list shows the registered babies. Select ZOE. With a "
-         "real new baby you would use NEW BABY (name and gestational weeks).",
+         "real new baby you would use NEW BABY (name, sex and gestational "
+         "weeks).",
          "1/4 Bebe : la liste montre les bebes enregistres. Selectionnez ZOE. "
-         "Pour un vrai nouveau bebe : NOUVEAU BEBE (nom et semaines de "
-         "gestation).",
+         "Pour un vrai nouveau bebe : NOUVEAU BEBE (nom, sexe et semaines "
+         "de gestation).",
          "1/4 Bebe: a lista mostra os bebes registados. Seleciona a ZOE. "
-         "Com um bebe real novo usarias BEBE NOVO (nome e semanas de "
+         "Com um bebe real novo usarias BEBE NOVO (nome, sexo e semanas de "
          "gestacao)."),
     FREE(&ui_ScreenMain, goalWizardAtAge,
          "2/4 Peso: introduce el peso de hoy en gramos. El peso y las semanas "

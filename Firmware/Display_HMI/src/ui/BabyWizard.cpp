@@ -9,6 +9,7 @@
 #include "state/training_mode.h"
 #include "ui.h"
 #include "ui/InputKeypad.h"
+#include "ui/SexPicker.h"
 
 // --- Shared state owned by UITask.cpp (same pattern CommTask.cpp uses) ---
 namespace {
@@ -18,6 +19,7 @@ enum class WizStep {
   RequestingList,
   ChooseBaby,
   EnterName,
+  EnterSex,
   EnterGest,
   WaitingNewAck,
   WaitingSelectAck,
@@ -55,6 +57,9 @@ char s_name[BABY_NAME_LEN_LOCAL] = "";
 // 0 = not provided yet. No clinical value is ever invented as a default:
 // every field is either typed by the user or recalled from a stored profile.
 uint8_t s_gestWeeks = 0;
+// Sexo al nacer (ISO/IEC 5218, 0 = no consta). Solo para un BEBE NUEVO: va en
+// HMI,PROFILE_SEX tras su PROFILE_ACK. Un bebe ya registrado conserva el suyo.
+uint8_t s_sex = 0;
 uint16_t s_weightGrams = 0;
 uint16_t s_ageDays = 0;
 bool s_rangeAgeKnown = false;
@@ -148,6 +153,7 @@ lv_obj_t *makeBtn(lv_obj_t *parent, const char *text, lv_event_cb_t cb,
 void showLoadingScreen();
 void showChooseBabyScreen();
 void showNameScreen();
+void showSexScreen();
 void showGestScreen();
 void showWeightScreen();
 void showAgeScreen();
@@ -297,6 +303,7 @@ bool trainingRefuse() {
 void onNewBabyClicked(lv_event_t *) {
   if (trainingRefuse()) return;
   s_name[0] = '\0';
+  s_sex = 0;
   showNameScreen();
   s_step = WizStep::EnterName;
 }
@@ -378,8 +385,8 @@ void onNameContinue(lv_event_t *) {
     UI_ShowToast(TR(STR_ENTER_A_NAME), 2500);
     return;
   }
-  showGestScreen();
-  s_step = WizStep::EnterGest;
+  showSexScreen();
+  s_step = WizStep::EnterSex;
 }
 
 void showNameScreen() {
@@ -391,11 +398,45 @@ void showNameScreen() {
   if (s_name[0] != '\0') lv_textarea_set_text(s_nameTa, s_name);
 }
 
+// ---------------- Step: sex at birth (three big buttons) ----------------
+// Un toque elige y avanza. NO CONSTA es una respuesta, no un SALTAR: el
+// asistente sigue y la terapia se activa igual.
+
+void onSexBack(lv_event_t *) {
+  showNameScreen();
+  s_step = WizStep::EnterName;
+}
+
+void onSexPicked(uint8_t sex) {
+  s_sex = sex;
+  showGestScreen();
+  s_step = WizStep::EnterGest;
+}
+
+void showSexScreen() {
+  clearContent();
+  setCardSize(false);
+  makeTitle(TR(STR_BABY_SEX));
+  lv_obj_t *row = SexPicker_Create(s_content, onSexPicked);
+  lv_obj_align(row, LV_ALIGN_CENTER, 0, -20);
+
+  lv_obj_t *back =
+      makeBtn(s_content, TR(STR_BACK_UC), onSexBack, lv_color_hex(0x888888));
+  lv_obj_set_size(back, 150, 56);
+  lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+
+  // Mismo escape que el resto de pasos: sin datos del bebe, control manual.
+  lv_obj_t *skip = makeBtn(s_content, TR(STR_SKIP_UC), onSkipClicked,
+                           lv_color_hex(0xE08800));
+  lv_obj_set_size(skip, 180, 56);
+  lv_obj_align(skip, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+}
+
 // ---------------- Step: gestational age (numeric keypad) ----------------
 
 void onGestBack(lv_event_t *) {
-  showNameScreen();
-  s_step = WizStep::EnterName;
+  showSexScreen();
+  s_step = WizStep::EnterSex;
 }
 
 void onGestContinue(lv_event_t *) {
@@ -681,6 +722,7 @@ static void openForTarget(WizTarget target) {
   s_desiredIsAir = (target == WizTarget::Air);
   s_seq = 0;
   s_gestWeeks = 0;
+  s_sex = 0;
   s_weightGrams = 0;
   s_ageDays = 0;
   s_hasUsableRange = false;
@@ -781,6 +823,7 @@ BabyWizardStep BabyWizard_GetStep() {
     case WizStep::RequestingList:
     case WizStep::ChooseBaby: return BW_PICKER;
     case WizStep::EnterName:
+    case WizStep::EnterSex:
     case WizStep::EnterGest:
     case WizStep::WaitingNewAck:
     case WizStep::WaitingSelectAck: return BW_IDENTITY;
@@ -852,6 +895,9 @@ void BabyWizard_Poll() {
           showLoadingScreen();
         } else {
           s_seq = g_profileAck;
+          // Bebe nuevo: el sexo va ahora que hay seq. Sin respuesta (la placa
+          // no contesta a PROFILE_SEX) y antes del peso, que si la espera.
+          if (!answersSelect) Communication_SendProfileSex(s_seq, s_sex);
           s_sessionSeq = s_seq;
           s_identifiedThisRun = true;
           snprintf(s_sessionName, sizeof(s_sessionName), "%s", s_name);

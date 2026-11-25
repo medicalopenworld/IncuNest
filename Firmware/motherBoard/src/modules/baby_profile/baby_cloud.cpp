@@ -51,6 +51,10 @@ void appendCommonProfileKeys(char *buf, size_t len, int *pos, bool *ovf,
   appendJsonString(buf, len, pos, ovf, p->name);
   appendf(buf, len, pos, ovf, ",\"" BABY_GEST_AGE_KEY "\":%u",
           (unsigned)p->gestWeeks);
+  // Always present, also as 0: an omitted key keeps its previous value in
+  // ThingsBoard and the next baby would inherit this one's sex.
+  appendf(buf, len, pos, ovf, ",\"" BABY_SEX_KEY "\":%u",
+          (unsigned)baby_sex_sanitize(p->sex));
   appendf(buf, len, pos, ovf, ",\"" BABY_WEIGHT_KEY "\":%u",
           (unsigned)p->weightGrams);
   appendf(buf, len, pos, ovf, ",\"" BABY_KANGAROO_COUNT_KEY "\":%u",
@@ -150,7 +154,8 @@ int babyCloud_buildEmptyAttributesJson(uint32_t totalRegistered, char *buf,
   // ThingsBoard, which would leave a discharged baby on the status cards.
   appendf(buf, len, &pos, &ovf,
           "{\"" BABY_SEQ_KEY "\":0,\"" BABY_NAME_KEY "\":\"\","
-          "\"" BABY_GEST_AGE_KEY "\":0,\"" BABY_WEIGHT_KEY "\":0,"
+          "\"" BABY_GEST_AGE_KEY "\":0,\"" BABY_SEX_KEY "\":0,"
+          "\"" BABY_WEIGHT_KEY "\":0,"
           "\"" BABY_KANGAROO_COUNT_KEY "\":0,"
           "\"" BABY_PHOTO_MINUTES_KEY "\":0,"
           "\"" BABY_THERMO_MINUTES_KEY "\":0,"

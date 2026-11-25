@@ -554,6 +554,19 @@ bool babyStore_recordKangaroo(uint32_t seq) {
   return true;
 }
 
+bool babyStore_setSex(uint32_t seq, uint8_t sex) {
+  int i = baby_find_slot_by_seq(s_slots, seq);
+  if (i < 0) return false;
+  sex = baby_sex_sanitize(sex);
+  if (s_slots[i].sex == sex) return true; // no NVS write for a repeat
+  s_slots[i].sex = sex;
+  persistSlot(i);
+  s_attributesDirty = true;
+  s_telemetryDirty = true;
+  ESP_LOGI(TAG, "sex seq=%u sex=%u", (unsigned)seq, (unsigned)sex);
+  return true;
+}
+
 // Shared by both therapy counters: saturating add + persist, so neither can
 // wrap around to zero after a very long stay.
 static bool addTherapyMinutes(uint32_t seq, uint32_t minutes,

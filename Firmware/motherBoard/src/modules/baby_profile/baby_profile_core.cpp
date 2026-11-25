@@ -86,9 +86,16 @@ void baby_history_encode(const BabyProfile *p, bool valid,
   out[59] = p->cause;
 }
 
+uint8_t baby_sex_sanitize(uint8_t sex) {
+  return sex <= BABY_SEX_FEMALE ? sex : (uint8_t)BABY_SEX_UNKNOWN;
+}
+
 bool baby_history_decode(const uint8_t rec[BABY_HISTORY_RECORD_SIZE],
                          BabyProfile *out) {
   out->slotUsed = true;
+  // The 60-byte audit record has no room for it (and growing the record
+  // resets the whole clinical log): archived babies read back as unknown.
+  out->sex = BABY_SEX_UNKNOWN;
   out->seq = get_u32(rec + 1);
   memcpy(out->name, rec + 5, BABY_NAME_LEN);
   out->name[BABY_NAME_LEN - 1] = '\0';
