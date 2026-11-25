@@ -1434,17 +1434,17 @@ static void update_main_toggle_buttons() {
   ui_set_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
   ui_set_bg_color(ui_TempToggleBtn, t ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_TempToggleBtn, 0);
-  if (lbl) ui_set_label_text(lbl, t ? "TURN OFF" : "TURN ON");
+  if (lbl) ui_set_label_text(lbl, TR(t ? STR_TURN_OFF : STR_TURN_ON));
 
   ui_set_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
   ui_set_bg_color(ui_HumToggleBtn, h ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_HumToggleBtn, 0);
-  if (lbl) ui_set_label_text(lbl, h ? "TURN OFF" : "TURN ON");
+  if (lbl) ui_set_label_text(lbl, TR(h ? STR_TURN_OFF : STR_TURN_ON));
 
   ui_set_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_DEFAULT);
   ui_set_bg_color(ui_PhotoToggleBtn, p ? red : blue, LV_PART_MAIN | LV_STATE_PRESSED);
   lbl = lv_obj_get_child(ui_PhotoToggleBtn, 0);
-  if (lbl) ui_set_label_text(lbl, p ? "TURN OFF" : "TURN ON");
+  if (lbl) ui_set_label_text(lbl, TR(p ? STR_TURN_OFF : STR_TURN_ON));
 }
 
 void UI_ApplyLanguage(ui_lang_t lang) {
@@ -1510,6 +1510,9 @@ void UI_ApplyLanguage(ui_lang_t lang) {
   lv_label_set_text(ui_Label39, L(STR_PULSE_OXIMETRY));
   lv_dropdown_set_options(ui_LanguagesDropDown, L(STR_LANG_OPTIONS));
   lv_dropdown_set_selected(ui_LanguagesDropDown, lang);
+  // Los botones ACTIVAR/DESACTIVAR los reafirma UI_SyncAll cada segundo; asi
+  // cambian a la vez que el resto de textos.
+  update_main_toggle_buttons();
 
   // Fila y panel de MANTENIMIENTO. Las tres lineas de nivel no se traducen
   // aqui: las reconstruye maintenance_panel_refresh() al abrir el panel, que

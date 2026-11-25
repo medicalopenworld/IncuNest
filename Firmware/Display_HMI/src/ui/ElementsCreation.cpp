@@ -4617,7 +4617,7 @@ void create_photo_safety_popup() {
   lv_obj_add_event_cb(turnOnBtn, photo_turnon_cb, LV_EVENT_CLICKED, nullptr);
 
   ui_PhotoSafetyTurnOnLabel = lv_label_create(turnOnBtn);
-  lv_label_set_text(ui_PhotoSafetyTurnOnLabel, "TURN ON");
+  lv_label_set_text(ui_PhotoSafetyTurnOnLabel, TR(STR_PHOTO_SAFETY_TURN_ON));
   lv_obj_set_style_text_font(ui_PhotoSafetyTurnOnLabel, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(ui_PhotoSafetyTurnOnLabel, lv_color_hex(0x07111C), 0);
   lv_obj_center(ui_PhotoSafetyTurnOnLabel);
@@ -4664,7 +4664,7 @@ void create_main_toggle_buttons() {
   lv_obj_add_event_cb(ui_TempToggleBtn, TempToggleBtn_cb, LV_EVENT_CLICKED, NULL);
   {
     lv_obj_t *lbl = lv_label_create(ui_TempToggleBtn);
-    lv_label_set_text(lbl, "TURN ON");
+    lv_label_set_text(lbl, TR(STR_TURN_ON));
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
@@ -4685,7 +4685,7 @@ void create_main_toggle_buttons() {
   lv_obj_add_event_cb(ui_HumToggleBtn, HumToggleBtn_cb, LV_EVENT_CLICKED, NULL);
   {
     lv_obj_t *lbl = lv_label_create(ui_HumToggleBtn);
-    lv_label_set_text(lbl, "TURN ON");
+    lv_label_set_text(lbl, TR(STR_TURN_ON));
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
@@ -4706,7 +4706,7 @@ void create_main_toggle_buttons() {
   lv_obj_add_event_cb(ui_PhotoToggleBtn, PhotoToggleBtn_cb, LV_EVENT_CLICKED, NULL);
   {
     lv_obj_t *lbl = lv_label_create(ui_PhotoToggleBtn);
-    lv_label_set_text(lbl, "TURN ON");
+    lv_label_set_text(lbl, TR(STR_TURN_ON));
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(lbl);
