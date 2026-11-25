@@ -217,34 +217,20 @@ detalle del botón SHALL truncar con puntos si no cabe.
 
 *Verificación manual en banco.*
 
-### Requirement: Terapia acumulada visible en los paneles de Main
+### Requirement: Main no muestra la terapia acumulada
 
-Con sesión viva e identidad confirmada, y con minutos conocidos, el HMI SHALL
-mostrar en la cabecera de cada panel de terapia (temperatura, humedad,
-fototerapia) el acumulado de esa terapia para el bebé activo con el formato
-compacto, **en una sola línea y sin rótulo**, bajo el título de la cabecera y
-alineada como él. Sin sesión viva, sin confirmar o con minutos desconocidos,
-esas etiquetas SHALL ocultarse. La etiqueta SHALL NOT recibir toques ni solapar
-el título ni el botón de la cabecera, tampoco con `100h 5m` y el título francés.
+Las cabeceras de los paneles de terapia de Main (temperatura, humedad,
+fototerapia) SHALL NOT mostrar cuánto tiempo lleva cada terapia: solo su título
+y su botón. El acumulado de cada bebé SHALL seguir viéndose en el visor de
+bebés (historial). Decisión de producto del 25-nov-2026: en la pantalla
+principal no se quiere el tiempo de cada tratamiento.
 
-#### Scenario: Tres terapias con acumulados distintos
-- **GIVEN** un bebé confirmado con 200 min de termorregulación, 45 de humedad y
-  180 de fototerapia
+#### Scenario: Bebé con terapia en marcha
+- **GIVEN** un bebé confirmado con 200 min de termorregulación y 180 de
+  fototerapia
 - **WHEN** se mira Main
-- **THEN** los paneles muestran `3h 20m`, `45m` y `3h`
-
-*Verificación manual en banco, con las cuatro lenguas y con `100h 5m`, el peor
-caso de ancho.*
-
-#### Scenario: El valor avanza
-- **WHEN** una terapia lleva un minuto más en marcha
-- **THEN** la etiqueta se repinta con el minuto nuevo y no antes
-
-*Verificación manual en banco.*
-
-#### Scenario: Minutos desconocidos
-- **WHEN** no hay `pat_ther` válido ni lista que los siembre
-- **THEN** las etiquetas permanecen ocultas
+- **THEN** ninguna cabecera de panel muestra una duración
+- **AND** el visor de bebés sigue mostrando `3h 20m` y `3h`
 
 *Verificación manual en banco.*
 

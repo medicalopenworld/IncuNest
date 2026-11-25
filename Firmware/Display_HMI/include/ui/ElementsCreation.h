@@ -177,9 +177,6 @@ extern lv_obj_t * ui_HeadingPatientCont;
 extern lv_obj_t * ui_HeadingPatientName;
 extern lv_obj_t * ui_HeadingPatientDetail;
 // Terapia acumulada del bebe al mando, en la cabecera de cada panel de Main.
-extern lv_obj_t * ui_TempTotalLabel;
-extern lv_obj_t * ui_HumTotalLabel;
-extern lv_obj_t * ui_PhotoTotalLabel;
 extern lv_obj_t * ui_LockPatientName;
 extern lv_obj_t * ui_LockPatientDetail;
 extern lv_obj_t * ui_TempCont;
