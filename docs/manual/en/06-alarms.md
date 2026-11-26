@@ -60,7 +60,7 @@ Touch an alarm card to see what to do for that alarm. Press **CLOSE** to return.
 
 ## 6.3 Silencing an alarm
 
-Each card in the alarm centre has one button:
+Each card in the alarm centre has one of these buttons, depending on the alarm and its state:
 
 | Button | What it does |
 |---|---|
@@ -136,7 +136,7 @@ The screen can also show **BOARD LINK LOST**: the screen has lost contact with t
 |---|---|---|
 | **SKIN PROBE UNUSABLE** | In air mode, the skin probe was working and has stopped giving readings. Air control continues normally. | Check that the probe is attached and connected. |
 | **HUMIDITY DEVIATION** | The humidity is more than 10 % away from the set value. | Check the water level in the humidifier tank. |
-| **HIGH NOISE** | The noise level has been 65 dB or higher for 10 seconds. | Reduce the noise near the incubator: voices, equipment, alarms of other devices. |
+| **HIGH NOISE** | The noise level has been 65 dBA or higher for 10 seconds. | Reduce the noise near the incubator: voices, equipment, alarms of other devices. |
 
 ## 6.6 Heater or fan fault on the main screen
 

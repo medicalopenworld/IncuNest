@@ -21,7 +21,8 @@ When a reminder is due, it appears when you unlock the screen. You can also open
 The cleaning reminder shows the three cleaning levels. Each level shows **DUE NOW** or **up to date**, and the date it was last done.
 
 - After cleaning, press **DONE** for that level. The incubator records it and counts the next period from now.
-- Press **LATER** to be reminded again in 24 hours.
+- If the reminder appeared by itself when you unlocked the screen, press **LATER** to be reminded again in 24 hours. [PENDING: check on the bench; opened with OPEN REMINDER, the view shows only SERVICE and CLOSE.]
+- Press **CLOSE** to return without recording anything.
 - Scan the QR code with a phone camera to watch the cleaning and maintenance tutorials.
 
 ### Service reminder
@@ -113,8 +114,9 @@ Installation, repairs and servicing must be done only by authorised, qualified t
 To contact technical support:
 
 - Use **Menu > HELP > CONTACT SUPPORT** and scan the QR code with your phone. An email to technical support opens, with the incubator's serial number in the subject.
-    - With **WITH REPORT**, the email also contains the incubator's technical status. Type your question above it and send it.
-    - With **NO REPORT**, the email has only the recipient and the subject. Describe the problem in the email.
+    - By default, the email also contains the incubator's technical status. Type your question above it and send it.
+    - If you press **NO REPORT** before scanning, the email has only the recipient and the subject. Describe the problem in the email.
+    - Press **BACK** to return to the help window.
 - Or write directly to technical support. [PENDING: the touchscreen uses support@medicalopenworld.org, the previous manual gave contact@medicalopenworld.org. Confirm the address.]
 
 ![Contact support](img/help_contact_qr_en.png)

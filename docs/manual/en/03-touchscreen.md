@@ -28,8 +28,8 @@ From left to right:
 | Connectivity | An icon and 0 to 4 bars showing the network connection. The incubator works normally without a connection. |
 | Lock button | Locks the screen (see 3.3). The ring around it fills during 20 seconds without touching the screen; when it is full, the screen locks by itself. |
 | Baby identity | When a baby has been registered: the baby's name and, on the second line, the corrected gestational age and days of life (for example "CGA 32+3 - 5d"). |
-| Menu button (three lines) | Opens the menu (see 3.4). |
 | Alarm button (bell) | A bell with a **green check** when there are no active alarms. With active alarms, a red badge shows how many. Either way, touching it opens the alarm centre (see chapter 6). |
+| Menu button (three lines) | Opens the menu (see 3.4). |
 
 If the screen loses contact with the control board for more than 5 seconds, a flashing **LINK LOST** label appears in the header and the measured values disappear. This is also an alarm: see chapter 6.
 

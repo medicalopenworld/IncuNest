@@ -30,7 +30,7 @@ You can press **SKIP** at any step. The incubator then starts the function witho
 
 5. **Age in days.** This step appears only when the incubator's clock is not set. Type the baby's age in days, from 0 to 365.
 
-6. **Summary.** Check the proposal and press **APPLY**, or **CANCEL**.
+6. **Summary.** Check the proposal and press **APPLY**. **SKIP** starts the function without the proposed temperature; **CANCEL** does not start it.
 
     ![Summary with proposed air temperature](img/wizard_summary_range_en.png)
 

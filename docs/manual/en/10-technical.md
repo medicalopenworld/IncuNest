@@ -137,6 +137,6 @@ For reference, the conditions that raise each alarm in the current firmware. Cha
 | HEATER SENSOR FAULT | The heater current sensor does not answer for 10 cycles | [PENDING: in the current firmware it does not clear.] |
 | SENSORBOARD LINK LOST | No signal from the sensor board for more than 90 s (60 s of grace at start-up) | The next signal arrives |
 | PHOTOTHERAPY LAMP FAULT | Lamp on and current below 0.05 A for 5 s | Current of 0.08 A or more, or lamp off |
-| HIGH NOISE | Noise of 65 dB or more for 10 s | Under 63 dB for 10 s |
+| HIGH NOISE | Noise of 65 dBA or more for 10 s | Under 63 dBA for 10 s |
 
 [PENDING: confirm these values against the firmware version of the cover before publishing, and how the air maximum is adjusted.]
