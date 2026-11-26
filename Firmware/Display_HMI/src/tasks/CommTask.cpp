@@ -83,6 +83,8 @@ uint32_t      g_timeAckResult  = 0;
 // --- Avisos de servicio por horas (CTRL,SERVICE) ---
 volatile bool g_pendingService = false;
 ServiceReport g_serviceReport  = {0, {}};
+volatile bool g_pendingFamily  = false;
+FamilyMsg     g_familyMsg      = {false, {0}};
 
 // --- Registro de alarmas ---
 volatile bool   g_pendingAlarmHistory = false;
@@ -1269,6 +1271,16 @@ static void parse_message(const char *line) {
       g_pendingService = true;
     } else {
       COMM_LOG("[COMM] CTRL,SERVICE malformada, descartada: %s\n", line);
+    }
+  } else if (strncmp(line, "CTRL,FAMILY,", 12) == 0) {
+    // CTRL,FAMILY,<0|1>,<url>. Entera o nada: una linea mala deja el ultimo
+    // mensaje valido.
+    FamilyMsg fam;
+    if (family_proto_parse(line, &fam)) {
+      g_familyMsg = fam;
+      g_pendingFamily = true;
+    } else {
+      COMM_LOG("[COMM] CTRL,FAMILY malformada, descartada: %s\n", line);
     }
   } else if (strncmp(line, "CTRL,TIME_ACK", 13) == 0) {
     unsigned result = 0;

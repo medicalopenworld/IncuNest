@@ -1526,3 +1526,7 @@ UI_STR(STR_TOUR_END,           "Fin del tutorial. Puedes repetirlo cuando "
                                "quiseres a partir do botao de ajuda. Em caso de "
                                "duvida, usa CONTACTAR O SUPORTE nesse mesmo "
                                "menu.")
+
+// ------------------------------------------- aviso "Coge mi mano" (bloqueo)
+UI_STR(STR_FAMILY_HOLDING, "Alguien esta cogiendo la mano de tu bebe", "Someone is holding your baby's hand", "Quelqu'un tient la main de votre bebe", "Alguem esta a segurar a mao do seu bebe")
+UI_STR(STR_FAMILY_SCAN,    "Escanea para verlo", "Scan to see", "Scannez pour voir", "Leia o codigo para ver")

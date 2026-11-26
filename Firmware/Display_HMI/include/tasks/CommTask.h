@@ -12,6 +12,7 @@
 #include "modules/comm/sb_env.h"
 #include "modules/comm/batt_report.h"
 #include "service_hours_proto.h"
+#include "family_proto.h"
 
 #define COMMUNICATION_DEBUG true
 #if COMMUNICATION_DEBUG
@@ -364,6 +365,9 @@ void Communication_SendAlarmHistoryReq(void);
 // ultima.
 extern volatile bool        g_pendingService;
 extern ServiceReport        g_serviceReport;
+// CTRL,FAMILY (aviso "Coge mi mano"): lo consume FamilyNotice_Poll().
+extern volatile bool        g_pendingFamily;
+extern FamilyMsg            g_familyMsg;
 void Communication_SendServiceReq(void);
 // Registra el servicio hecho de un actuador (ServiceActuator). No hace nada en
 // formacion. La placa contesta con un CTRL,SERVICE actualizado.
