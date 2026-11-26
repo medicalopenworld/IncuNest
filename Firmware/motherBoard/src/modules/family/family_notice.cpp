@@ -3,8 +3,12 @@
 #include <math.h>
 #include <string.h>
 
-static bool is_active(const FamilyNotice *f, uint32_t nowMs) {
-  return f->active && (int32_t)(f->deadlineMs - nowMs) > 0;
+// Unico lector del estado activo: al vencer el plazo BORRA la bandera. Sin eso,
+// tras ~24,8 dias de millis() (2^31 ms) la resta con signo volveria a dar
+// positivo y un aviso vencido reaparecería sin un nuevo hand_hold_until.
+static bool is_active(FamilyNotice *f, uint32_t nowMs) {
+  if (f->active && (int32_t)(f->deadlineMs - nowMs) <= 0) f->active = false;
+  return f->active;
 }
 
 void family_notice_init(FamilyNotice *f) {
@@ -16,6 +20,7 @@ void family_notice_on_hand_hold(FamilyNotice *f, double untilEpochMs, bool fromR
   if (!isfinite(untilEpochMs) || untilEpochMs <= 0.0) return;
   // ThingsBoard reenvia el ultimo valor en cada conexion: igual o anterior al
   // ultimo aplicado no cuenta nunca.
+  is_active(f, nowMs); // normaliza un plazo vencido antes de tocar el estado
   if (untilEpochMs <= f->lastApplied) return;
   // Se apunta ANTES de decidir, para que un duplicado posterior tampoco cuente
   // aunque este se ignore (hora no fiable, o ya pasado).

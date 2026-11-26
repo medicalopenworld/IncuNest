@@ -22,7 +22,7 @@ extern "C" {
 #define FAMILY_HOLD_UNTRUSTED_S (5u * 60u)
 
 struct FamilyNotice {
-  bool active;           // hay un plazo vigente (o vencido, aun sin recoger)
+  bool active;           // hay un plazo vigente (se borra al observar que vencio)
   uint32_t deadlineMs;   // fin del plazo en millis(); resta con signo, sin 0 magico
   double lastApplied;    // ultimo `hand_hold_until` visto (ms epoch), 0 = ninguno
   char url[FAMILY_URL_MAX + 1];
@@ -44,7 +44,8 @@ void family_notice_set_url(FamilyNotice *f, const char *url);
 // Alta confirmada: aviso apagado y URL olvidada. No reinicia `lastApplied`.
 void family_notice_on_discharge(FamilyNotice *f);
 
-// True si hay que mandar `*out`: el estado visible a `nowMs` (aviso activo, URL)
+// Hay que llamarla con regularidad (mucho menos de 2^31 ms entre llamadas) para
+// ver el vencimiento. True si hay que mandar `*out`: el estado visible a `nowMs` (aviso activo, URL)
 // difiere del ultimo mandado, o `force`. Si no, `*out` no se toca.
 bool family_notice_take_msg(FamilyNotice *f, uint32_t nowMs, bool force, FamilyMsg *out);
 

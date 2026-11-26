@@ -120,6 +120,26 @@ void test_millis_wraparound(void) {
   TEST_ASSERT_FALSE(take(&f, t0 + 300000u).notice);
 }
 
+void test_expired_notice_does_not_return_after_2_pow_31_ms(void) {
+  FamilyMsg m;
+  family_notice_on_hand_hold(&f, (E + 120) * 1000.0, false, E, true, 1000);
+  TEST_ASSERT_TRUE(family_notice_take_msg(&f, 1000 + 121000, false, &m));
+  TEST_ASSERT_FALSE(m.notice);
+  // ~24,8 dias despues la resta con signo volveria a dar positivo
+  const uint32_t later = 1000 + 121000 + 0x80000000u + 1u;
+  TEST_ASSERT_FALSE(take(&f, later).notice);
+  TEST_ASSERT_FALSE(family_notice_take_msg(&f, later, false, &m));
+}
+
+void test_expired_flag_cleared_before_extend(void) {
+  family_notice_on_hand_hold(&f, (E + 120) * 1000.0, false, E, true, 1000);
+  // vence sin que nadie llame a take_msg; un valor invalido/duplicado despues
+  // de 2^31 ms no debe resucitarlo
+  const uint32_t later = 1000 + 121000 + 0x80000000u + 1u;
+  family_notice_on_hand_hold(&f, (E + 120) * 1000.0, false, E, true, 1000 + 121000);
+  TEST_ASSERT_FALSE(take(&f, later).notice);
+}
+
 void test_invalid_until_no_state_change(void) {
   family_notice_on_hand_hold(&f, 0.0, false, E, true, 1000);
   family_notice_on_hand_hold(&f, -5.0, false, E, true, 1000);
@@ -144,6 +164,8 @@ int main(int, char **) {
   RUN_TEST(test_take_msg_only_on_change);
   RUN_TEST(test_take_msg_on_expiry);
   RUN_TEST(test_millis_wraparound);
+  RUN_TEST(test_expired_notice_does_not_return_after_2_pow_31_ms);
+  RUN_TEST(test_expired_flag_cleared_before_extend);
   RUN_TEST(test_invalid_until_no_state_change);
   return UNITY_END();
 }
