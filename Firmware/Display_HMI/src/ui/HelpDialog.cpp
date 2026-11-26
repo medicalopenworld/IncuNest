@@ -41,6 +41,9 @@ bool s_qrWithReport = true;
 // El menu se pinto con la tarjeta Familia (4 tarjetas) o sin ella (3). Poll()
 // lo usa para saber si la URL desaparecio con la vista de Familia abierta.
 bool s_menuHasFamily = false;
+// URL pintada en la vista de Familia: si el servidor la cambia (otra estancia)
+// con la vista abierta, Poll() la vuelve a pintar.
+char s_familyShown[FAMILY_URL_MAX + 1];
 char s_mailto[SUPPORT_MAILTO_MAX];
 
 lv_obj_t *s_overlay = nullptr;
@@ -248,12 +251,24 @@ void buildVideo() {
 void buildFamily() {
   makeTitle(TR(STR_HELP_FAMILY_TITLE));
 
+  // QR propio de 300 px: no depende del QR pequeno de la pantalla de bloqueo.
+  // Con una URL valida (<= 96 caracteres) no puede fallar; si fallara, sin QR
+  // se ensena la direccion escrita en vez de pedir que escaneen algo que no
+  // esta.
   const char *url = Family_Url();
+  strncpy(s_familyShown, url, sizeof(s_familyShown) - 1);
+  s_familyShown[sizeof(s_familyShown) - 1] = '\0';
   lv_obj_t *qr = makeQr(QR_SIZE, 20, 56);
-  lv_qrcode_update(qr, url, strlen(url));
-
-  makeWrapLabel(TR(STR_HELP_FAMILY_HINT), 360, 90, 380, &lv_font_montserrat_18,
-                lv_color_hex(0x0B2E4F));
+  if (lv_qrcode_update(qr, url, strlen(url)) == LV_RES_OK) {
+    makeWrapLabel(TR(STR_HELP_FAMILY_HINT), 360, 90, 380,
+                  &lv_font_montserrat_18, lv_color_hex(0x0B2E4F));
+  } else {
+    lv_obj_del(qr);
+    makeWrapLabel(TR(STR_HELP_OR_TYPE_URL), 20, 90, 720,
+                  &lv_font_montserrat_18, lv_color_hex(0x0B2E4F));
+    makeWrapLabel(url, 20, 124, 720, &lv_font_montserrat_20,
+                  lv_color_hex(0x0075EE));
+  }
 
   lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onBackToMenu,
                            lv_color_hex(0x888888));
@@ -393,12 +408,18 @@ void HelpDialog_Poll(void) {
     closeDialog();
     return;
   }
-  // La URL se fue (descarga, enlace perdido) con la vista de Familia abierta, o
-  // con el menu mostrando su tarjeta: volver al menu, reconstruido sin ella. No
-  // se reconstruye el menu cuando aparece una URL nueva: espera a la proxima
-  // apertura.
+  // La URL se fue (alta, el servidor la borro, enlace perdido) con la vista de
+  // Familia abierta, o con el menu mostrando su tarjeta: volver al menu,
+  // reconstruido sin ella. Que acabe un aviso no cuenta: la tarjeta depende
+  // solo de la URL. No se reconstruye el menu cuando aparece una URL nueva:
+  // espera a la proxima apertura.
   if (!Family_HasUrl() && (s_view == VIEW_FAMILY ||
                            (s_view == VIEW_MENU && s_menuHasFamily))) {
     showView(VIEW_MENU);
+    return;
+  }
+  // Otra URL (otra estancia) con la vista abierta: nunca el QR de la anterior.
+  if (s_view == VIEW_FAMILY && strcmp(Family_Url(), s_familyShown) != 0) {
+    showView(VIEW_FAMILY);
   }
 }

@@ -36,6 +36,14 @@ int s_shownLang = -1;
 // Enlace con la placa en la pasada anterior (para ver el flanco).
 bool s_prevLinkLost = false;
 
+// Peticiones de estado tras recuperar el enlace. Una placa vieja nunca manda
+// CTRL,FAMILY: se reintenta un numero acotado de veces y se para en cuanto
+// llega una linea CTRL,FAMILY.
+constexpr uint8_t REQ_STATE_TRIES = 3;
+constexpr uint32_t REQ_STATE_RETRY_MS = 3000;
+uint8_t s_reqLeft = 0;     // peticiones que faltan por mandar
+uint32_t s_reqLastMs = 0;  // lv_tick_get() de la ultima mandada
+
 // Una tarjeta que roba el toque dejaria sin abrir el deslizador de desbloqueo:
 // ni ella ni ningun hijo deben ser clicables ni desplazables.
 void makeInert(lv_obj_t *o) {
@@ -55,7 +63,10 @@ bool linkLost() { return Display_IsBoardLinkLost(); }
 
 bool hasNotice() { return s_msg.notice; }
 
-// Vuelca la URL al QR solo si cambio. false = no cupo (cae a modo TEXT).
+// Vuelca la URL al QR pequeno de la tarjeta solo si cambio. false = sin URL o
+// no cupo (la tarjeta cae a modo TEXT). Corre en cada pasada, haya aviso o no,
+// para que s_qrOk nunca se quede con el resultado de una URL vieja. Solo elige
+// TEXT o TEXT_QR en la pantalla de bloqueo: la ayuda pinta su propio QR.
 bool syncQr() {
   if (!s_qr) return false;
   if (s_msg.url[0] == '\0') {
@@ -118,6 +129,12 @@ void FamilyNotice_Init(lv_obj_t *lockScreen) {
   lv_obj_add_flag(s_card, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(s_card, UI_FLAG_KEEP_TEXT_COLOR);
   makeInert(s_card);
+  // Debajo del deslizador de desbloqueo (lo pisa ~28 px): se coloca en el
+  // indice de ui_UnlockCont, que sube uno. El resto de hijos de la pantalla
+  // conserva su orden relativo.
+  if (ui_UnlockCont && lv_obj_get_parent(ui_UnlockCont) == lockScreen) {
+    lv_obj_move_to_index(s_card, (int32_t)lv_obj_get_index(ui_UnlockCont));
+  }
 
   s_holdLbl = makeLabel(s_card, &lv_font_montserrat_26);
   s_scanLbl = makeLabel(s_card, &lv_font_montserrat_18);
@@ -147,28 +164,39 @@ void FamilyNotice_Poll(void) {
 
   // Flanco del enlace. Con el enlace caido se olvida el mensaje: la placa solo
   // reenvia CTRL,FAMILY al cambiar o ante UI_READY/REQ,STATE, asi que un aviso
-  // viejo no puede reaparecer solo. Al volver, una peticion de estado hace que
-  // la placa reenvie el aviso si sigue vigente. (Nadie mas pide estado al
-  // recuperar el enlace: Display_StateSync_Service solo corre mientras
-  // !g_stateSynced, y esa bandera no se baja nunca tras una caida.)
+  // viejo no puede reaparecer solo. Al volver, peticiones de estado (hasta
+  // REQ_STATE_TRIES, cada REQ_STATE_RETRY_MS) hacen que la placa reenvie el
+  // aviso y la URL. (Nadie mas pide estado al recuperar el enlace:
+  // Display_StateSync_Service solo corre mientras !g_stateSynced, y esa
+  // bandera no se baja nunca tras una caida.)
   const bool lost = linkLost();
   if (lost) {
     s_msg.notice = false;
     s_msg.url[0] = '\0';
     g_pendingFamily = false;  // un mensaje en vuelo tampoco vale
+    s_reqLeft = 0;
   } else if (s_prevLinkLost) {
-    Communication_RequestState();
+    s_reqLeft = REQ_STATE_TRIES;
+    s_reqLastMs = lv_tick_get() - REQ_STATE_RETRY_MS;  // la primera, ya
   }
   s_prevLinkLost = lost;
 
   if (g_pendingFamily) {
     g_pendingFamily = false;
     s_msg = g_familyMsg;
+    s_reqLeft = 0;  // la placa ya contesto: no hace falta insistir
+  }
+
+  if (s_reqLeft > 0 && lv_tick_elaps(s_reqLastMs) >= REQ_STATE_RETRY_MS) {
+    Communication_RequestState();
+    s_reqLastMs = lv_tick_get();
+    s_reqLeft--;
   }
 
   FamilyViewInputs in = {};
   in.notice = hasNotice();
-  in.hasUrl = in.notice && s_msg.url[0] != '\0' && syncQr();
+  // El QR pequeno se sincroniza haya aviso o no (ver syncQr).
+  in.hasUrl = syncQr();
   in.onLockScreen = (lv_scr_act() == ui_ScreenLock);
   in.anyAlarm = UI_IsAnyAlarmActive();
   in.linkLost = linkLost();
@@ -190,10 +218,10 @@ void FamilyNotice_Poll(void) {
 }
 
 bool Family_HasUrl(void) {
-  // Solo con QR dibujable: si lv_qrcode_update fallo (LV_RES_INV) no hay URL
-  // util para la Task 7.
-  return s_msg.notice && !linkLost() && s_msg.url[0] != '\0' &&
-         s_qrOk && strcmp(s_qrUrl, s_msg.url) == 0;
+  // URL guardada y enlace vivo, haya aviso o no: la tarjeta Familia de la
+  // ayuda es para que la enfermera ensene el QR a la madre al ingreso. No
+  // depende del QR pequeno de la tarjeta de bloqueo (la ayuda pinta el suyo).
+  return family_help_entry_visible(s_msg.url[0] != '\0', linkLost());
 }
 
 const char *Family_Url(void) { return Family_HasUrl() ? s_msg.url : ""; }

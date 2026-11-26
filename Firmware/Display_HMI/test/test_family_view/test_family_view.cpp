@@ -60,6 +60,16 @@ void test_help_entry(void) {
   TEST_ASSERT_TRUE(family_help_entry_visible(true, false));
   TEST_ASSERT_FALSE(family_help_entry_visible(false, false));
   TEST_ASSERT_FALSE(family_help_entry_visible(true, true));
+  TEST_ASSERT_FALSE(family_help_entry_visible(false, true));
+}
+
+// URL sin aviso (la madre ingresa y nadie le coge la mano todavia): la
+// tarjeta de bloqueo no sale, pero la ayuda si ofrece la tarjeta Familia.
+void test_url_without_notice_help_only(void) {
+  auto in = ok();
+  in.notice = false;
+  TEST_ASSERT_EQUAL(FAMILY_VIEW_HIDDEN, family_view_mode(&in));
+  TEST_ASSERT_TRUE(family_help_entry_visible(true, false));
 }
 
 int main(void) {
@@ -73,5 +83,6 @@ int main(void) {
   RUN_TEST(test_pulseox_hides);
   RUN_TEST(test_unlock_slider_hides);
   RUN_TEST(test_help_entry);
+  RUN_TEST(test_url_without_notice_help_only);
   return UNITY_END();
 }

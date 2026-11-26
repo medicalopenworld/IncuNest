@@ -19,7 +19,7 @@ typedef enum : uint8_t {
 
 typedef struct {
   bool notice;            // la placa dice que el aviso esta activo
-  bool hasUrl;            // hay URL valida para el QR
+  bool hasUrl;            // hay URL y su QR pequeno se pudo codificar
   bool onLockScreen;      // la pantalla de bloqueo es la visible
   bool anyAlarm;          // UI_IsAnyAlarmActive()
   bool linkLost;          // Display_IsBoardLinkLost()
@@ -29,7 +29,8 @@ typedef struct {
 
 FamilyViewMode family_view_mode(const FamilyViewInputs *in);
 
-// Entrada de ayuda con el QR: solo con URL y enlace vivo.
+// Entrada de ayuda con el QR: solo con URL guardada y enlace vivo. NO depende
+// del aviso: es para que la enfermera ensene el QR a la madre al ingreso.
 bool family_help_entry_visible(bool hasUrl, bool linkLost);
 
 #ifdef __cplusplus
