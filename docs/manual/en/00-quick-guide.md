@@ -4,10 +4,22 @@
 **2 pages — read them before using the incubator.** {{guide_rest}}
 :::
 
-This guide summarises daily use. It does not replace the Instructions for Use: everyone who uses the incubator must read them and be trained before first use. The numbers in brackets refer to the chapters of the Instructions for Use.
+This guide summarises daily use. It does not replace the Instructions for Use: everyone who uses the incubator must read them and be trained before first use.
 
 ::: warning
-**WARNING** Never leave the infant unattended. Check the infant and the skin probe at least every 10 minutes. The incubator does not raise alarms for SpO2 or pulse rate: it is not a patient monitor.
+**WARNING — Safety in brief**
+
+**Infant.** Never leave the infant unattended. Check the infant and the skin probe at least every 10 minutes. The incubator does not raise alarms for SpO2 or pulse rate: it is not a patient monitor.
+
+**Damage.** Do not use the incubator if it is damaged or smells of burning: disconnect it from the power supply and contact technical support.
+
+**Oxygen and fire.** Always use an oxygen analyser. Give oxygen only through the inlet on the front panel. Keep flammable substances and anything that can produce sparks away from the incubator.
+
+**Flammable disinfectants.** After cleaning with alcohol, ventilate the chamber and let it evaporate completely before you switch the heater on or connect oxygen.
+
+**Cover.** Keep the cover and the access ports closed while the incubator is controlling temperature.
+
+**Training mode.** It really heats the chamber and switches the lamp on: use it only with the chamber empty.
 :::
 
 ## Before each use
@@ -25,9 +37,9 @@ This guide summarises daily use. It does not replace the Instructions for Use: e
 4. Check the proposed temperature and press **APPLY** (see section 5.1).
 5. Place the infant on the mattress and close the cover and the access ports.
 
-![Temperature control on in air mode](img/main_air_mode_on_en.png){width=7cm}
-
 To change the air temperature, use the arrows next to **SET** (0.2 °C per touch).
+
+**Skin mode.** Attach the skin probe to the infant's abdomen with an adhesive patch. Never use it as a rectal probe. Check the core temperature regularly with a clinical thermometer: in skin mode the incubator cannot tell fever from hypothermia (see section 5.4).
 
 ## Phototherapy
 
@@ -38,9 +50,9 @@ To change the air temperature, use the arrows next to **SET** (0.2 °C per touch
 
 ## Lock screen
 
-The screen locks after 20 seconds. It shows the temperatures and, with the SpO2 probe applied, the pulse wave, PR, SpO2 and PI. To unlock, touch the screen and **press and hold** the message until its border fills.
+The screen locks after 20 seconds. It shows the temperatures, the humidity (if humidity control is enabled) and, with the SpO2 probe applied, the pulse wave, PR, SpO2 and PI. To unlock, touch the screen and **press and hold** the message until its border fills.
 
-![Lock screen with vital signs](img/lock_screen_spo2_en.png){width=7cm}
+![Lock screen with vital signs](img/lock_screen_spo2_en.png){width=5.5cm}
 
 ## If an alarm sounds
 
@@ -48,6 +60,7 @@ The screen locks after 20 seconds. It shows the temperatures and, with the SpO2 
 2. Touch the bell (or **STATUS** on the lock screen) to open the alarm centre. Touch the alarm to see what to do (see chapter 6).
 3. **SILENCE** pauses the sound for 10 minutes. It does not solve the cause.
 4. If the TEMPERATURE block has disappeared, the heater or the fan has failed: move the infant to another warm environment and contact technical support.
+5. If the values disappear and **LINK LOST** flashes in the header, check the infant and switch the incubator off and on (see section 6.5).
 
 | Mark | Priority | Sound |
 |---|---|---|
@@ -57,7 +70,7 @@ The screen locks after 20 seconds. It shows the temperatures and, with the SpO2 
 
 ## When the infant leaves
 
-Switch all functions off. The incubator asks whether the baby is **WITH THE MOTHER** or has been **DISCHARGED**. After a discharge, clean the incubator completely (see chapter 7).
+Switch all functions off. The incubator asks whether the baby is **WITH THE MOTHER** or has been **DISCHARGED**. After a discharge, clean the incubator completely (see chapter 7). To switch the incubator off, press and hold the power button until the ring on the screen is complete (see section 5.11).
 
 ## Cleaning
 
@@ -69,6 +82,7 @@ Switch all functions off. The incubator asks whether the baby is **WITH THE MOTH
 
 - **Menu > HELP**: tutorials on the screen, video tutorials and a QR code to email technical support.
 - Technical support: {{email}}.
+- Report serious incidents to the manufacturer and to your national competent authority.
 
 ::: guide-end
 **End of the quick guide.** {{guide_end}}
