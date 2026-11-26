@@ -1277,6 +1277,9 @@ UI_STR(STR_HELP_QR_NOTE_SHORT, "QR reducido: solo destinatario y asunto con el "
                                "email.")
 UI_STR(STR_HELP_NO_REPORT,     "SIN INFORME", "NO REPORT",   "SANS RAPPORT","SEM RELATORIO")
 UI_STR(STR_HELP_WITH_REPORT,   "CON INFORME", "WITH REPORT", "AVEC RAPPORT","COM RELATORIO")
+UI_STR(STR_HELP_FAMILY_TITLE, "FAMILIA", "FAMILY", "FAMILLE", "FAMILIA")
+UI_STR(STR_HELP_FAMILY_SUB,   "QR para la madre o el padre", "QR for the mother or father", "QR pour la mere ou le pere", "QR para a mae ou o pai")
+UI_STR(STR_HELP_FAMILY_HINT,  "Que la familia escanee este codigo con su movil", "Ask the family to scan this code with their phone", "Demandez a la famille de scanner ce code avec leur telephone", "Peca a familia para ler este codigo com o telemovel")
 
 // ------------------------------------------------------- tutorial guiado
 //

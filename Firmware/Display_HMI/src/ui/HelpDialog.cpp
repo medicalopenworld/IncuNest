@@ -8,13 +8,15 @@
 #include "UITask.h"
 #include "main.h"
 #include "modules/support/support_report.h"
+#include "modules/family/family_view.h"
 #include "ui.h"
+#include "ui/FamilyNotice.h"
 #include "ui/training/training.h"
 
 // --- Shared state owned by UITask.cpp (same pattern TimeDialog.cpp uses) ---
 namespace {
 
-enum View { VIEW_MENU, VIEW_VIDEO, VIEW_CONTACT };
+enum View { VIEW_MENU, VIEW_VIDEO, VIEW_CONTACT, VIEW_FAMILY };
 
 // Misma tarjeta que TimeDialog/BabyWizard: el operador ya conoce ese cuadro.
 constexpr lv_coord_t CARD_W = 780, CARD_H = 460;
@@ -36,6 +38,9 @@ View s_view = VIEW_MENU;
 // El informe se puede quitar del QR (boton SIN INFORME) si el movil no lee
 // uno tan denso; con solo destinatario y asunto queda en la version ~5.
 bool s_qrWithReport = true;
+// El menu se pinto con la tarjeta Familia (4 tarjetas) o sin ella (3). Poll()
+// lo usa para saber si la URL desaparecio con la vista de Familia abierta.
+bool s_menuHasFamily = false;
 char s_mailto[SUPPORT_MAILTO_MAX];
 
 lv_obj_t *s_overlay = nullptr;
@@ -133,6 +138,7 @@ void refreshQr();
 void onClose(lv_event_t *) { closeDialog(); }
 void onBackToMenu(lv_event_t *) { showView(VIEW_MENU); }
 void onVideo(lv_event_t *) { showView(VIEW_VIDEO); }
+void onFamily(lv_event_t *) { showView(VIEW_FAMILY); }
 
 void onContact(lv_event_t *) {
   s_qrWithReport = true;
@@ -151,12 +157,13 @@ void onToggleReport(lv_event_t *) {
 
 // ---- Vistas -----------------------------------------------------------------
 
-lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
-                     const char *subtitle, lv_event_cb_t cb, lv_color_t bg) {
+lv_obj_t *makeOption(lv_coord_t x, lv_coord_t w, const char *symbol,
+                     const char *title, const char *subtitle, lv_event_cb_t cb,
+                     lv_color_t bg) {
   // Desde y=56: el boton X de la tarjeta ocupa la esquina superior derecha
   // (0..46) y pisaba la tercera tarjeta.
   lv_obj_t *btn = lv_btn_create(s_content);
-  lv_obj_set_size(btn, 236, 318);
+  lv_obj_set_size(btn, w, 318);
   lv_obj_align(btn, LV_ALIGN_TOP_LEFT, x, 56);
   lv_obj_set_style_bg_color(btn, bg, LV_PART_MAIN);
   lv_obj_set_style_radius(btn, 14, LV_PART_MAIN);
@@ -170,7 +177,7 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
 
   lv_obj_t *ttl = lv_label_create(btn);
   lv_label_set_long_mode(ttl, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(ttl, 210);
+  lv_obj_set_width(ttl, w - 26);
   lv_obj_set_style_text_align(ttl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(ttl, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(ttl, lv_color_hex(0xFFFFFF), 0);
@@ -179,7 +186,7 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
 
   lv_obj_t *sub = lv_label_create(btn);
   lv_label_set_long_mode(sub, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(sub, 210);
+  lv_obj_set_width(sub, w - 26);
   lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(sub, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(sub, lv_color_hex(0xF0F0F0), 0);
@@ -191,13 +198,29 @@ lv_obj_t *makeOption(lv_coord_t x, const char *symbol, const char *title,
 void buildMenu() {
   makeTitle(TR(STR_HELP_UC));
 
+  s_menuHasFamily =
+      family_help_entry_visible(Family_HasUrl(), Display_IsBoardLinkLost());
+  if (s_menuHasFamily) {
+    // 4 tarjetas de 178 con 16 de hueco: 4*178 + 3*16 = 760, justo los 760 del
+    // contenido.
+    makeOption(0, 178, LV_SYMBOL_LIST, TR(STR_HELP_TOUR_TITLE),
+               TR(STR_HELP_TOUR_SUB), onTour, lv_color_hex(0x0075EE));
+    makeOption(194, 178, LV_SYMBOL_VIDEO, TR(STR_HELP_VIDEO_TITLE),
+               TR(STR_HELP_VIDEO_SUB), onVideo, lv_color_hex(0x7B1FA2));
+    makeOption(388, 178, LV_SYMBOL_ENVELOPE, TR(STR_HELP_CONTACT_TITLE),
+               TR(STR_HELP_CONTACT_SUB), onContact, lv_color_hex(0x00897B));
+    makeOption(582, 178, LV_SYMBOL_IMAGE, TR(STR_HELP_FAMILY_TITLE),
+               TR(STR_HELP_FAMILY_SUB), onFamily, lv_color_hex(0x054E92));
+    return;
+  }
+
   // 3 tarjetas de 236 con 16 de hueco: 6 + 236 + 16 + 236 + 16 + 236 = 746,
   // dentro de los 760 del contenido.
-  makeOption(6, LV_SYMBOL_LIST, TR(STR_HELP_TOUR_TITLE),
+  makeOption(6, 236, LV_SYMBOL_LIST, TR(STR_HELP_TOUR_TITLE),
              TR(STR_HELP_TOUR_SUB), onTour, lv_color_hex(0x0075EE));
-  makeOption(258, LV_SYMBOL_VIDEO, TR(STR_HELP_VIDEO_TITLE),
+  makeOption(258, 236, LV_SYMBOL_VIDEO, TR(STR_HELP_VIDEO_TITLE),
              TR(STR_HELP_VIDEO_SUB), onVideo, lv_color_hex(0x7B1FA2));
-  makeOption(510, LV_SYMBOL_ENVELOPE, TR(STR_HELP_CONTACT_TITLE),
+  makeOption(510, 236, LV_SYMBOL_ENVELOPE, TR(STR_HELP_CONTACT_TITLE),
              TR(STR_HELP_CONTACT_SUB), onContact, lv_color_hex(0x00897B));
 }
 
@@ -215,6 +238,22 @@ void buildVideo() {
                 &lv_font_montserrat_14, lv_color_hex(0x666666));
   makeWrapLabel(url, 360, 258, 380, &lv_font_montserrat_16,
                 lv_color_hex(0x0075EE));
+
+  lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onBackToMenu,
+                           lv_color_hex(0x888888));
+  lv_obj_set_size(back, 150, 46);
+  lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+}
+
+void buildFamily() {
+  makeTitle(TR(STR_HELP_FAMILY_TITLE));
+
+  const char *url = Family_Url();
+  lv_obj_t *qr = makeQr(QR_SIZE, 20, 56);
+  lv_qrcode_update(qr, url, strlen(url));
+
+  makeWrapLabel(TR(STR_HELP_FAMILY_HINT), 360, 90, 380, &lv_font_montserrat_18,
+                lv_color_hex(0x0B2E4F));
 
   lv_obj_t *back = makeBtn(s_content, TR(STR_BACK_UC), onBackToMenu,
                            lv_color_hex(0x888888));
@@ -287,6 +326,9 @@ void buildContact() {
 
 void showView(View v) {
   if (!s_content) return;
+  // La URL pudo desaparecer entre medias (alta/baja, descarga, enlace): sin
+  // ella no hay QR que pintar.
+  if (v == VIEW_FAMILY && !Family_HasUrl()) v = VIEW_MENU;
   lv_obj_clean(s_content);
   forgetContent();
   s_view = v;
@@ -294,6 +336,7 @@ void showView(View v) {
     case VIEW_MENU: buildMenu(); break;
     case VIEW_VIDEO: buildVideo(); break;
     case VIEW_CONTACT: buildContact(); break;
+    case VIEW_FAMILY: buildFamily(); break;
   }
 }
 
@@ -348,5 +391,14 @@ void HelpDialog_Poll(void) {
   // ayuda olvidada se cierra sola para devolverle el control al auto-bloqueo.
   if (mustYield() || lv_disp_get_inactive_time(NULL) > HELP_IDLE_TIMEOUT_MS) {
     closeDialog();
+    return;
+  }
+  // La URL se fue (descarga, enlace perdido) con la vista de Familia abierta, o
+  // con el menu mostrando su tarjeta: volver al menu, reconstruido sin ella. No
+  // se reconstruye el menu cuando aparece una URL nueva: espera a la proxima
+  // apertura.
+  if (!Family_HasUrl() && (s_view == VIEW_FAMILY ||
+                           (s_view == VIEW_MENU && s_menuHasFamily))) {
+    showView(VIEW_MENU);
   }
 }
