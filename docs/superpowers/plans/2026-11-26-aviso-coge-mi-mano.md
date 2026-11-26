@@ -25,6 +25,7 @@
 - Textos en `include/ui/i18n_strings.def`, columnas es/en/fr/pt, **solo ASCII** (sin tildes, eñes ni cedillas).
 - Versiones: motherBoard `18.67.0` → `18.68.0` (`Firmware/motherBoard/include/main.h`), Display_HMI `4.12.2` → `4.13.0` (`Firmware/Display_HMI/include/main.h`). Si `dev` sube antes, rebasar y subir sobre lo que haya.
 - Commits como en el repo: `feat(mb): …`, `feat(hmi): …`, `feat(shared): …`, `docs(spec): …`, con `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **Contrato con el servidor** (revisión final, 26-nov): para quitar el QR, el servidor escribe `family_qr_url` = `""`; **nunca borra el atributo** (el SDK 0.13 entrega el borrado en vivo como `{"deleted":[…]}`, que la placa no ve; solo se nota al reconectar, cuando la respuesta a la petición no trae la clave y la placa olvida la URL). La URL se mantiene en ≲ 40 caracteres para que el QR de 105 px de la pantalla de bloqueo salga a ≥ 3 px por módulo.
 
 ## Review Focus
 
@@ -325,4 +326,8 @@ Sin código nuevo: comprobar en una IncuNest de banco (V18 o V19) con ambas plac
 - [ ] **Step 4:** reiniciar la placa base con el aviso vigente → vuelve solo si la hora es de red; con hora manual (Ajustes) no vuelve.
 - [ ] **Step 5:** dar de alta al bebé en la IncuNest → el QR y el aviso desaparecen en el acto y la tarjeta «Familia» se va.
 - [ ] **Step 6:** pantalla vieja (4.12.2) con placa nueva → nada nuevo en pantalla y ningún error visible; placa vieja con pantalla nueva → sin aviso.
+- [ ] **Step 6b:** con una URL y sin «Coge mi mano», abrir la ayuda → la tarjeta «Familia» está; dejar abierta la vista «Familia» hasta que acabe un aviso → sigue abierta.
+- [ ] **Step 6c:** borrar o vaciar `family_qr_url` en ThingsBoard y reconectar la IncuNest → el QR desaparece.
+- [ ] **Step 6d:** comprobar que el QR se lee y que no lo tapa el icono ámbar de audio en pausa ni su cuenta atrás (abajo a la derecha, capa superior) si hay una alarma silenciada.
+- [ ] **Step 6e:** comprobar que los subtítulos FR/PT de las cuatro tarjetas de la ayuda caben.
 - [ ] **Step 7:** archivar el cambio de openspec según `Firmware/openspec/config.yaml` y abrir el PR a `dev` con el resultado del banco en la descripción.
