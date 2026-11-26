@@ -16,3 +16,14 @@ struct HumEnBoot {
 
 // forced: la marca hum_en_frc ya existe. has_key/stored: estado de hum_en.
 HumEnBoot hum_en_on_boot(bool forced, bool has_key, uint8_t stored);
+
+// Equipos SIN hardware de humedad: compilar con -DHMI_HUMIDITY_FORCED_OFF=1.
+// Entonces el control de humedad queda deshabilitado en CADA arranque (no una
+// vez): aunque alguien lo active en Ajustes, al reiniciar vuelve a 0, porque en
+// esos equipos no hay nada que regular. Solo escribe si hum_en no es ya 0, para
+// no gastar la NVS en cada arranque. No toca la marca hum_en_frc.
+#ifndef HMI_HUMIDITY_FORCED_OFF
+#define HMI_HUMIDITY_FORCED_OFF 0
+#endif
+
+HumEnBoot hum_en_forced_off_on_boot(bool has_key, uint8_t stored);
