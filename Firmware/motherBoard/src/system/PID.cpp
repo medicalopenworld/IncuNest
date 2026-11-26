@@ -79,7 +79,9 @@ void PIDInit()
   skinControlPID.SetMode(MANUAL);
   humidityControlPID.SetMode(MANUAL);
   fanControlPID.SetMode(MANUAL);
-  fanControlPID.SetOutputLimits(0, PWM_MAX_VALUE);
+  // Suelo FAN_PID_MIN_DUTY (board.h): una medida de rpm corrupta no puede
+  // dejar el ventilador casi parado con el calefactor encendido.
+  fanControlPID.SetOutputLimits(FAN_PID_MIN_DUTY, PWM_MAX_VALUE);
   fanControlPID.SetSampleTime(PID_FAN_SAMPLE_TIME);
 }
 

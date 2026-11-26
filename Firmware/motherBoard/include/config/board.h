@@ -305,6 +305,27 @@
 // de temperatura del aire no dependen de esta alarma.
 #define FAN_FAILURE_SUSTAIN_MS 5000
 
+// Filtro de flancos del tacometro (modules/control/fan_tach.h). Incidencia de
+// campo, unidad 363 (2026-11-26): el calefactor conmutando metia pulsos
+// espurios en GPIO38 (solo pull-up interno), fan_rpm saltaba entre 0 y 7041
+// con el ventilador casi parado y el PID lo bajaba a duty 0.
+//   - FAN_TACH_SETTLE_US: la ISR espera esto y lee el pin; un pulso espurio
+//     mas corto ya ha terminado y se descarta. 10 us cubren la subida de un
+//     colector abierto con 45 kOhm y el cable (tau de unos 5 us). Cuesta 10 us
+//     de ISR por flanco: ~3 ms/s a 4000 rpm.
+//   - FAN_RPM_MAX_PLAUSIBLE: una subida que llega antes del periodo de este
+//     regimen no es del ventilador.
+#define FAN_TACH_SETTLE_US 10
+#define FAN_RPM_MAX_PLAUSIBLE 10000
+#define FAN_TACH_MIN_PERIOD_US   ((uint32_t)(2.0 * FAN_RPM_CONVERSION / FAN_RPM_MAX_PLAUSIBLE))
+
+// Suelo del duty que puede pedir el PID del ventilador. El punto de trabajo
+// para 4000 rpm en la flota va de 113 (V19) a 174 (V18 con el calefactor a
+// tope), asi que con una medida buena el suelo no toca nunca. Lo que impide es
+// que una medida mala (la de la 363) deje el ventilador practicamente parado
+// con el calefactor encendido: el PID no puede bajar de aqui.
+#define FAN_PID_MIN_DUTY 100
+
 // Closed-loop fan speed control (HW>=16, feedback-capable units only).
 #define FAN_TARGET_RPM 4000
 // Default for in3.fanPidEnabled (runtime-toggleable via /config and USB). When

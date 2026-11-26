@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "modules/control/alarm_machine.h"
+#include "modules/control/fan_tach.h"
 #include "modules/control/photo_slew.h"
 #include "modules/control/photo_fault.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
@@ -508,7 +509,9 @@ void fanSpeedHandler() {
   double fanEncoderPeriodFiltered;
   if (in3.fanEncoderUpdate) {
     in3.fanEncoderUpdate = false;
-    long rawPeriod = in3.fanEncoderPeriod[1] - in3.fanEncoderPeriod[0];
+    // Periodo COMPLETO (subida a subida) ya filtrado de pulsos espurios por
+    // fanEncoderISR() (ISR.cpp, modules/control/fan_tach.h).
+    long rawPeriod = (long)in3.fanTachPeriodUs;
     // The first edge after an idle gap pairs a fresh timestamp with one from
     // the last time the fan spun (possibly minutes old), producing a huge
     // bogus period. Fed into the stateful 6th-order Butterworth, that single
@@ -524,7 +527,7 @@ void fanSpeedHandler() {
     lastEncoderUpdate = millis();
     fanEncoderPeriodFiltered = filter_0(rawPeriod);
     if (fanEncoderPeriodFiltered) {
-      in3.fan_rpm = FAN_RPM_CONVERSION / fanEncoderPeriodFiltered;
+      in3.fan_rpm = fan_tach_rpm(fanEncoderPeriodFiltered, FAN_RPM_CONVERSION);
     }
   } else if (millis() - lastEncoderUpdate > FAN_UPDATE_TIME_MIN) {
     in3.fan_rpm = 0;

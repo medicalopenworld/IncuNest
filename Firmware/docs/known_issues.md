@@ -1332,7 +1332,7 @@ transmissions every 5-10 s.
     motherBoard buzzer) has not been identified, and a longer keepalive only
     makes it rarer.
 
-## 31. Fan alarm cycling when the heater turns on — FIXED (motherBoard 18.67.0, not yet benched)
+## 31. Fan alarm cycling when the heater turns on — mitigated (motherBoard 18.68.0, not yet verified on 363)
 
 Reported from the field on 2026-11-26 (motherBoard 18.52): when the heater
 turned on, the fan speed would not hold, `ALARM_FAN_FAILURE` fired and
@@ -1366,3 +1366,20 @@ regulation came back and the whole thing started again.
     simulation of the fan loop with `KP_FAN`/`KI_FAN` (a sag worth 100 duty
     counts, twice the bench one, dips below 3000 rpm for ~0.6 s). Bench with
     the heater cycling, and on a field unit with a weak supply, before closing.
+*   **18.67.0 on unit 363 (OTA, 2026-11-26) showed the sag was not the whole
+    story.** With the heater switching, `fan_rpm` jumped between 0 and 7041
+    while the fan PID drove the duty to 0-6 and `Fan_current` fell from
+    0.07 A to 0.04 A: the fan was *slower* than at rest while the reading said
+    faster. The tach on GPIO38 has only the ESP32 internal pull-up and the ISR
+    took every edge, so spurious pulses from the heater switching were read as
+    half-periods of microseconds. 18.67.0 stopped the alarm cycle but left the
+    fan nearly stopped with the heater on. Other V18 units heating in the same
+    month (358, 359, 361, 353) keep 3936-4103 rpm, so 363 picks up much more
+    noise (cable, connector or routing to check on site).
+*   **18.68.0**: `modules/control/fan_tach.h` (ISR waits 10 us and reads the
+    pin; an edge that does not change the level is dropped; only full
+    rising-to-rising periods above the 10000 rpm minimum count), fan PID duty
+    floor `FAN_PID_MIN_DUTY` = 100 (fleet working points 113-174), and
+    `/debug/state` exposes `tach_glitches` / `tach_period_us`. Benched on 353
+    (no tach noise): 3 min heating at duty 119-132, 3953-4083 rpm, 0 edges
+    dropped, no alarms, same as 18.66. Still to verify on a noisy unit (363).

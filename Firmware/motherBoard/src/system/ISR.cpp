@@ -26,6 +26,9 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "modules/control/fan_tach.h"
+#include "hal/gpio_ll.h"
+#include "esp_rom_sys.h"
 
 extern TwoWire *wire;
 extern MAM_IncuNest_Humidifier in3_hum;
@@ -138,11 +141,27 @@ void IRAM_ATTR encoderISR()
   }
 }
 
+// Tacometro del ventilador. Antes cada flanco CHANGE era un medio periodo, y
+// un pulso espurio de microsegundos (el calefactor conmutando, unidad 363)
+// valia decenas de miles de rpm. Ahora la ISR espera FAN_TACH_SETTLE_US, lee
+// el nivel del pin y pasa el flanco por fan_tach_edge(): solo publica periodos
+// completos (subida a subida) de flancos que cambian el nivel de verdad.
+// gpio_ll_get_level() y esp_rom_delay_us() son inline/ROM: seguros en IRAM.
+static FanTach s_fanTach = {false, false, false, 0, 0};
+
 void IRAM_ATTR fanEncoderISR()
 {
-  in3.fanEncoderUpdate = true;
-  in3.fanEncoderPeriod[0] = in3.fanEncoderPeriod[1];
-  in3.fanEncoderPeriod[1] = micros();
+  const uint32_t now = micros();
+  esp_rom_delay_us(FAN_TACH_SETTLE_US);
+  const bool level =
+      gpio_ll_get_level(&GPIO, (gpio_num_t)FAN_SPEED_FEEDBACK) != 0;
+  const uint32_t period =
+      fan_tach_edge(&s_fanTach, level, now, FAN_TACH_MIN_PERIOD_US);
+  in3.fanTachGlitches = s_fanTach.glitches;
+  if (period != 0) {
+    in3.fanTachPeriodUs = period;
+    in3.fanEncoderUpdate = true;
+  }
 }
 
 // encSwitchHandler() se retiro en el cambio que cableo el boton de silencio
