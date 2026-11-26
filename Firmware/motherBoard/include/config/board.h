@@ -317,7 +317,8 @@
 //     regimen no es del ventilador.
 #define FAN_TACH_SETTLE_US 10
 #define FAN_RPM_MAX_PLAUSIBLE 10000
-#define FAN_TACH_MIN_PERIOD_US   ((uint32_t)(2.0 * FAN_RPM_CONVERSION / FAN_RPM_MAX_PLAUSIBLE))
+#define FAN_TACH_MIN_PERIOD_US                                                 \
+  ((uint32_t)(2.0 * FAN_RPM_CONVERSION / FAN_RPM_MAX_PLAUSIBLE))
 
 // Suelo del duty que puede pedir el PID del ventilador. El punto de trabajo
 // para 4000 rpm en la flota va de 113 (V19) a 174 (V18 con el calefactor a

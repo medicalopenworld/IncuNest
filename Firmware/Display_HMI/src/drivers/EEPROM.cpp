@@ -60,8 +60,8 @@ static void applyHumEnPolicy() {
   p.begin(HMI_NS_CFG, false);
 #if HMI_HUMIDITY_FORCED_OFF
   // Build para equipos sin hardware de humedad (drivers/hum_en_policy.h).
-  const HumEnBoot off = hum_en_forced_off_on_boot(p.isKey(HMI_KEY_HUM_EN),
-                                                  p.getUChar(HMI_KEY_HUM_EN, 0));
+  const HumEnBoot off = hum_en_forced_off_on_boot(
+      p.isKey(HMI_KEY_HUM_EN), p.getUChar(HMI_KEY_HUM_EN, 0));
   if (off.write) {
     p.putUChar(HMI_KEY_HUM_EN, off.value);
     ESP_LOGI("HMI", "Control de humedad deshabilitado (build sin humedad)");

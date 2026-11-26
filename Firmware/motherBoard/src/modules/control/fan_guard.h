@@ -49,7 +49,7 @@ typedef struct {
   bool was_energised;
   bool have_energised_stamp;
   uint32_t energised_since_ms;
-  bool have_low_stamp;  // hay una caida por debajo de min_rpm en curso
+  bool have_low_stamp;   // hay una caida por debajo de min_rpm en curso
   uint32_t low_since_ms; // desde cuando, si have_low_stamp
 } FanGuard;
 

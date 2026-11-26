@@ -34,7 +34,8 @@ static void test_periodo_completo_entre_subidas(void) {
   now += HALF_US;
   TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, false, now, MIN_PERIOD_US));
   now += HALF_US;
-  TEST_ASSERT_EQUAL_UINT32(FULL_US, fan_tach_edge(&t, true, now, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(FULL_US,
+                           fan_tach_edge(&t, true, now, MIN_PERIOD_US));
 }
 
 static void test_la_primera_subida_no_da_periodo(void) {
@@ -46,13 +47,16 @@ static void test_pulso_espurio_ya_terminado_se_descarta(void) {
   // ha vuelto al nivel de antes. Los dos flancos del pulso llegan con el
   // MISMO nivel que el aceptado y no deben contar.
   uint32_t now = prime_rising(100000);
-  TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, true, now + 1500, MIN_PERIOD_US));
-  TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, true, now + 1503, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(0,
+                           fan_tach_edge(&t, true, now + 1500, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(0,
+                           fan_tach_edge(&t, true, now + 1503, MIN_PERIOD_US));
   TEST_ASSERT_EQUAL_UINT32(2, t.glitches);
   // Y el periodo real siguiente no se ha estropeado.
-  TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, false, now + HALF_US, MIN_PERIOD_US));
-  TEST_ASSERT_EQUAL_UINT32(FULL_US,
-                           fan_tach_edge(&t, true, now + FULL_US, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(
+      0, fan_tach_edge(&t, false, now + HALF_US, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(
+      FULL_US, fan_tach_edge(&t, true, now + FULL_US, MIN_PERIOD_US));
 }
 
 static void test_subida_imposible_de_rapida_no_da_periodo(void) {
@@ -60,12 +64,15 @@ static void test_subida_imposible_de_rapida_no_da_periodo(void) {
   // baja y sube de verdad, pero la "subida" llega a 1600 us de la anterior,
   // que serian 16700 rpm. No cuenta, y la referencia sigue siendo la real.
   uint32_t now = prime_rising(100000);
-  TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, false, now + 1580, MIN_PERIOD_US));
-  TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, true, now + 1600, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(0,
+                           fan_tach_edge(&t, false, now + 1580, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(0,
+                           fan_tach_edge(&t, true, now + 1600, MIN_PERIOD_US));
   TEST_ASSERT_EQUAL_UINT32(1, t.glitches);
-  TEST_ASSERT_EQUAL_UINT32(0, fan_tach_edge(&t, false, now + HALF_US, MIN_PERIOD_US));
-  TEST_ASSERT_EQUAL_UINT32(FULL_US,
-                           fan_tach_edge(&t, true, now + FULL_US, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(
+      0, fan_tach_edge(&t, false, now + HALF_US, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(
+      FULL_US, fan_tach_edge(&t, true, now + FULL_US, MIN_PERIOD_US));
 }
 
 static void test_rafaga_de_ruido_a_400hz_no_corrompe_la_medida(void) {
@@ -101,12 +108,13 @@ static void test_desbordamiento_de_micros(void) {
   // dando el periodo bueno.
   uint32_t now = prime_rising(0xFFFFFFFFu - 1000u);
   fan_tach_edge(&t, false, now + HALF_US, MIN_PERIOD_US);
-  TEST_ASSERT_EQUAL_UINT32(FULL_US,
-                           fan_tach_edge(&t, true, now + FULL_US, MIN_PERIOD_US));
+  TEST_ASSERT_EQUAL_UINT32(
+      FULL_US, fan_tach_edge(&t, true, now + FULL_US, MIN_PERIOD_US));
 }
 
 static void test_rpm_desde_periodo_completo(void) {
-  TEST_ASSERT_EQUAL_UINT32(4000, (uint32_t)(fan_tach_rpm(FULL_US, 13333333.0) + 0.5));
+  TEST_ASSERT_EQUAL_UINT32(4000,
+                           (uint32_t)(fan_tach_rpm(FULL_US, 13333333.0) + 0.5));
   TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)fan_tach_rpm(0, 13333333.0));
 }
 

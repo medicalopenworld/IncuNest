@@ -185,12 +185,13 @@ static void test_un_hundimiento_breve_no_declara_averia(void) {
   // El calefactor entra: 2 s por debajo del umbral mientras el PID compensa.
   for (int i = 0; i < 20; i++) {
     now += 100;
-    TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                      fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2600.0, now));
+    TEST_ASSERT_EQUAL(
+        FAN_GUARD_ABSENT,
+        fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2600.0, now));
   }
   now += 100;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 3900.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 3900.0, now));
 }
 
 static void test_un_ventilador_parado_se_declara_al_cumplirse_el_plazo(void) {
@@ -206,11 +207,12 @@ static void test_un_ventilador_parado_se_declara_al_cumplirse_el_plazo(void) {
                     fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
   // Y sigue declarada mientras no supere umbral + histeresis.
   now += 1000;
-  TEST_ASSERT_EQUAL(FAN_GUARD_PRESENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 3200.0, now));
+  TEST_ASSERT_EQUAL(
+      FAN_GUARD_PRESENT,
+      fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 3200.0, now));
   now += 100;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 3400.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 3400.0, now));
 }
 
 static void test_recuperarse_por_encima_del_umbral_reinicia_el_plazo(void) {
@@ -219,16 +221,16 @@ static void test_recuperarse_por_encima_del_umbral_reinicia_el_plazo(void) {
   now += 10;
   fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now);
   now += 4000;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
   now += 100;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 3500.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 3500.0, now));
   now += 100;
   fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now);
   now += 4000;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
 }
 
 static void test_el_plazo_cuenta_despues_de_la_gracia_de_arranque(void) {
@@ -252,16 +254,16 @@ static void test_desalimentar_reinicia_el_plazo(void) {
   fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now);
   now += 4000;
   // Corte de alimentacion y vuelta: la caida previa no cuenta.
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, false, 0.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       false, 0.0, now));
   now += 100;
   fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now);
   now += CFG_SOSTENIDO.spinup_grace_ms + 1;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
   now += 2000;
-  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
-                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now));
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
 }
 
 static void test_plazo_sostenido_cruzando_el_desbordamiento_de_millis(void) {

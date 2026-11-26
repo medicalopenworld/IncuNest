@@ -29,11 +29,11 @@
 #include <stdint.h>
 
 typedef struct {
-  bool have_level;        // hay un nivel aceptado
-  bool level;             // ultimo nivel aceptado
-  bool have_rise;         // hay una subida de referencia
-  uint32_t last_rise_us;  // micros() de esa subida
-  uint32_t glitches;      // flancos descartados (diagnostico)
+  bool have_level;       // hay un nivel aceptado
+  bool level;            // ultimo nivel aceptado
+  bool have_rise;        // hay una subida de referencia
+  uint32_t last_rise_us; // micros() de esa subida
+  uint32_t glitches;     // flancos descartados (diagnostico)
 } FanTach;
 
 static inline void fan_tach_init(FanTach *t) {

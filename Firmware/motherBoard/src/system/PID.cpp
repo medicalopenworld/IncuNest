@@ -218,16 +218,13 @@ void PIDHandler()
     const bool gateBlocked = ongoingCriticalAlarm();
     if (prevGateBlocked && !gateBlocked &&
         (airControlPID.GetMode() == AUTOMATIC ||
-         skinControlPID.GetMode() == AUTOMATIC))
-    {
+         skinControlPID.GetMode() == AUTOMATIC)) {
       in3.heaterSafeMAXPWM = HEATER_START_PWM;
       heaterRampSampleCounter = 0;
-      if (airControlPID.GetMode() == AUTOMATIC)
-      {
+      if (airControlPID.GetMode() == AUTOMATIC) {
         airControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM);
       }
-      if (skinControlPID.GetMode() == AUTOMATIC)
-      {
+      if (skinControlPID.GetMode() == AUTOMATIC) {
         skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM);
       }
       logI("[PID] -> Corte de calefactor levantado: vuelve en rampa desde " +
