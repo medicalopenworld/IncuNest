@@ -1,4 +1,9 @@
-# Protocolo de Comunicación IncuNest (v2.4.0)
+# Protocolo de Comunicación IncuNest (v2.5.0)
+
+> Nota (v2.5.0): nueva línea `CTRL,FAMILY,<0|1>,<url>` (aviso «Coge mi mano»
+> para las familias). **NO es breaking**: es un tipo de línea nuevo, así que
+> una pantalla antigua la descarta (solo un log) y una placa antigua nunca la
+> manda. Ver «CTRL,FAMILY» en los mensajes de la motherBoard.
 
 > Nota (v2.4.0): nuevo mensaje `HMI,PROFILE_SEX,seq,sex` con el sexo al nacer
 > del bebé (ISO/IEC 5218: `0` no consta, `1` niño, `2` niña). El HMI lo envía
@@ -665,6 +670,26 @@ Aviso de servicio por horas de uso de cada actuador con vida útil acotada. Es
 - Los contadores de vida útil (NVS `heater_t`, `fan_t`, `hum_t`, `photo_t`;
   telemetría `*_active_time`) NO se reinician al registrar un servicio y se
   siguen publicando tal cual a ThingsBoard.
+
+#### CTRL,FAMILY (Aviso «Coge mi mano» para la familia)
+Aviso a la familia de que puede coger la mano del bebé, con un QR opcional.
+Es **información, no una alarma**: no hay `AlarmId` ni suena el zumbador.
+**Formato**: `CTRL,FAMILY,<0|1>,<url>`
+- Campo 1: `1` aviso activo, `0` sin aviso. Cualquier otro valor invalida la
+  línea.
+- Campo 2: URL completa del QR (la decide el servidor, no el firmware); puede
+  ir vacía (`CTRL,FAMILY,1,`) = sin QR. Válida si empieza por `https://`, mide
+  9 a 96 caracteres, solo ASCII imprimible 0x21–0x7E y **sin coma** (viaja en
+  una línea CSV). Una URL no vacía e inválida descarta la línea entera.
+- Ejemplo: `CTRL,FAMILY,1,https://incutwin.org/f/7KQ2M9`
+- Se envía **solo al cambiar** y al recibir `HMI,UI_READY` o `HMI,REQ,STATE`;
+  nunca periódico (`known_issues.md` #2). No va dentro de `CTRL,STATE`.
+- El HMI descarta la línea entera si es malformada (flag no 0/1, campos de
+  menos o de más, URL inválida) y conserva el último estado válido.
+- Compatibilidad: línea nueva, no cambia ningún mensaje existente. Una pantalla
+  antigua la descarta con un log.
+- Definición compartida: `shared/include/family_proto.h`
+  (`family_proto_build` / `family_proto_parse`).
 
 ### 2. Mensajes del Display (HMI → MCU)
 
