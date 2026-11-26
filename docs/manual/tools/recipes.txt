@@ -1,0 +1,76 @@
+# Capture recipes for capture.py --auto (Display_HMI >= 4.11.0, firmware variant
+# hmi_screenshots). One line per capture: "name: step; step; ...".
+# Captures without a line here stay manual (the operator sets the screen up).
+#
+# Every recipe starts and must end on the main screen, unlocked, all functions
+# off, no popup open and NO ACTIVE BABY. Why no active baby:
+#   - with no active baby, turning on any function first asks "New or existing
+#     baby"; the recipes answer SKIP, so nothing is registered;
+#   - with an active baby, turning the last function off opens "Incubator idle"
+#     (WITH THE MOTHER / DISCHARGE), and the next touches would land on it.
+# The wizard registers the baby once the gestational age is confirmed, even if
+# it is then closed or cancelled, so the recipes that go that far discharge it.
+#
+# Steps:
+#   tap POINT | tap X Y      short touch (80 ms); POINT is a name from capture.py
+#   hold POINT MS            long touch, MS milliseconds
+#   type TEXT                letters on the name keyboard (wizard)
+#   num DIGITS               digits on the number pad (wizard)
+#   wait S                   wait S seconds (decimals allowed)
+#   ask TEXT                 ask the operator to do something, wait for Enter
+#   unlock                   wake the lock screen and hold the padlock (harmless
+#                            on the unlocked main screen; also run at the start)
+#   shot                     take the screenshot
+# After every touch the script waits --pause seconds (default 0.6) for animations.
+# Coordinates read from the English screenshots (800x480); run with --debug to
+# save a picture after every step.
+#
+# Observed on the bench (2026-11-25): BACK in Settings, and the X of the menu,
+# help, babies and weight-curve panels, all go straight to the main screen.
+# BACK in CONTACT SUPPORT goes back to HELP; the X of TREND goes back to the
+# alarm centre (2026-11-26).
+
+main_all_off: shot
+menu: tap menu; shot; tap close
+
+settings_info: tap menu; tap m_settings; tap s_info; shot; tap s_back
+settings_wifi: tap menu; tap m_settings; tap s_wifi; shot; tap s_back
+settings_language: tap menu; tap m_settings; tap s_lang; tap lang_dropdown; shot; tap lang_current; tap s_back
+settings_modes: ask Connect the skin probe; tap menu; tap m_settings; tap s_modes; wait 1; shot; tap s_back
+settings_modes_no_probe: ask Disconnect the skin probe; tap menu; tap m_settings; tap s_modes; wait 1; shot; tap s_back
+settings_maintenance: tap menu; tap m_settings; tap s_maint; shot; tap s_back
+maintenance_cleaning: tap menu; tap m_settings; tap s_maint; tap open_reminder; shot; tap clean_close; tap s_back
+maintenance_service: tap menu; tap m_settings; tap s_maint; tap open_reminder; tap clean_service; shot; tap service_close; tap s_back
+
+help_menu: tap menu; tap m_help; shot; tap close
+help_contact_qr: tap menu; tap m_help; tap h_contact; wait 1; shot; tap contact_back; tap close
+training_selector: tap menu; tap m_help; tap h_guided; shot; tap close
+
+main_air_mode_on: tap temp_on; tap wz_skip; wait 2; shot; tap temp_off
+lock_screen_air: tap temp_on; tap wz_skip; wait 2; tap lock; wait 2; shot; unlock; tap temp_off
+
+photo_safety_popup: tap photo_on; tap wz_skip; wait 1; shot; tap eye_turn_on; tap photo_off
+main_photo_on_continuous: tap photo_on; tap wz_skip; tap eye_turn_on; wait 1; shot; tap photo_off
+main_photo_timer_running: tap photo_on; tap wz_skip; tap eye_turn_on; tap photo_start; wait 2; shot; tap photo_stop; tap photo_off
+main_humidity_on: ask HUMIDITY CONTROL must be enabled in Settings > MODES; tap hum_on; tap wz_skip; wait 1; shot; tap hum_off
+
+# alarm_test_banner is manual: from the unlocked main screen the test sounds but
+# the ALARM TEST banner is not shown; the good capture was taken from the lock
+# screen (2026-11-26).
+# alarm_test_banner: tap bell; tap al_test; wait 0.5; shot; wait 5; tap al_close
+trend_4h: tap bell; tap al_trend; wait 2; shot; tap trend_close; tap al_close
+
+# Baby wizard: the two longest recipes register a baby and discharge it at the end
+# (reason UNKNOWN), so the history of the bench grows by two entries per run.
+wizard_name: tap temp_on; tap wz_new; type ZOE; shot; tap wz_close
+wizard_gest_age: tap temp_on; tap wz_new; type ZOE; tap wz_continue; num 30; shot; tap wz_close
+wizard_weight: tap temp_on; tap wz_new; type ZOE; tap wz_continue; num 30; tap wz_continue; shot; tap wz_close; tap menu; tap m_babies; tap bb_discharge; tap reason_unknown; tap bb_close
+wizard_summary_range: tap temp_on; tap wz_new; type ZOE; tap wz_continue; num 30; tap wz_continue; num 1350; tap wz_continue; wait 1; shot; tap sum_cancel; tap menu; tap m_babies; tap bb_discharge; tap reason_unknown; tap bb_close
+
+# Need registered babies with history and weights: run them by hand when the
+# bench has that data (they are not in the automatic run on purpose).
+# wizard_choose_baby needs an active baby to show in the list, which breaks the
+# "no active baby" rule of the automatic run.
+# wizard_choose_baby: tap temp_on; shot; tap wz_close_first
+# babies_list: tap menu; tap m_babies; shot; tap bb_close
+# babies_weight_curve: tap menu; tap m_babies; tap bb_first; wait 1; shot; tap curve_close

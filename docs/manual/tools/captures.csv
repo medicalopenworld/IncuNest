@@ -34,7 +34,7 @@ alarm_center_active,6.2,"Alarm centre with two active alarms (one HIGH, one MEDI
 alarm_center_silenced,6.3,"Alarm centre with one alarm silenced (AUDIO PAUSED, RESUME button)."
 alarm_detail_popup,6.2,"Alarm centre: touch an alarm card to open its description."
 alarm_center_log,6.2,"Alarm centre scrolled to the Log section with some entries."
-alarm_test_banner,6.4,"Alarm centre > TEST, while the ALARM TEST banner is shown."
+alarm_test_banner,6.4,"From the LOCK SCREEN: open the alarm centre and press TEST; capture while the ALARM TEST banner is shown (use w 2 and press TEST during the wait)."
 trend_4h,5.9,"Alarm centre > TREND, 4 h window. Needs hours of real data."
 babies_list,5.9,"Menu > REGISTERED BABIES (active and history)."
 babies_weight_curve,5.9,"REGISTERED BABIES > a baby > weight evolution."
