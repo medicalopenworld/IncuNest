@@ -33,6 +33,8 @@ bool s_qrOk = false;
 // Lo ultimo pintado: -1 = nada todavia, para forzar la primera pasada.
 int s_shownMode = -1;
 int s_shownLang = -1;
+// Enlace con la placa en la pasada anterior (para ver el flanco).
+bool s_prevLinkLost = false;
 
 // Una tarjeta que roba el toque dejaria sin abrir el deslizador de desbloqueo:
 // ni ella ni ningun hijo deben ser clicables ni desplazables.
@@ -51,8 +53,7 @@ lv_obj_t *makeLabel(lv_obj_t *parent, const lv_font_t *font) {
 
 bool linkLost() { return Display_IsBoardLinkLost(); }
 
-// Con el enlace perdido el estado es "sin aviso, sin URL".
-bool hasNotice() { return s_msg.notice && !linkLost(); }
+bool hasNotice() { return s_msg.notice; }
 
 // Vuelca la URL al QR solo si cambio. false = no cupo (cae a modo TEXT).
 bool syncQr() {
@@ -144,6 +145,22 @@ void FamilyNotice_Init(lv_obj_t *lockScreen) {
 void FamilyNotice_Poll(void) {
   if (!s_card) return;
 
+  // Flanco del enlace. Con el enlace caido se olvida el mensaje: la placa solo
+  // reenvia CTRL,FAMILY al cambiar o ante UI_READY/REQ,STATE, asi que un aviso
+  // viejo no puede reaparecer solo. Al volver, una peticion de estado hace que
+  // la placa reenvie el aviso si sigue vigente. (Nadie mas pide estado al
+  // recuperar el enlace: Display_StateSync_Service solo corre mientras
+  // !g_stateSynced, y esa bandera no se baja nunca tras una caida.)
+  const bool lost = linkLost();
+  if (lost) {
+    s_msg.notice = false;
+    s_msg.url[0] = '\0';
+    g_pendingFamily = false;  // un mensaje en vuelo tampoco vale
+  } else if (s_prevLinkLost) {
+    Communication_RequestState();
+  }
+  s_prevLinkLost = lost;
+
   if (g_pendingFamily) {
     g_pendingFamily = false;
     s_msg = g_familyMsg;
@@ -173,7 +190,10 @@ void FamilyNotice_Poll(void) {
 }
 
 bool Family_HasUrl(void) {
-  return s_msg.notice && !linkLost() && s_msg.url[0] != '\0';
+  // Solo con QR dibujable: si lv_qrcode_update fallo (LV_RES_INV) no hay URL
+  // util para la Task 7.
+  return s_msg.notice && !linkLost() && s_msg.url[0] != '\0' &&
+         s_qrOk && strcmp(s_qrUrl, s_msg.url) == 0;
 }
 
 const char *Family_Url(void) { return Family_HasUrl() ? s_msg.url : ""; }
