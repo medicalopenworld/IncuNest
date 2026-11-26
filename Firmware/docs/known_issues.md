@@ -1331,3 +1331,38 @@ transmissions every 5-10 s.
     couple into the audio path. Which transducer picks it up (HMI speaker or
     motherBoard buzzer) has not been identified, and a longer keepalive only
     makes it rarer.
+
+## 31. Fan alarm cycling when the heater turns on — FIXED (motherBoard 18.67.0, not yet benched)
+
+Reported from the field on 2026-11-26 (motherBoard 18.52): when the heater
+turned on, the fan speed would not hold, `ALARM_FAN_FAILURE` fired and
+temperature regulation stopped; the fan recovered, the alarm cleared,
+regulation came back and the whole thing started again.
+
+*   **Root cause (electrical)**: the heater pulls the supply voltage down, so
+    the fan loses speed until its PID raises the duty (bench, 2026-09-14: duty
+    137 with the heater off, 187 with the heater at 255 to hold 4000 rpm).
+*   **Why the firmware turned it into a loop**:
+    1.  `fan_guard` declared `ALARM_FAN_FAILURE` on a single sample below
+        `FAN_MIN_RPM` (3000). A transient dip during the sag was enough.
+    2.  `ALARM_FAN_FAILURE` cuts the heater (`alarm_cuts_heater()`), which
+        removes the sag, the fan recovers past 3300 rpm and the alarm clears.
+    3.  The heater gate in `PIDHandler()` multiplies the output by 0/1, so on
+        release the heater stepped from 0 to whatever the PID asked for
+        (often the maximum) in one millisecond: the largest possible sag, and
+        the dip that re-fires the alarm.
+*   **Fix**:
+    *   `fan_guard` only declares the failure after the rpm stays below
+        `FAN_MIN_RPM` for `FAN_FAILURE_SUSTAIN_MS` (5 s) in a row, counted
+        after the spin-up grace. Any sample at or above the threshold, or a
+        power cut, restarts the count. Clearing is unchanged (3300 rpm). A
+        stopped fan is still declared, 5 s later. Regression tests in
+        `test/test_fan_guard`.
+    *   When a heater-cutting alarm clears, `PIDHandler()` restarts the same
+        current-based ramp `startPID()` uses (`heaterSafeMAXPWM` from
+        `HEATER_START_PWM`), so the sag builds up gradually and the fan PID can
+        follow it.
+*   **Not verified on hardware**: the 5 s figure comes from a first-order
+    simulation of the fan loop with `KP_FAN`/`KI_FAN` (a sag worth 100 duty
+    counts, twice the bench one, dips below 3000 rpm for ~0.6 s). Bench with
+    the heater cycling, and on a field unit with a weak supply, before closing.

@@ -292,6 +292,18 @@
 #define FAN_CTL_PWM_DEFAULT 130
 #define FAN_MIN_RPM 3000            // minimum acceptable fan RPM when speed feedback is present
 #define FAN_MIN_RPM_HYSTERESIS 300  // rpm above FAN_MIN_RPM required to clear ALARM_FAN_FAILURE
+// ALARM_FAN_FAILURE solo se declara si las rpm siguen por debajo de FAN_MIN_RPM
+// este tiempo SEGUIDO (contado tras FAN_SPINUP_GRACE_MS). Incidencia de campo
+// en 18.52: al entrar el calefactor se hunde la tension de alimentacion, el
+// ventilador pierde vueltas un momento mientras su PID sube el duty, y una sola
+// muestra baja declaraba la averia. La alarma corta el calefactor, la tension
+// vuelve, la averia se retira, vuelve el calefactor... ciclo sin fin.
+// 5 s, como AIR_BLOCKED_SUSTAIN_MS: el PID recupera un hundimiento en <1-2 s
+// (simulado con KP_FAN/KI_FAN y un hundimiento de 100 cuentas de duty, el doble
+// del medido en banco con el calefactor a tope), y un ventilador parado de
+// verdad se sigue declarando, 5 s mas tarde. El corte termico y la desviacion
+// de temperatura del aire no dependen de esta alarma.
+#define FAN_FAILURE_SUSTAIN_MS 5000
 
 // Closed-loop fan speed control (HW>=16, feedback-capable units only).
 #define FAN_TARGET_RPM 4000

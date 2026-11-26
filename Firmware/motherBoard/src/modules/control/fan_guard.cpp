@@ -39,6 +39,7 @@ FanGuardOutcome fan_guard_update(FanGuard *g, const FanGuardConfig *cfg,
     // reinicia la histeresis para que el proximo arranque se juzgue con el
     // umbral limpio y no con el relajado.
     g->failure_present = false;
+    g->have_low_stamp = false;
     return FAN_GUARD_ABSENT;
   }
 
@@ -48,10 +49,22 @@ FanGuardOutcome fan_guard_update(FanGuard *g, const FanGuardConfig *cfg,
   }
 
   // Histeresis con el signo invertido respecto de un umbral normal, porque
-  // aqui alarma el valor BAJO: se declara por debajo de min_rpm y no se retira
-  // hasta superar min_rpm + hysteresis_rpm.
-  g->failure_present = g->failure_present
-                           ? (rpm < cfg->min_rpm + cfg->hysteresis_rpm)
-                           : (rpm < cfg->min_rpm);
+  // aqui alarma el valor BAJO: se declara por debajo de min_rpm (sostenido
+  // failure_sustain_ms) y no se retira hasta superar min_rpm + hysteresis_rpm.
+  if (g->failure_present) {
+    g->failure_present = (rpm < cfg->min_rpm + cfg->hysteresis_rpm);
+    if (!g->failure_present) {
+      g->have_low_stamp = false;
+    }
+  } else if (rpm < cfg->min_rpm) {
+    if (!g->have_low_stamp) {
+      g->have_low_stamp = true;
+      g->low_since_ms = now_ms;
+    }
+    g->failure_present =
+        (uint32_t)(now_ms - g->low_since_ms) >= cfg->failure_sustain_ms;
+  } else {
+    g->have_low_stamp = false; // se recupero: la proxima caida cuenta de cero
+  }
   return g->failure_present ? FAN_GUARD_PRESENT : FAN_GUARD_ABSENT;
 }
