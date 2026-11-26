@@ -37,6 +37,7 @@
 #include "PpgSnapshotPublish.h"
 #include "main.h"
 #include "modules/config/runtime_config_tb.h"
+#include "modules/family/family_tb.h"
 #include "tasks/CrashReporter.h"
 #include "system/power_rails.h"
 #include "modules/debug/debug_mode.h"
@@ -1963,6 +1964,16 @@ static constexpr size_t WIFI_RPC_CB_COUNT =
 static bool s_cfgSubscribed = false;
 static RuntimeConfigPubState s_cfgPub = {};
 
+// Aviso "Coge mi mano" (family_tb.h): su propia suscripcion unica por cliente y
+// sus dos callbacks (cambio en vivo / respuesta a la peticion de reconexion).
+static bool s_familySubscribed = false;
+static void family_on_update_wifi(JsonObjectConst const &data) {
+  family_state_apply_json(data, false);
+}
+static void family_on_request_wifi(JsonObjectConst const &data) {
+  family_state_apply_json(data, true);
+}
+
 // Growing wait between provisioning attempts that fail before the request is
 // out (5 s, 10 s ... 5 min, modules/util/retry_backoff). Until 18.63.0 there
 // was none: with a ThingsBoard host that does not resolve, WIFITBProvision()
@@ -2053,6 +2064,8 @@ void WIFI_TB_OTA() {
           runtime_config_tb_connected(tb_wifi, runtime_config_on_update_wifi,
                                   runtime_config_on_request_wifi, &s_cfgSubscribed,
                                   "WIFI");
+          family_tb_connected(tb_wifi, family_on_update_wifi,
+                              family_on_request_wifi, &s_familySubscribed);
           if (ENABLE_WIFI_OTA && !Wifi_TB.OTA_requested) {
             Wifi_TB.OTA_requested = true;
           }
