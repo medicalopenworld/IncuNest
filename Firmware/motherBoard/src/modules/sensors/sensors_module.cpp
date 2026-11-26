@@ -6,6 +6,7 @@
 #include "modules/control/alarm_machine.h"
 #include "modules/control/fan_tach.h"
 #include "modules/control/photo_slew.h"
+#include "modules/debug/debug_mode.h"
 #include "modules/control/photo_fault.h"
 #include "modules/sensorboard_comm/sensorboard_comm.h"
 #include "sensor_source.h"
@@ -507,6 +508,15 @@ SkinProbeReading skinProbeLastReading(void) { return s_lastSkinProbeReading; }
 
 void fanSpeedHandler() {
   double fanEncoderPeriodFiltered;
+  // Con fan_rpm simulada (modo depuracion) NO se escribe la medida real. La
+  // simulacion se aplica al final de la vuelta de sensors_Task
+  // (debug_sensors_apply(), main.cpp) y esta funcion corre al principio: entre
+  // las dos, checkFanSpeed() -otra tarea, cada 1 ms- leia la rpm REAL. Desde
+  // que la averia exige FAN_FAILURE_SUSTAIN_MS seguidos, una sola de esas
+  // lecturas reiniciaba la cuenta y la alarma simulada no saltaba nunca
+  // (known_issues #22). El filtro se sigue alimentando para que, al retirar
+  // la simulacion, la medida real vuelva ya asentada.
+  const bool simulated = debug_override_active(DEBUG_CH_FAN_RPM);
   if (in3.fanEncoderUpdate) {
     in3.fanEncoderUpdate = false;
     // Periodo COMPLETO (subida a subida) ya filtrado de pulsos espurios por
@@ -526,10 +536,10 @@ void fanSpeedHandler() {
     }
     lastEncoderUpdate = millis();
     fanEncoderPeriodFiltered = filter_0(rawPeriod);
-    if (fanEncoderPeriodFiltered) {
+    if (fanEncoderPeriodFiltered && !simulated) {
       in3.fan_rpm = fan_tach_rpm(fanEncoderPeriodFiltered, FAN_RPM_CONVERSION);
     }
-  } else if (millis() - lastEncoderUpdate > FAN_UPDATE_TIME_MIN) {
+  } else if (!simulated && millis() - lastEncoderUpdate > FAN_UPDATE_TIME_MIN) {
     in3.fan_rpm = 0;
   }
 }

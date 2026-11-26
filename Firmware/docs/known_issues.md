@@ -920,7 +920,7 @@ Expected convergence for the case above (seed 175, 1.06 A, target 0.45 A): the
 simulated loop goes 175 → 174 → 154 → 134 → 114 → 94 → 74 (the first high reading drops only 1 count, a second consecutive one allows the 20-count step, which filters a spurious reading), about 6 control cycles
 (~6 s) instead of 95 s. Not yet measured on the bench unit.
 
-## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
+## 22. `ventilador-se-retira` fails intermittently — and not because of the new library — FIXED (motherBoard 18.68.1)
 
 Surfaced while benching the move to incunest_afe4490 v0.94 (2026-09-23). The
 bench test fails in one of two timing steps, never the same one twice in a row:
@@ -946,6 +946,18 @@ worsening from v0.94 is not ruled out.
 40 s with the fan simulated stopped" may be the alarm, not the harness. Until
 it is known which, do not read a green `ventilador-se-retira` as proof that fan
 failure is always detected in time.
+
+**Cause (2026-11-26): the harness, not the alarm.** `fanSpeedHandler()` wrote
+the real rpm at the top of every `sensors_Task` pass and
+`debug_sensors_apply()` overwrote it with the simulated value at the bottom.
+`checkFanSpeed()` runs in another task every 1 ms and could read the real
+value in between, so the simulated failure flapped. Once the failure had to be
+sustained for 5 s (18.67.0, #31) a single real read restarted the count and
+the simulated alarm never fired at all. A fan that is really stopped is not
+affected: with no edges nothing rewrites the reading. Fix: while `fan_rpm` is
+overridden, `fanSpeedHandler()` does not write `in3.fan_rpm` (it keeps feeding
+the filter). Benched on 353 with 18.68.1: `ventilador-se-retira` 10/10, alarm
+5.6-5.9 s after the simulated stop.
 
 ## 23. Restarting the HMI was read as a patient discharge — FIXED (not yet benched)
 
@@ -1383,3 +1395,10 @@ regulation came back and the whole thing started again.
     `/debug/state` exposes `tach_glitches` / `tach_period_us`. Benched on 353
     (no tach noise): 3 min heating at duty 119-132, 3953-4083 rpm, 0 edges
     dropped, no alarms, same as 18.66. Still to verify on a noisy unit (363).
+*   **18.68.1 benched on 353 with simulated readings** (`/debug/sensor`):
+    fake 7000 rpm (what 363 reported) holds the duty at the floor of 100
+    instead of 0; a 3 s dip to 2500 rpm raises no alarm; a simulated stop
+    raises `ALARM_FAN_FAILURE` after 5.6-5.9 s and cuts the heater; when the
+    cut lifts the heater comes back on the ramp (`max_pwm` 13 -> 130 in 15 s,
+    supply 13.6 -> 12.3 V) with the fan at 3914-4087 rpm. `bench_tests.py`
+    against the motherBoard: 12 OK, 0 failed, 5 skipped (display tests).
