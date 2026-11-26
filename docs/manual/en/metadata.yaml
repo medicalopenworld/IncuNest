@@ -8,7 +8,7 @@ manual_subtitle: "Instructions for Use"
 header_text: "Low-cost neonatal incubator | User manual"
 
 hardware: "V19"
-firmware: "Display firmware 4.10 · Motherboard firmware 18.6x"
+firmware: "Display firmware 4.11 · Motherboard firmware 18.65"   # checked on the V19 bench, 2026-11-26; PENDING: release version (question 37)
 
 doc_ref: "IFU-INC-001"                            # PENDING: numbering scheme (decision 7)
 revision: "DRAFT"
