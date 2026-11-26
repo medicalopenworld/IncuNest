@@ -458,12 +458,11 @@ void GPRSEnsureTimeSynced() {
   int tzq = 0;
   // NITZ solo si puede ganar: sobre una semilla del RTC seria rechazado igual.
   if (time_source_accepts(PROTO_TIME_SOURCE_NITZ) &&
-      modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second,
-                           &tz)) {
-    got = tz_quarters_from_modem_hours(tz, &tzq) &&
-          civil_to_unix_utc(year, (unsigned)month, (unsigned)day,
-                            (unsigned)hour, (unsigned)minute,
-                            (unsigned)second, tzq, &epoch);
+      modem.getNetworkTime(&year, &month, &day, &hour, &minute, &second, &tz)) {
+    got =
+        tz_quarters_from_modem_hours(tz, &tzq) &&
+        civil_to_unix_utc(year, (unsigned)month, (unsigned)day, (unsigned)hour,
+                          (unsigned)minute, (unsigned)second, tzq, &epoch);
     if (got) {
       src = PROTO_TIME_SOURCE_NITZ;
     } else {
