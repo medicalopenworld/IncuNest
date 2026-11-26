@@ -4,14 +4,14 @@
 - [ ] 1.2 `shared/family_proto.h/.cpp` (`family_url_valid`, `family_proto_build`, `family_proto_parse`); comprobar que `pre_native.py` compila `shared/src`. `PROTOCOL.md`: sección «CTRL,FAMILY (Aviso «Coge mi mano» para la familia)» y nota de la versión v2.5.0 (no hay tabla de mensajes CTRL).
 - [ ] 1.3 Tests en rojo `test_family_notice`: reloj de red y plazo, tope de 30 min, pasado, ventana fija de 5 min, petición de reconexión, duplicado, extensión, URL mala, alta, solo al cambiar, vencimiento, desbordamiento de `millis()`.
 - [ ] 1.4 `modules/family/family_notice.*` y `+<modules/family/family_notice.cpp>` en el `build_src_filter` de `[env:native]`.
-- [ ] 1.5 `family_tb.h`, `family_state.*`, cableado en `GPRS.cpp`, `Wifi_OTA.cpp` y `CommTask.cpp` (alta, `UI_READY`/`REQ,STATE`, envío solo al cambiar); motherBoard `18.68.0`.
+- [ ] 1.5 `family_tb.h`, `family_state.*`, cableado en `GPRS.cpp`, `Wifi_OTA.cpp` y `CommTask.cpp` (alta, `UI_READY`/`REQ,STATE`, envío solo al cambiar); motherBoard `18.69.0`.
 - [ ] 1.6 `pio test -e native` en verde y `pio run -e IncuNest_V18 -e IncuNest_V19` compila.
 
 ## 2. Display_HMI
 
 - [ ] 2.1 Tests en rojo `test_family_view` (los 9 casos) y `modules/family/family_view.*` con su `+<...>` en `[env:native]`.
 - [ ] 2.2 Rama `CTRL,FAMILY,` en `CommTask.cpp` (una línea mala se descarta y queda la última válida), `ui/FamilyNotice.*`, `FamilyNotice_Init` en `ElementsCreation.cpp`, `FamilyNotice_Poll` en `UITask.cpp`.
-- [ ] 2.3 Textos en `i18n_strings.def` (es/en/fr/pt, solo ASCII), tarjeta "Familia" en `HelpDialog.cpp`; Display_HMI `4.13.0`.
+- [ ] 2.3 Textos en `i18n_strings.def` (es/en/fr/pt, solo ASCII), tarjeta "Familia" en `HelpDialog.cpp`; Display_HMI `4.14.0`.
 - [ ] 2.4 `pio run -e main -e hmi_screenshots` compila y `pio test -e native` en verde.
 
 ## 3. Prueba en banco (manual, sin entorno de test)

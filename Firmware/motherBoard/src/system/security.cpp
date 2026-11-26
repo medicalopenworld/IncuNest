@@ -891,7 +891,8 @@ void checkFanSpeed()
     guardReady = true;
   }
   static const FanGuardConfig cfg = {FAN_MIN_RPM, FAN_MIN_RPM_HYSTERESIS,
-                                     FAN_SPINUP_GRACE_MS};
+                                     FAN_SPINUP_GRACE_MS,
+                                     FAN_FAILURE_SUSTAIN_MS};
 
   // ALIMENTADO, no solo ordenado: son cosas distintas en cuanto hay una puerta
   // de alarma por medio (subtension, por ejemplo, mantiene fanCommandedOn en

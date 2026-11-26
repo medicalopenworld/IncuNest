@@ -727,7 +727,7 @@ Enviado cuando el usuario cambia un parámetro.
 
 #### HMI,REQ,STATE
 Solicitud manual de sincronización completa.
-- Desde Display_HMI 4.13.0 el HMI también lo manda al **recuperar el enlace**
+- Desde Display_HMI 4.14.0 el HMI también lo manda al **recuperar el enlace**
   con la placa (hasta 3 veces, cada 3 s, hasta que llega un `CTRL,FAMILY`),
   para que la placa reenvíe su estado, `CTRL,FAMILY` incluido.
 

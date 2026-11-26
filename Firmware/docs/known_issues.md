@@ -920,7 +920,7 @@ Expected convergence for the case above (seed 175, 1.06 A, target 0.45 A): the
 simulated loop goes 175 → 174 → 154 → 134 → 114 → 94 → 74 (the first high reading drops only 1 count, a second consecutive one allows the 20-count step, which filters a spurious reading), about 6 control cycles
 (~6 s) instead of 95 s. Not yet measured on the bench unit.
 
-## 22. `ventilador-se-retira` fails intermittently — and not because of the new library (OPEN)
+## 22. `ventilador-se-retira` fails intermittently — and not because of the new library — FIXED (motherBoard 18.68.1)
 
 Surfaced while benching the move to incunest_afe4490 v0.94 (2026-09-23). The
 bench test fails in one of two timing steps, never the same one twice in a row:
@@ -946,6 +946,18 @@ worsening from v0.94 is not ruled out.
 40 s with the fan simulated stopped" may be the alarm, not the harness. Until
 it is known which, do not read a green `ventilador-se-retira` as proof that fan
 failure is always detected in time.
+
+**Cause (2026-11-26): the harness, not the alarm.** `fanSpeedHandler()` wrote
+the real rpm at the top of every `sensors_Task` pass and
+`debug_sensors_apply()` overwrote it with the simulated value at the bottom.
+`checkFanSpeed()` runs in another task every 1 ms and could read the real
+value in between, so the simulated failure flapped. Once the failure had to be
+sustained for 5 s (#31) a single real read restarted the count and
+the simulated alarm never fired at all. A fan that is really stopped is not
+affected: with no edges nothing rewrites the reading. Fix: while `fan_rpm` is
+overridden, `fanSpeedHandler()` does not write `in3.fan_rpm` (it keeps feeding
+the filter). Benched on 353 with 18.68.1: `ventilador-se-retira` 10/10, alarm
+5.6-5.9 s after the simulated stop.
 
 ## 23. Restarting the HMI was read as a patient discharge — FIXED (not yet benched)
 
@@ -1331,3 +1343,68 @@ transmissions every 5-10 s.
     couple into the audio path. Which transducer picks it up (HMI speaker or
     motherBoard buzzer) has not been identified, and a longer keepalive only
     makes it rarer.
+
+## 31. Fan alarm cycling when the heater turns on — mitigated (motherBoard 18.68.2, not yet verified on 363)
+
+> **Version numbers.** This fix was developed as 18.67.0 / 18.68.0 / 18.68.1
+> on branch `fix/fan-pid-calefactor` while dev used 18.67.0 for the clock fix
+> (#55). Unit 363 was OTA'd with the *branch* 18.67.0 (ThingsBoard package
+> `IncuNest` 18.67.0 uploaded 2026-11-26 12:3x), which is NOT the dev 18.67.0.
+> The merged result is motherBoard 18.68.2 / Display_HMI 4.13.1.
+
+Reported from the field on 2026-11-26 (motherBoard 18.52): when the heater
+turned on, the fan speed would not hold, `ALARM_FAN_FAILURE` fired and
+temperature regulation stopped; the fan recovered, the alarm cleared,
+regulation came back and the whole thing started again.
+
+*   **Root cause (electrical)**: the heater pulls the supply voltage down, so
+    the fan loses speed until its PID raises the duty (bench, 2026-09-14: duty
+    137 with the heater off, 187 with the heater at 255 to hold 4000 rpm).
+*   **Why the firmware turned it into a loop**:
+    1.  `fan_guard` declared `ALARM_FAN_FAILURE` on a single sample below
+        `FAN_MIN_RPM` (3000). A transient dip during the sag was enough.
+    2.  `ALARM_FAN_FAILURE` cuts the heater (`alarm_cuts_heater()`), which
+        removes the sag, the fan recovers past 3300 rpm and the alarm clears.
+    3.  The heater gate in `PIDHandler()` multiplies the output by 0/1, so on
+        release the heater stepped from 0 to whatever the PID asked for
+        (often the maximum) in one millisecond: the largest possible sag, and
+        the dip that re-fires the alarm.
+*   **Fix**:
+    *   `fan_guard` only declares the failure after the rpm stays below
+        `FAN_MIN_RPM` for `FAN_FAILURE_SUSTAIN_MS` (5 s) in a row, counted
+        after the spin-up grace. Any sample at or above the threshold, or a
+        power cut, restarts the count. Clearing is unchanged (3300 rpm). A
+        stopped fan is still declared, 5 s later. Regression tests in
+        `test/test_fan_guard`.
+    *   When a heater-cutting alarm clears, `PIDHandler()` restarts the same
+        current-based ramp `startPID()` uses (`heaterSafeMAXPWM` from
+        `HEATER_START_PWM`), so the sag builds up gradually and the fan PID can
+        follow it.
+*   **Not verified on hardware**: the 5 s figure comes from a first-order
+    simulation of the fan loop with `KP_FAN`/`KI_FAN` (a sag worth 100 duty
+    counts, twice the bench one, dips below 3000 rpm for ~0.6 s). Bench with
+    the heater cycling, and on a field unit with a weak supply, before closing.
+*   **The first build of this fix on unit 363 showed the sag was not the whole
+    story.** With the heater switching, `fan_rpm` jumped between 0 and 7041
+    while the fan PID drove the duty to 0-6 and `Fan_current` fell from
+    0.07 A to 0.04 A: the fan was *slower* than at rest while the reading said
+    faster. The tach on GPIO38 has only the ESP32 internal pull-up and the ISR
+    took every edge, so spurious pulses from the heater switching were read as
+    half-periods of microseconds. That build stopped the alarm cycle but left the
+    fan nearly stopped with the heater on. Other V18 units heating in the same
+    month (358, 359, 361, 353) keep 3936-4103 rpm, so 363 picks up much more
+    noise (cable, connector or routing to check on site).
+*   **18.68.0**: `modules/control/fan_tach.h` (ISR waits 10 us and reads the
+    pin; an edge that does not change the level is dropped; only full
+    rising-to-rising periods above the 10000 rpm minimum count), fan PID duty
+    floor `FAN_PID_MIN_DUTY` = 100 (fleet working points 113-174), and
+    `/debug/state` exposes `tach_glitches` / `tach_period_us`. Benched on 353
+    (no tach noise): 3 min heating at duty 119-132, 3953-4083 rpm, 0 edges
+    dropped, no alarms, same as 18.66. Still to verify on a noisy unit (363).
+*   **18.68.1 benched on 353 with simulated readings** (`/debug/sensor`):
+    fake 7000 rpm (what 363 reported) holds the duty at the floor of 100
+    instead of 0; a 3 s dip to 2500 rpm raises no alarm; a simulated stop
+    raises `ALARM_FAN_FAILURE` after 5.6-5.9 s and cuts the heater; when the
+    cut lifts the heater comes back on the ramp (`max_pwm` 13 -> 130 in 15 s,
+    supply 13.6 -> 12.3 V) with the fan at 3914-4087 rpm. `bench_tests.py`
+    against the motherBoard: 12 OK, 0 failed, 5 skipped (display tests).

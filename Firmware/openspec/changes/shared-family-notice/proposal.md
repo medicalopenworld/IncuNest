@@ -16,7 +16,7 @@ The QR comes from a second shared attribute, `family_qr_url`. The board receives
 - **Lock-screen notice** in `ui_ScreenLock`, bottom strip 792 x 117 (the pulse-oximetry frame's place), background `0x054E92`, QR 105 px black on white. Painted only if there is a notice, no alarm (`UI_IsAnyAlarmActive()`), the board link is alive (`!Display_IsBoardLinkLost()`), the pulse-oximeter panel is hidden and the unlock slider is hidden. Not modal, not clickable, no sound.
 - **Help dialog: fourth "Familia" card** with a big QR, whenever there is a valid URL and the link is alive, with or without a running notice (the nurse shows it to the mother at admission); otherwise the three cards stay as today.
 - **Board-link loss and recovery on the display.** On link loss the display forgets notice and URL; on recovery it sends `HMI,REQ,STATE` (up to 3 times, 3 s apart, until a `CTRL,FAMILY` arrives) so the board resends its state.
-- Strings in `i18n_strings.def` (es/en/fr/pt, ASCII only). Versions: motherBoard `18.67.0` -> `18.68.0`, Display_HMI `4.12.2` -> `4.13.0`.
+- Strings in `i18n_strings.def` (es/en/fr/pt, ASCII only). Versions: motherBoard `18.68.2` -> `18.69.0`, Display_HMI `4.13.1` -> `4.14.0`.
 
 ## Risk
 

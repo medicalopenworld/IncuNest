@@ -73,7 +73,7 @@
 // Con tres componentes deja de parecer un numero y se queda como texto.
 // Nada del firmware ni del flash tool ordena versiones: ThingsBoard compara
 // por igualdad y el flash tool elige por la revision de HW del entorno.
-#define FWversion "18.68.0"
+#define FWversion "18.69.0"
 #define WIFI_NAME "IncuNest"
 // Titulo del firmware en ThingsBoard (OTA por MQTT). ThingsBoard solo ofrece un
 // paquete cuyo titulo coincide con el que declara la unidad, asi que una V19
@@ -504,8 +504,11 @@ typedef struct
   bool previousAlarmReport;
 
   double fan_rpm = false;
-  bool fanEncoderUpdate = false;
-  long fanEncoderPeriod[2] = {false, false};
+  // Los escribe fanEncoderISR() (ISR.cpp) tras el filtro de flancos de
+  // modules/control/fan_tach.h: periodo COMPLETO (subida a subida) en us.
+  volatile bool fanEncoderUpdate = false;
+  volatile uint32_t fanTachPeriodUs = 0;
+  volatile uint32_t fanTachGlitches = 0; // flancos descartados (diagnostico)
   bool fanCommandedOn = false;
 
   byte language;

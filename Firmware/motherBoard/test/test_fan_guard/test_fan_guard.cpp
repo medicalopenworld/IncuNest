@@ -8,10 +8,22 @@
 
 #include "modules/control/fan_guard.h"
 
+// Sin tiempo sostenido: los tests de abajo ejercitan la histeresis, la
+// retirada y la gracia, que son ortogonales a cuanto dura la caida. El tiempo
+// sostenido (el de produccion) tiene su propio bloque con CFG_SOSTENIDO.
 static const FanGuardConfig CFG = {
     /*min_rpm*/ 3000.0,
     /*hysteresis_rpm*/ 300.0,
     /*spinup_grace_ms*/ 6000,
+    /*failure_sustain_ms*/ 0,
+};
+
+// Como en produccion (FAN_FAILURE_SUSTAIN_MS en board.h).
+static const FanGuardConfig CFG_SOSTENIDO = {
+    /*min_rpm*/ 3000.0,
+    /*hysteresis_rpm*/ 300.0,
+    /*spinup_grace_ms*/ 6000,
+    /*failure_sustain_ms*/ 5000,
 };
 
 static FanGuard g;
@@ -152,6 +164,122 @@ static void test_la_gracia_se_reinicia_al_recuperar_la_alimentacion(void) {
                     fan_guard_update(&g, &CFG, true, true, 4000.0, now));
 }
 
+// --- la caida tiene que ser SOSTENIDA (incidencia de campo, 18.52) ----------
+//
+// Al entrar el calefactor se hunde la tension de alimentacion y el ventilador
+// pierde vueltas hasta que su PID sube el duty. Con una sola muestra por debajo
+// de 3000 rpm se declaraba la averia, ALARM_FAN_FAILURE cortaba el calefactor,
+// la tension volvia, el ventilador se recuperaba, la alarma se retiraba, volvia
+// el calefactor... y otra vez: un ciclo sin fin con la regulacion de
+// temperatura entrando y saliendo.
+
+static void settle_sostenido(double rpm) {
+  fan_guard_update(&g, &CFG_SOSTENIDO, true, true, rpm, now);
+  now += CFG_SOSTENIDO.spinup_grace_ms + 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, rpm, now));
+}
+
+static void test_un_hundimiento_breve_no_declara_averia(void) {
+  settle_sostenido(4000.0);
+  // El calefactor entra: 2 s por debajo del umbral mientras el PID compensa.
+  for (int i = 0; i < 20; i++) {
+    now += 100;
+    TEST_ASSERT_EQUAL(
+        FAN_GUARD_ABSENT,
+        fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2600.0, now));
+  }
+  now += 100;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 3900.0, now));
+}
+
+static void test_un_ventilador_parado_se_declara_al_cumplirse_el_plazo(void) {
+  settle_sostenido(4000.0);
+  now += 10;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  now += CFG_SOSTENIDO.failure_sustain_ms - 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  now += 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_PRESENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  // Y sigue declarada mientras no supere umbral + histeresis.
+  now += 1000;
+  TEST_ASSERT_EQUAL(
+      FAN_GUARD_PRESENT,
+      fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 3200.0, now));
+  now += 100;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 3400.0, now));
+}
+
+static void test_recuperarse_por_encima_del_umbral_reinicia_el_plazo(void) {
+  settle_sostenido(4000.0);
+  // Dos caidas de 4 s separadas por una recuperacion: ninguna dura el plazo.
+  now += 10;
+  fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now);
+  now += 4000;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
+  now += 100;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 3500.0, now));
+  now += 100;
+  fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now);
+  now += 4000;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
+}
+
+static void test_el_plazo_cuenta_despues_de_la_gracia_de_arranque(void) {
+  // Un ventilador que no arranca nunca: gracia (6 s) y luego el plazo entero.
+  TEST_ASSERT_EQUAL(FAN_GUARD_SILENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  now += CFG_SOSTENIDO.spinup_grace_ms;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  now += CFG_SOSTENIDO.failure_sustain_ms - 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  now += 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_PRESENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+}
+
+static void test_desalimentar_reinicia_el_plazo(void) {
+  settle_sostenido(4000.0);
+  now += 10;
+  fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 2500.0, now);
+  now += 4000;
+  // Corte de alimentacion y vuelta: la caida previa no cuenta.
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       false, 0.0, now));
+  now += 100;
+  fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now);
+  now += CFG_SOSTENIDO.spinup_grace_ms + 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
+  now += 2000;
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT, fan_guard_update(&g, &CFG_SOSTENIDO, true,
+                                                       true, 2500.0, now));
+}
+
+static void test_plazo_sostenido_cruzando_el_desbordamiento_de_millis(void) {
+  fan_guard_init(&g);
+  now = 0xFFFFFF00u - 6001u - 2000u;
+  settle_sostenido(4000.0);
+  now += 10;
+  fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now);
+  now += CFG_SOSTENIDO.failure_sustain_ms - 1; // cruza el desbordamiento
+  TEST_ASSERT_EQUAL(FAN_GUARD_ABSENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+  now += 1;
+  TEST_ASSERT_EQUAL(FAN_GUARD_PRESENT,
+                    fan_guard_update(&g, &CFG_SOSTENIDO, true, true, 0.0, now));
+}
+
 // --- robustez --------------------------------------------------------------
 
 static void test_el_desbordamiento_de_millis_no_dispara_la_averia(void) {
@@ -187,6 +315,12 @@ int main(void) {
   RUN_TEST(test_apagar_el_ventilador_retira_la_averia);
   RUN_TEST(test_tras_apagar_la_histeresis_vuelve_a_cero);
   RUN_TEST(test_la_gracia_se_reinicia_al_recuperar_la_alimentacion);
+  RUN_TEST(test_un_hundimiento_breve_no_declara_averia);
+  RUN_TEST(test_un_ventilador_parado_se_declara_al_cumplirse_el_plazo);
+  RUN_TEST(test_recuperarse_por_encima_del_umbral_reinicia_el_plazo);
+  RUN_TEST(test_el_plazo_cuenta_despues_de_la_gracia_de_arranque);
+  RUN_TEST(test_desalimentar_reinicia_el_plazo);
+  RUN_TEST(test_plazo_sostenido_cruzando_el_desbordamiento_de_millis);
   RUN_TEST(test_el_desbordamiento_de_millis_no_dispara_la_averia);
   RUN_TEST(test_puntero_nulo_no_revienta);
   return UNITY_END();

@@ -18,6 +18,13 @@
 //
 // Aqui esta la misma logica sin nada que dependa de una placa, para que los dos
 // fallos tengan test de regresion (motherBoard/test/test_fan_guard).
+//
+//   3. (campo, 18.52) Declaraba con UNA sola muestra baja. Al entrar el
+//      calefactor se hunde la tension de alimentacion y el ventilador pierde
+//      vueltas hasta que su PID sube el duty; esa caida pasajera bastaba para
+//      declarar la averia, que corta el calefactor, con lo que la tension
+//      volvia, la alarma se retiraba, volvia el calefactor y otra vez: un ciclo
+//      sin fin. Ahora la caida tiene que durar failure_sustain_ms seguidos.
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -30,6 +37,11 @@ typedef struct {
   double min_rpm;         // por debajo -> se declara la averia
   double hysteresis_rpm;  // hay que superar min_rpm + esto para retirarla
   uint32_t spinup_grace_ms; // margen mecanico desde que se alimenta
+  // Cuanto tiempo SEGUIDO tienen que estar las rpm por debajo de min_rpm para
+  // declarar la averia. Cuenta solo pasada la gracia de arranque, y cualquier
+  // muestra en o por encima de min_rpm (o un corte de alimentacion) lo
+  // reinicia. 0 = declarar con la primera muestra baja.
+  uint32_t failure_sustain_ms;
 } FanGuardConfig;
 
 typedef struct {
@@ -37,6 +49,8 @@ typedef struct {
   bool was_energised;
   bool have_energised_stamp;
   uint32_t energised_since_ms;
+  bool have_low_stamp;   // hay una caida por debajo de min_rpm en curso
+  uint32_t low_since_ms; // desde cuando, si have_low_stamp
 } FanGuard;
 
 // Que hay que declarar a la maquina de alarmas en esta pasada.
