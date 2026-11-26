@@ -21,6 +21,8 @@ extern "C" bool debug_inject_take(char *out, size_t out_len);
 #include "modules/debug/debug_mode.h"
 #include "modules/service/service_hours.h"
 #include "modules/config/runtime_config.h"
+#include "modules/family/family_state.h"
+#include "family_proto.h"
 #include "modules/baby_profile/baby_profile_protocol.h"
 #include "modules/baby_profile/baby_profile_store.h"
 #include "nte_table.h"
@@ -242,6 +244,7 @@ static void handleBabyLine(const char *line) {
     }
     case BABY_MSG_DISCHARGE: {
       bool ok = babyStore_discharge(m.seq, m.outcome, m.cause);
+      if (ok) family_state_on_discharge();
       snprintf(buf, bufLen, "CTRL,PROFILE_ACK,%u\n",
                ok ? (unsigned)m.seq : 0u);
       hmiSerial.print(buf);
@@ -687,6 +690,9 @@ static bool s_serviceSendPending = false;
 // probe was taken off and put back. Raised by parse_line() on HMI,UI_READY and
 // HMI,REQ,STATE, consumed by the loop of Communication_Task (same thread).
 static bool s_probeSendPending = false;
+// Reenviar el aviso de familia (CTRL,FAMILY) aunque no haya cambiado: el
+// display acaba de arrancar o lo pide. Misma vida que s_probeSendPending.
+static bool s_familySendPending = false;
 constexpr uint32_t SERVICE_BCAST_PERIOD_MS = 3600UL * 1000UL;
 
 static void sendServiceToHMI() {
@@ -740,6 +746,7 @@ void parse_line(const char *line) {
     setHMIConnected(true);
     xSemaphoreGive(hmi_state_req_sem);
     s_probeSendPending = true;
+    s_familySendPending = true;
     // Solo el UI_READY (el display acaba de arrancar): REQ,STATE se repite y
     // no necesita el estado de servicio cada vez.
     if (strcmp(line, "HMI,UI_READY") == 0) s_serviceSendPending = true;
@@ -1611,6 +1618,21 @@ void Communication_Task(void *pvParameters) {
         s_serviceSendPending = false;
         last_service_time = millis();
         sendServiceToHMI();
+      }
+    }
+
+    // --- FAMILY: aviso "Coge mi mano" (solo al cambiar o bajo peticion) ---
+    // Hay que llamarlo en CADA pasada: es donde se ve el vencimiento del aviso.
+    {
+      FamilyMsg fm;
+      if (family_state_take_msg(millis(), s_familySendPending, &fm)) {
+        char fbuf[FAMILY_URL_MAX + 24];
+        if (family_proto_build(fbuf, sizeof(fbuf), &fm) == 0) {
+          ESP_LOGE(TAG, "CTRL,FAMILY no cabe en el buffer, no se envia");
+        } else {
+          CommunicationHost_Send(fbuf);
+        }
+        s_familySendPending = false;
       }
     }
 

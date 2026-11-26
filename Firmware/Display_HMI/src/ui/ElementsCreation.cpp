@@ -2,6 +2,7 @@
 #include "CommTask.h"
 #include "UITask.h"
 #include "ui/FactoryTest.h"
+#include "ui/FamilyNotice.h"
 #include "ui/MenuDialog.h"
 #include "ui_helpers.h"
 #include "main.h"
@@ -4436,6 +4437,8 @@ void ui_ScreenLock_screen_init(void) {
   lv_obj_add_flag(ui_LockVitCont, UI_FLAG_KEEP_TEXT_COLOR);
   lv_obj_clear_flag(ui_LockVitCont,
                     LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  // Aviso "Coge mi mano" de la familia (oculto hasta que lo pide su Poll).
+  FamilyNotice_Init(ui_ScreenLock);
 
   static const struct {
     const char *title;

@@ -1,4 +1,11 @@
-# Protocolo de Comunicación IncuNest (v2.4.0)
+# Protocolo de Comunicación IncuNest (v2.5.0)
+
+> Nota (v2.5.0): nueva línea `CTRL,FAMILY,<0|1>,<url>` (aviso «Coge mi mano»
+> para las familias). **NO es breaking**: es un tipo de línea nuevo, así que
+> una pantalla antigua la descarta (solo un log) y una placa antigua nunca la
+> manda. Ver «CTRL,FAMILY» en los mensajes de la motherBoard. Tráfico nuevo
+> del display: al recuperar el enlace con la placa manda `HMI,REQ,STATE`
+> (hasta 3 veces, ver «HMI,REQ,STATE»).
 
 > Nota (v2.4.0): nuevo mensaje `HMI,PROFILE_SEX,seq,sex` con el sexo al nacer
 > del bebé (ISO/IEC 5218: `0` no consta, `1` niño, `2` niña). El HMI lo envía
@@ -666,6 +673,42 @@ Aviso de servicio por horas de uso de cada actuador con vida útil acotada. Es
   telemetría `*_active_time`) NO se reinician al registrar un servicio y se
   siguen publicando tal cual a ThingsBoard.
 
+#### CTRL,FAMILY (Aviso «Coge mi mano» para la familia)
+Aviso a la familia de que puede coger la mano del bebé, con un QR opcional.
+Es **información, no una alarma**: no hay `AlarmId` ni suena el zumbador.
+**Formato**: `CTRL,FAMILY,<0|1>,<url>`
+- Campo 1: `1` aviso activo, `0` sin aviso. Cualquier otro valor invalida la
+  línea.
+- Campo 2: URL completa del QR (la decide el servidor, no el firmware); puede
+  ir vacía (`CTRL,FAMILY,1,`) = sin QR. Válida si empieza por `https://`, mide
+  9 a 96 caracteres, solo ASCII imprimible 0x21–0x7E y **sin coma** (viaja en
+  una línea CSV). Una URL no vacía e inválida descarta la línea entera.
+- Ejemplo: `CTRL,FAMILY,1,https://incutwin.org/f/7KQ2M9`
+- Se envía **solo al cambiar** y al recibir `HMI,UI_READY` o `HMI,REQ,STATE`;
+  nunca periódico (`known_issues.md` #2). No va dentro de `CTRL,STATE`.
+- El HMI descarta la línea entera si es malformada (flag no 0/1, campos de
+  menos o de más, URL inválida) y conserva el último estado válido.
+- Enlace con la placa: al perderlo (`Display_IsBoardLinkLost()`) el HMI
+  **olvida** aviso y URL (un aviso viejo no puede volver solo); al
+  recuperarlo manda `HMI,REQ,STATE` hasta 3 veces, cada 3 s, y para en cuanto
+  llega un `CTRL,FAMILY` (una placa antigua nunca lo manda: por eso el tope).
+- La tarjeta «Familia» de la ayuda depende solo de la URL (y del enlace), no
+  del aviso: la enfermera enseña el QR a la madre al ingreso.
+- Claves de ThingsBoard (atributos compartidos): `hand_hold_until` y
+  `family_qr_url`. En un cambio en vivo, una clave ausente no toca su parte;
+  en la respuesta a la petición de reconexión (foto completa de las dos
+  claves) un `family_qr_url` ausente **borra** la URL.
+- **Contrato con el servidor**: para quitar el QR, escribir
+  `family_qr_url` = `""`; **no borrar el atributo** (el SDK entrega el borrado
+  en vivo como `{"deleted":[…]}`, que la placa no ve; solo lo notaría al
+  reconectar). URL de ≲ 40 caracteres para que el QR de 105 px de la pantalla
+  de bloqueo salga a ≥ 3 px por módulo (con ECC media, hasta 62 bytes da
+  versión ≤ 4 de 33 módulos; 40 deja margen).
+- Compatibilidad: línea nueva, no cambia ningún mensaje existente. Una pantalla
+  antigua la descarta con un log.
+- Definición compartida: `shared/include/family_proto.h`
+  (`family_proto_build` / `family_proto_parse`).
+
 ### 2. Mensajes del Display (HMI → MCU)
 
 #### HMI,UI_READY (Handshake Crítico)
@@ -684,6 +727,9 @@ Enviado cuando el usuario cambia un parámetro.
 
 #### HMI,REQ,STATE
 Solicitud manual de sincronización completa.
+- Desde Display_HMI 4.14.0 el HMI también lo manda al **recuperar el enlace**
+  con la placa (hasta 3 veces, cada 3 s, hasta que llega un `CTRL,FAMILY`),
+  para que la placa reenvíe su estado, `CTRL,FAMILY` incluido.
 
 #### HMI,PROFILE_LIST_REQ
 Pide la lista de perfiles activos. Respuesta: `CTRL,PROFILE_LIST`.

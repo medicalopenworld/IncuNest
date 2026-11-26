@@ -10,6 +10,7 @@
 #include "ui/BabyHistory.h"
 #include "ui/BabyExitDialog.h"
 #include "ui/TimeDialog.h"
+#include "ui/FamilyNotice.h"
 #include "ui/HelpDialog.h"
 #include "ui/MenuDialog.h"
 #include "ui/training/training.h"
@@ -5552,6 +5553,8 @@ void UI_Task(void *pvParameters) {
     // Ayuda: resultado del envio a soporte (lo deja la tarea WiFi/OTA) y la
     // misma regla de alarma critica, para el menu y para el tutorial.
     HelpDialog_Poll();
+    // Aviso "Coge mi mano" de la familia en la pantalla de bloqueo.
+    FamilyNotice_Poll();
     Training_Poll();
     // Recordatorio de mantenimiento: vigila el alta del paciente y abre el
     // aviso cuando esta armado (desbloqueo) y hay algun nivel vencido. Va

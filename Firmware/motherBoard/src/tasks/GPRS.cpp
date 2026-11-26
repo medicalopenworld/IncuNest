@@ -47,6 +47,7 @@
 #include "Wifi_OTA.h"
 #include "main.h"
 #include "modules/config/runtime_config_tb.h"
+#include "modules/family/family_tb.h"
 #include "tasks/CrashReporter.h"
 #include "system/power_rails.h"
 #include "modules/control/modem_power_cycle.h"
@@ -1393,6 +1394,16 @@ static void publishBabyCloudDataGPRS() {
 static bool s_cfgSubscribed = false;
 static RuntimeConfigPubState s_cfgPub = {};
 
+// Aviso "Coge mi mano" (family_tb.h): su propia suscripcion unica por cliente y
+// sus dos callbacks (cambio en vivo / respuesta a la peticion de reconexion).
+static bool s_familySubscribed = false;
+static void family_on_update_gprs(JsonObjectConst const &data) {
+  family_state_apply_json(data, false);
+}
+static void family_on_request_gprs(JsonObjectConst const &data) {
+  family_state_apply_json(data, true);
+}
+
 void GPRSPost() {
   // Independiente de ThingsBoard a proposito: sin esto, una unidad sin
   // numero de serie (in3.serialNumber == 0) nunca sale del "Waiting for
@@ -1457,6 +1468,8 @@ void GPRSPost() {
         runtime_config_tb_connected(tb, runtime_config_on_update_gprs,
                                   runtime_config_on_request_gprs, &s_cfgSubscribed,
                                   "GPRS");
+        family_tb_connected(tb, family_on_update_gprs, family_on_request_gprs,
+                            &s_familySubscribed);
         if (ENABLE_GPRS_OTA && !GPRS.OTA_requested) {
           logModemData("[GPRS] -> Requesting OTA");
           GPRSCheckOTA();
