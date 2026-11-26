@@ -76,10 +76,11 @@ A lesson stops by itself if an alarm appears, if the screen loses contact with t
 
 ### Courses
 
+Both courses start with the same introductory lesson, **Meet the screen**.
+
 | Course | Lessons |
 |---|---|
-| **Introduction** | Meet the screen |
-| **Nursing** | Registering and following a baby · Air temperature · Skin control and probe (only if skin mode is enabled) · Humidity (only if humidity control is enabled) · Safe phototherapy · Handling an alarm · Baby exit · Screen lock · Setting the time · Contacting support |
+| **Nursing** | Meet the screen · Registering and following a baby · Air temperature · Skin control and probe (only if skin mode is enabled) · Humidity (only if humidity control is enabled) · Safe phototherapy · Handling an alarm · Baby exit · Screen lock · Setting the time · Contacting support |
 | **Technician** | See chapter 10 |
 
 When a student completes all the lessons available, the incubator shows a **certificate** with a QR code. Progress is saved on the incubator.

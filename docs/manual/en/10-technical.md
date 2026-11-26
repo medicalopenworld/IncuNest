@@ -103,6 +103,7 @@ If the screen shows "Waiting for data from the board...", wait a few seconds for
 
 | Lesson | Content |
 |---|---|
+| Meet the screen | The introduction shared with the nursing course |
 | Information and versions | Reading Settings > INFO |
 | WiFi and server | Connecting to a network |
 | Language and modes | Language, skin mode, dark mode, humidity control |
@@ -111,9 +112,6 @@ If the screen shows "Waiting for data from the board...", wait a few seconds for
 | Updating the firmware | Explanation of the update |
 | Support report | Sending the support email with the technical report |
 | Safe shutdown | Explanation of how to switch off safely |
-
-[PENDING: the screen shows 9 technician lessons; the list above has 8. Check the missing one.]
-
 ## 10.7 Alarm conditions
 
 For reference, the conditions that raise each alarm in the current firmware. Chapter 6 tells clinical staff what each alarm means and what to do.
