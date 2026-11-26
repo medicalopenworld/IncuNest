@@ -46,7 +46,7 @@ The motherBoard SHALL ignore any `hand_hold_until` equal to or older than the la
 
 ### Requirement: Valid QR URL
 
-The `family_qr_url` SHALL be valid only if it starts with `https://`, has 9 to 96 characters, contains only printable ASCII 0x21-0x7E and no comma. An invalid, empty or absent URL SHALL be treated as empty: no QR is shown, and the text-only notice is unaffected. A missing `family_qr_url` key SHALL NOT change a URL already stored.
+The `family_qr_url` SHALL be valid only if it starts with `https://`, has 9 to 96 characters, contains only printable ASCII 0x21-0x7E and no comma. An invalid, empty or absent URL SHALL be treated as empty: no QR is shown, and the text-only notice is unaffected. In a live attribute update a missing `family_qr_url` key SHALL NOT change a URL already stored. In the reply to the reconnect attribute request, which is a full snapshot of the requested keys, a missing `family_qr_url` key SHALL clear the stored URL (a deleted attribute is simply absent there; the live deletion arrives as `{"deleted":[...]}`, which the key-filtered callback never sees). The server SHALL clear the code by writing `family_qr_url` = `""` and SHALL NOT delete the attribute, and SHOULD keep the URL at about 40 characters or less so the 105 px lock-screen QR gets at least 3 px per module.
 
 #### Scenario: Plain http is rejected
 - **WHEN** the URL is `http://a.org/f/1`
@@ -67,6 +67,18 @@ The `family_qr_url` SHALL be valid only if it starts with `https://`, has 9 to 9
 #### Scenario: A bad URL clears the QR
 - **WHEN** a valid URL is stored and then `http://x` arrives
 - **THEN** the stored URL becomes empty (motherBoard `[env:native]`, `test_bad_url_clears_qr`)
+
+#### Scenario: Missing key in a live update keeps the URL
+- **WHEN** a live attribute update carries `hand_hold_until` but not `family_qr_url`
+- **THEN** the stored URL is kept (motherBoard `[env:native]`, `test_url_action_live_update`)
+
+#### Scenario: Missing key in the reconnect reply clears the URL
+- **WHEN** `family_qr_url` was deleted in ThingsBoard and the board reconnects, so the reply to the attribute request lacks the key
+- **THEN** the stored URL is cleared and no QR is shown (motherBoard `[env:native]`, `test_url_action_request_missing_key_clears`; the wiring in `family_state.cpp` is manual verification on the bench)
+
+#### Scenario: Server clears the code with an empty string
+- **WHEN** the server writes `family_qr_url` = `""`
+- **THEN** the stored URL is cleared at once, live (motherBoard `[env:native]`, `test_url_action_live_update` and `test_bad_url_clears_qr`)
 
 ### Requirement: Discharge clears the notice
 
@@ -112,9 +124,25 @@ The motherBoard SHALL send `CTRL,FAMILY,<0|1>,<url>` (the url may be empty: `CTR
 - **WHEN** an old display receives the line, or a new display talks to an old board
 - **THEN** the old display discards it (log only) and the old board never sends it; nothing visible happens (manual verification on hardware)
 
+### Requirement: Display forgets on board-link loss and asks again on recovery
+
+When the board link is lost (`Display_IsBoardLinkLost()`), the Display_HMI SHALL forget the notice and the URL, including a `CTRL,FAMILY` line received but not yet applied, so a stale notice or a previous family's QR cannot come back by itself. When the link recovers it SHALL send `HMI,REQ,STATE` (display-to-board traffic that makes the board resend its state, `CTRL,FAMILY` included) up to 3 times, 3 s apart, and SHALL stop as soon as a `CTRL,FAMILY` line arrives. The cap exists because an old board never sends `CTRL,FAMILY`.
+
+#### Scenario: Link lost forgets notice and URL
+- **WHEN** a notice with a URL is stored and the board link is lost
+- **THEN** the lock-screen notice and the Help "Familia" card disappear, and they do not come back until the board sends `CTRL,FAMILY` again (manual verification on hardware, no test environment)
+
+#### Scenario: Link recovered asks for the state
+- **WHEN** the board link recovers
+- **THEN** the display sends `HMI,REQ,STATE` at once and, while no `CTRL,FAMILY` has arrived, again after 3 s and 6 s; it sends none after a `CTRL,FAMILY` arrives (manual verification on hardware, no test environment)
+
+#### Scenario: Old board after recovery
+- **WHEN** the link recovers with a board that never sends `CTRL,FAMILY`
+- **THEN** the display sends exactly 3 `HMI,REQ,STATE` and stops (manual verification on hardware, no test environment)
+
 ### Requirement: Painting conditions on the lock screen
 
-The Display_HMI SHALL paint the notice in the `ui_ScreenLock` bottom strip (792 x 117 px, background `0x054E92`, QR 105 px) only if a notice is on, the lock screen is the active screen, no alarm is active (`UI_IsAnyAlarmActive()`), the board link is alive (`!Display_IsBoardLinkLost()`), the pulse-oximeter panel (`ui_LockPulseOxFrame`) is hidden and the unlock slider (`ui_UnlockCont`) is hidden. With a valid URL it SHALL show text and QR; without one, text only. It SHALL return by itself when the blocking condition ends while the notice is still valid. It SHALL NOT be modal, SHALL NOT be clickable, SHALL NOT make any sound and SHALL NOT use red, yellow, orange or cyan.
+The Display_HMI SHALL paint the notice in the `ui_ScreenLock` bottom strip (792 x 117 px, background `0x054E92`, QR 105 px) only if a notice is on, the lock screen is the active screen, no alarm is active (`UI_IsAnyAlarmActive()`), the board link is alive (`!Display_IsBoardLinkLost()`), the pulse-oximeter panel (`ui_LockPulseOxFrame`) is hidden and the unlock slider (`ui_UnlockCont`) is hidden. With a valid URL it SHALL show text and QR; without one, text only. It SHALL return by itself when the blocking condition ends while the notice is still valid. It SHALL be drawn below the unlock slider in z-order. It SHALL NOT be modal, SHALL NOT be clickable, SHALL NOT make any sound and SHALL NOT use red, yellow, orange or cyan.
 
 #### Scenario: All clear with URL
 - **WHEN** all conditions hold and there is a URL
@@ -154,11 +182,19 @@ The Display_HMI SHALL paint the notice in the `ui_ScreenLock` bottom strip (792 
 
 ### Requirement: Help "Familia" card
 
-The Help dialog SHALL offer a fourth "Familia" card (blue `0x054E92`, four cards of 178 px with 16 px gaps) showing a big QR of the stored URL only when there is a valid URL and the board link is alive; otherwise it SHALL show the three cards as before. If the URL disappears while the view is open, it SHALL return to the menu.
+The Help dialog SHALL offer a fourth "Familia" card (blue `0x054E92`, four cards of 178 px with 16 px gaps) showing a big QR of the stored URL whenever there is a valid URL and the board link is alive, whether or not a notice is running: the card is for the nurse to show the mother the QR at admission. Otherwise it SHALL show the three cards as before. The end of a notice SHALL NOT close the "Familia" view. If the URL disappears while the view is open, it SHALL return to the menu; if the URL changes, it SHALL redraw the QR with the new one. The Help QR SHALL NOT depend on whether the small lock-screen QR could be encoded; if its own 300 px encode failed, the view SHALL show the address as text instead of a QR.
 
 #### Scenario: URL and link alive
 - **WHEN** there is a URL and the link is alive
 - **THEN** the card is offered (Display_HMI `[env:native]`, `test_help_entry`)
+
+#### Scenario: URL without notice
+- **WHEN** there is a URL, the link is alive and no notice is running
+- **THEN** the lock-screen notice is hidden and the Help "Familia" card is offered (Display_HMI `[env:native]`, `test_url_without_notice_help_only`)
+
+#### Scenario: Notice ends with the Familia view open
+- **WHEN** the "Familia" view is open and the notice ends while the URL stays
+- **THEN** the view stays open (manual verification on hardware, no test environment)
 
 #### Scenario: No URL
 - **WHEN** there is no URL
