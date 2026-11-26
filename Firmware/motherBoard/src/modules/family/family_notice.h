@@ -1,6 +1,6 @@
 #pragma once
 // Nucleo del aviso "Coge mi mano" para familias (Firmware/PROTOCOL.md, seccion
-// "Family notice"): decide si el aviso esta activo y con que URL de QR.
+// "CTRL,FAMILY"): decide si el aviso esta activo y con que URL de QR.
 //
 // Logica pura a proposito, hermana de time_source: sin Arduino, sin FreeRTOS y
 // sin time(). La hora llega como parametro (`nowMs` de millis(), `nowEpochS`
@@ -40,6 +40,22 @@ void family_notice_on_hand_hold(FamilyNotice *f, double untilEpochMs, bool fromR
 
 // NULL o URL invalida = sin QR (cadena vacia).
 void family_notice_set_url(FamilyNotice *f, const char *url);
+
+// Que hacer con `family_qr_url` segun como llegue en un mensaje de ThingsBoard.
+typedef enum {
+  FAMILY_URL_KEEP = 0,  // no tocar la URL guardada
+  FAMILY_URL_SET = 1,   // family_notice_set_url(f, texto)
+  FAMILY_URL_CLEAR = 2  // family_notice_set_url(f, NULL)
+} FamilyUrlAction;
+
+// `keyPresent` = el mensaje trae la clave; `isString` = su valor es texto.
+// Clave presente: texto = SET, otro tipo (null, numero...) = CLEAR. Clave
+// ausente: en un cambio en vivo = KEEP (solo trae lo que cambio); en la
+// respuesta a la peticion de reconexion (`fromRequest`) = CLEAR, porque esa
+// respuesta es la foto completa de las claves pedidas y una clave borrada en
+// ThingsBoard simplemente no viene (el borrado en vivo llega como
+// {"deleted":[...]}, que el callback filtrado por claves nunca ve).
+FamilyUrlAction family_notice_url_action(bool keyPresent, bool isString, bool fromRequest);
 
 // Alta confirmada: aviso apagado y URL olvidada. No reinicia `lastApplied`.
 void family_notice_on_discharge(FamilyNotice *f);

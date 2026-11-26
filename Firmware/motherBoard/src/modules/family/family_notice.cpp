@@ -51,6 +51,11 @@ void family_notice_set_url(FamilyNotice *f, const char *url) {
   }
 }
 
+FamilyUrlAction family_notice_url_action(bool keyPresent, bool isString, bool fromRequest) {
+  if (keyPresent) return isString ? FAMILY_URL_SET : FAMILY_URL_CLEAR;
+  return fromRequest ? FAMILY_URL_CLEAR : FAMILY_URL_KEEP;
+}
+
 void family_notice_on_discharge(FamilyNotice *f) {
   f->active = false;
   f->url[0] = '\0';

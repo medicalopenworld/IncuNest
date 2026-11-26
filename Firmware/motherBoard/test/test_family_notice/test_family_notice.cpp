@@ -78,6 +78,21 @@ void test_bad_url_clears_qr(void) {
   TEST_ASSERT_EQUAL_STRING("", take(&f, 0).url);
 }
 
+void test_url_action_live_update(void) {
+  // Cambio en vivo: solo trae lo que cambio; sin la clave, la URL no se toca.
+  TEST_ASSERT_EQUAL(FAMILY_URL_SET, family_notice_url_action(true, true, false));
+  TEST_ASSERT_EQUAL(FAMILY_URL_CLEAR, family_notice_url_action(true, false, false));
+  TEST_ASSERT_EQUAL(FAMILY_URL_KEEP, family_notice_url_action(false, false, false));
+}
+
+void test_url_action_request_missing_key_clears(void) {
+  // Respuesta a la peticion de reconexion: foto completa. Una clave borrada en
+  // ThingsBoard no viene, y no puede dejar el QR de la familia anterior.
+  TEST_ASSERT_EQUAL(FAMILY_URL_SET, family_notice_url_action(true, true, true));
+  TEST_ASSERT_EQUAL(FAMILY_URL_CLEAR, family_notice_url_action(true, false, true));
+  TEST_ASSERT_EQUAL(FAMILY_URL_CLEAR, family_notice_url_action(false, false, true));
+}
+
 void test_discharge_clears_all(void) {
   family_notice_on_hand_hold(&f, (E + 120) * 1000.0, false, E, true, 1000);
   family_notice_set_url(&f, "https://a.org/f/1");
@@ -160,6 +175,8 @@ int main(int, char **) {
   RUN_TEST(test_duplicate_until_ignored);
   RUN_TEST(test_newer_until_extends);
   RUN_TEST(test_bad_url_clears_qr);
+  RUN_TEST(test_url_action_live_update);
+  RUN_TEST(test_url_action_request_missing_key_clears);
   RUN_TEST(test_discharge_clears_all);
   RUN_TEST(test_take_msg_only_on_change);
   RUN_TEST(test_take_msg_on_expiry);

@@ -29,22 +29,20 @@ void family_state_apply_json(JsonObjectConst const &data, bool fromRequest) {
   const bool hasHold = holdV.is<double>();
   const double until = hasHold ? holdV.as<double>() : 0.0;
 
+  // En la respuesta a la peticion de reconexion, una clave ausente = borrada en
+  // ThingsBoard: se olvida la URL (ver family_notice_url_action).
   JsonVariantConst urlV = data["family_qr_url"];
-  const bool hasUrl = data.containsKey("family_qr_url");
+  const char *urlS =
+      urlV.is<const char *>() ? urlV.as<const char *>() : nullptr;
+  const FamilyUrlAction urlAction = family_notice_url_action(
+      data.containsKey("family_qr_url"), urlS != nullptr, fromRequest);
   char url[FAMILY_URL_MAX + 1];
   url[0] = '\0';
-  bool urlSet = false;  // hasUrl && !urlSet = borrar (NULL)
-  if (hasUrl && urlV.is<const char *>()) {
-    const char *s = urlV.as<const char *>();
-    if (s) {
-      // Mas larga que el tope: queda vacia y el nucleo no pinta QR; no se
-      // acepta un prefijo truncado.
-      if (strlen(s) <= FAMILY_URL_MAX) {
-        strncpy(url, s, FAMILY_URL_MAX);
-        url[FAMILY_URL_MAX] = '\0';
-      }
-      urlSet = true;
-    }
+  // Mas larga que el tope: queda vacia y el nucleo no pinta QR; no se acepta
+  // un prefijo truncado.
+  if (urlAction == FAMILY_URL_SET && strlen(urlS) <= FAMILY_URL_MAX) {
+    strncpy(url, urlS, FAMILY_URL_MAX);
+    url[FAMILY_URL_MAX] = '\0';
   }
 
   const time_t t = time(nullptr);
@@ -59,8 +57,8 @@ void family_state_apply_json(JsonObjectConst const &data, bool fromRequest) {
   if (hasHold) {
     family_notice_on_hand_hold(f, until, fromRequest, nowEpochS, fromNet, nowMs);
   }
-  if (hasUrl) {
-    family_notice_set_url(f, urlSet ? url : nullptr);
+  if (urlAction != FAMILY_URL_KEEP) {
+    family_notice_set_url(f, urlAction == FAMILY_URL_SET ? url : nullptr);
   }
   portEXIT_CRITICAL(&s_mux);
 }

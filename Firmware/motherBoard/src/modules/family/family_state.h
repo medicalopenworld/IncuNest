@@ -10,8 +10,11 @@
 #include "family_proto.h"
 
 // Lee `hand_hold_until` (numero, epoch ms) y `family_qr_url` (texto; null u
-// otro tipo = borrar). Una clave ausente no toca su parte. `fromRequest` =
-// respuesta a la peticion de reconexion. Nunca publica nada.
+// otro tipo = borrar). En un cambio en vivo una clave ausente no toca su
+// parte. `fromRequest` = respuesta a la peticion de reconexion, que es la foto
+// completa de las dos claves: ahi un `family_qr_url` ausente (borrado en
+// ThingsBoard) borra la URL; un `hand_hold_until` ausente no toca nada. Nunca
+// publica nada.
 void family_state_apply_json(JsonObjectConst const &data, bool fromRequest);
 
 // Alta confirmada en la placa: apaga el aviso y olvida la URL.

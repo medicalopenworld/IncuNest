@@ -1,6 +1,6 @@
 #pragma once
 // Protocolo del aviso "Coge mi mano" para familias (Firmware/PROTOCOL.md,
-// seccion "Family notice").
+// seccion "CTRL,FAMILY").
 //
 // Vive en shared/ porque lo hablan LAS DOS placas: la motherBoard construye
 // `CTRL,FAMILY` y el HMI lo parsea. Sin I/O ni Arduino: una linea mal formada
