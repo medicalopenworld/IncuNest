@@ -952,7 +952,7 @@ the real rpm at the top of every `sensors_Task` pass and
 `debug_sensors_apply()` overwrote it with the simulated value at the bottom.
 `checkFanSpeed()` runs in another task every 1 ms and could read the real
 value in between, so the simulated failure flapped. Once the failure had to be
-sustained for 5 s (18.67.0, #31) a single real read restarted the count and
+sustained for 5 s (#31) a single real read restarted the count and
 the simulated alarm never fired at all. A fan that is really stopped is not
 affected: with no edges nothing rewrites the reading. Fix: while `fan_rpm` is
 overridden, `fanSpeedHandler()` does not write `in3.fan_rpm` (it keeps feeding
@@ -1344,7 +1344,13 @@ transmissions every 5-10 s.
     motherBoard buzzer) has not been identified, and a longer keepalive only
     makes it rarer.
 
-## 31. Fan alarm cycling when the heater turns on — mitigated (motherBoard 18.68.0, not yet verified on 363)
+## 31. Fan alarm cycling when the heater turns on — mitigated (motherBoard 18.68.2, not yet verified on 363)
+
+> **Version numbers.** This fix was developed as 18.67.0 / 18.68.0 / 18.68.1
+> on branch `fix/fan-pid-calefactor` while dev used 18.67.0 for the clock fix
+> (#55). Unit 363 was OTA'd with the *branch* 18.67.0 (ThingsBoard package
+> `IncuNest` 18.67.0 uploaded 2026-11-26 12:3x), which is NOT the dev 18.67.0.
+> The merged result is motherBoard 18.68.2 / Display_HMI 4.13.1.
 
 Reported from the field on 2026-11-26 (motherBoard 18.52): when the heater
 turned on, the fan speed would not hold, `ALARM_FAN_FAILURE` fired and
@@ -1378,13 +1384,13 @@ regulation came back and the whole thing started again.
     simulation of the fan loop with `KP_FAN`/`KI_FAN` (a sag worth 100 duty
     counts, twice the bench one, dips below 3000 rpm for ~0.6 s). Bench with
     the heater cycling, and on a field unit with a weak supply, before closing.
-*   **18.67.0 on unit 363 (OTA, 2026-11-26) showed the sag was not the whole
+*   **The first build of this fix on unit 363 showed the sag was not the whole
     story.** With the heater switching, `fan_rpm` jumped between 0 and 7041
     while the fan PID drove the duty to 0-6 and `Fan_current` fell from
     0.07 A to 0.04 A: the fan was *slower* than at rest while the reading said
     faster. The tach on GPIO38 has only the ESP32 internal pull-up and the ISR
     took every edge, so spurious pulses from the heater switching were read as
-    half-periods of microseconds. 18.67.0 stopped the alarm cycle but left the
+    half-periods of microseconds. That build stopped the alarm cycle but left the
     fan nearly stopped with the heater on. Other V18 units heating in the same
     month (358, 359, 361, 353) keep 3936-4103 rpm, so 363 picks up much more
     noise (cable, connector or routing to check on site).

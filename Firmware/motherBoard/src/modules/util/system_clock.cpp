@@ -3,6 +3,7 @@
 #include "time_source.h"
 #include "tz_source.h"
 
+#include <esp_log.h>
 #include <esp_sntp.h>
 #include <sys/time.h>
 #include <time.h>
@@ -19,7 +20,12 @@ static void onSntpSync(struct timeval *tv) {
   if (tv == nullptr) {
     return;
   }
-  time_source_set((uint32_t)tv->tv_sec, PROTO_TIME_SOURCE_NTP);
+  if (time_source_set((uint32_t)tv->tv_sec, PROTO_TIME_SOURCE_NTP)) {
+    // El UTC ya es de red: un huso MANUAL (0, atado a la hora tecleada) deja
+    // de ser verdad. Ver tz_source_drop_manual().
+    tz_source_drop_manual();
+    ESP_LOGI("CLOCK", "SNTP sync, epoch %lu", (unsigned long)tv->tv_sec);
+  }
 }
 
 void systemClockInit(void) { sntp_set_time_sync_notification_cb(onSntpSync); }
@@ -35,6 +41,9 @@ bool systemClockSet(uint32_t epoch, Proto_TimeSource src) {
   tv.tv_usec = 0;
   if (settimeofday(&tv, nullptr) != 0) {
     return false;
+  }
+  if (time_source_is_network(src)) {
+    tz_source_drop_manual();
   }
   return true;
 }

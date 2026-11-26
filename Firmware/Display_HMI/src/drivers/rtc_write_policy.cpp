@@ -17,6 +17,18 @@ bool rtc_should_write(uint32_t incomingEpoch, Proto_TimeSource incomingSrc,
   if (incomingSrc == PROTO_TIME_SOURCE_NONE) {
     return false;
   }
+  // El rango MANUAL de la NVS no sobrevive a un reinicio de la motherBoard,
+  // cuyo rango vive en RAM: una hora manual manda hasta que el equipo se
+  // reinicia (spec mb-time-source-priority). Como la motherBoard nunca difunde
+  // NTP en el mismo arranque en que se puso la hora a mano (la manual para
+  // SNTP y gana el arbitraje), un NTP sobre un chip marcado MANUAL significa
+  // que esa hora ya caduco: se compara como si el chip fuera de rango NTP.
+  // Sin esto, la IncuNest 353 sembro durante semanas una hora de verano
+  // tecleada a mano (~2 h de mas) que ningun NTP podia volver a corregir.
+  if (storedSrc == PROTO_TIME_SOURCE_MANUAL &&
+      incomingSrc == PROTO_TIME_SOURCE_NTP) {
+    storedSrc = PROTO_TIME_SOURCE_NTP;
+  }
   if (incomingSrc > storedSrc) {
     return true; // mejor fuente: se escribe aunque la diferencia sea de 1 s
   }

@@ -15,6 +15,23 @@ int8_t tz_source_quarters(void) { return s_quarters; }
 TzSource tz_source_origin(void) { return s_source; }
 bool tz_source_known(void) { return s_source != TZ_SOURCE_NONE; }
 
+void tz_source_drop_manual(void) {
+  if (s_source == TZ_SOURCE_MANUAL) {
+    tz_source_reset();
+  }
+}
+
+bool tz_quarters_from_modem_hours(float hours, int *outQuarterHours) {
+  if (!outQuarterHours) return false;
+  const float q = hours * 4.0f;
+  // Redondeo a mano (sin <math.h>): TinyGSM solo produce multiplos exactos de
+  // 0.25, esto solo absorbe el error de coma flotante.
+  const int r = (q >= 0.0f) ? (int)(q + 0.5f) : -(int)(-q + 0.5f);
+  if (r < TZ_QUARTER_MIN || r > TZ_QUARTER_MAX) return false;
+  *outQuarterHours = r;
+  return true;
+}
+
 bool tz_source_set(int quarterHours, TzSource src) {
   if (src == TZ_SOURCE_NONE) return false;
   // Rango primero: un valor imposible no entra ni aunque venga de la fuente

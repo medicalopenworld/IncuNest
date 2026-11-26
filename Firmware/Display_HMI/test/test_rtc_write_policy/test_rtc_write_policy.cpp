@@ -102,6 +102,36 @@ void test_unknown_source_never_writes(void) {
       rtc_should_write(E, PROTO_TIME_SOURCE_NONE, E, PROTO_TIME_SOURCE_RTC));
 }
 
+// --- El rango MANUAL no sobrevive a un reinicio -----------------------------
+//
+// IncuNest 353, 2026-11-25: alguien puso la hora a mano (hora local de
+// verano, UTC+2) y el HMI guardo en su NVS el rango MANUAL junto al chip. El
+// rango de la motherBoard vive en RAM y se pierde al reiniciar, pero el de la
+// NVS no: desde entonces ningun NTP podia volver a escribir el PCF8563,
+// porque NTP < MANUAL, y cada arranque volvia a sembrar las ~2 h de mas.
+//
+// La motherBoard solo difunde NTP cuando NO hay hora manual en ese arranque
+// (la manual para SNTP y gana el arbitraje), asi que un NTP que llega sobre un
+// chip marcado MANUAL significa que la hora manual ya caduco.
+void test_ntp_corrects_a_manual_rtc_after_reboot(void) {
+  TEST_ASSERT_TRUE(rtc_should_write(E, PROTO_TIME_SOURCE_NTP, E + 7000,
+                                    PROTO_TIME_SOURCE_MANUAL));
+}
+
+// Mismo umbral de deriva que dos NTP seguidos: no se castiga el bus por un
+// segundo.
+void test_ntp_over_manual_respects_drift_tolerance(void) {
+  TEST_ASSERT_FALSE(rtc_should_write(E + 2, PROTO_TIME_SOURCE_NTP, E,
+                                     PROTO_TIME_SOURCE_MANUAL));
+}
+
+// Lo que no cambia: ni el eco de la propia semilla ni NITZ tocan una hora
+// manual. Sin red, la hora tecleada sigue siendo la mejor que hay.
+void test_nitz_still_does_not_overwrite_manual(void) {
+  TEST_ASSERT_FALSE(rtc_should_write(E + 3600, PROTO_TIME_SOURCE_NITZ, E,
+                                     PROTO_TIME_SOURCE_MANUAL));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_writes_when_source_improves);
@@ -116,5 +146,8 @@ int main(int, char **) {
   RUN_TEST(test_never_writes_epoch_zero);
   RUN_TEST(test_never_writes_out_of_window_epoch);
   RUN_TEST(test_unknown_source_never_writes);
+  RUN_TEST(test_ntp_corrects_a_manual_rtc_after_reboot);
+  RUN_TEST(test_ntp_over_manual_respects_drift_tolerance);
+  RUN_TEST(test_nitz_still_does_not_overwrite_manual);
   return UNITY_END();
 }

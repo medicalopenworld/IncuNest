@@ -2,7 +2,7 @@
 
 // Filtro de flancos del tacometro del ventilador, sin nada de hardware.
 //
-// Incidencia de campo, unidad 363 (2026-11-26, motherBoard 18.67.0): con el
+// Incidencia de campo, unidad 363 (2026-11-26, primera version de este arreglo): con el
 // calefactor conmutando (PWM a 400 Hz), fan_rpm saltaba entre 0 y 7041 mientras
 // el ventilador iba MAS LENTO que en reposo (Fan_current 0,04 A frente a 0,07).
 // La ISR aceptaba cualquier flanco en GPIO38 -que solo tiene el pull-up interno
