@@ -43,6 +43,27 @@ void test_default_constant_is_on(void) {
   TEST_ASSERT_EQUAL_UINT8(1, HUM_EN_DEFAULT);
 }
 
+// Build para equipos SIN hardware de humedad (-DHMI_HUMIDITY_FORCED_OFF=1):
+// el control queda deshabilitado en cada arranque, venga como venga la NVS.
+void test_forced_off_turns_off_a_unit_that_had_it_on(void) {
+  HumEnBoot r = hum_en_forced_off_on_boot(true, 1);
+  TEST_ASSERT_EQUAL_UINT8(0, r.value);
+  TEST_ASSERT_TRUE(r.write);
+}
+
+void test_forced_off_writes_when_key_missing(void) {
+  HumEnBoot r = hum_en_forced_off_on_boot(false, 0);
+  TEST_ASSERT_EQUAL_UINT8(0, r.value);
+  TEST_ASSERT_TRUE(r.write);
+}
+
+// Ya estaba a 0: no se reescribe la NVS en cada arranque.
+void test_forced_off_does_not_rewrite_when_already_off(void) {
+  HumEnBoot r = hum_en_forced_off_on_boot(true, 0);
+  TEST_ASSERT_EQUAL_UINT8(0, r.value);
+  TEST_ASSERT_FALSE(r.write);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_forces_on_existing_unit_with_it_off);
@@ -51,5 +72,8 @@ int main(int, char**) {
   RUN_TEST(test_keeps_on_after_forcing);
   RUN_TEST(test_default_is_on_when_key_missing);
   RUN_TEST(test_default_constant_is_on);
+  RUN_TEST(test_forced_off_turns_off_a_unit_that_had_it_on);
+  RUN_TEST(test_forced_off_writes_when_key_missing);
+  RUN_TEST(test_forced_off_does_not_rewrite_when_already_off);
   return UNITY_END();
 }

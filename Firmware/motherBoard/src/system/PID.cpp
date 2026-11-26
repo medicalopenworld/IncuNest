@@ -79,7 +79,9 @@ void PIDInit()
   skinControlPID.SetMode(MANUAL);
   humidityControlPID.SetMode(MANUAL);
   fanControlPID.SetMode(MANUAL);
-  fanControlPID.SetOutputLimits(0, PWM_MAX_VALUE);
+  // Suelo FAN_PID_MIN_DUTY (board.h): una medida de rpm corrupta no puede
+  // dejar el ventilador casi parado con el calefactor encendido.
+  fanControlPID.SetOutputLimits(FAN_PID_MIN_DUTY, PWM_MAX_VALUE);
   fanControlPID.SetSampleTime(PID_FAN_SAMPLE_TIME);
 }
 
@@ -203,6 +205,33 @@ void PIDHandler()
   if (g_factoryTestActive)
     return;
   heaterPowerConsumptionCheck();
+  {
+    // Reentrada suave del calefactor al levantarse un corte por alarma.
+    // La puerta de abajo multiplica la salida por 0/1, asi que al soltarse el
+    // calefactor pasaba de 0 a lo que pidiera el PID (a menudo el maximo) en un
+    // milisegundo. Ese escalon hunde la tension de alimentacion de golpe, el
+    // ventilador pierde vueltas y, en 18.52, volvia a disparar
+    // ALARM_FAN_FAILURE: corte, recuperacion, escalon, corte... Se reinicia la
+    // misma rampa por corriente con la que arranca startPID(), para que el
+    // hundimiento llegue poco a poco y el PID del ventilador lo siga.
+    static bool prevGateBlocked = false;
+    const bool gateBlocked = ongoingCriticalAlarm();
+    if (prevGateBlocked && !gateBlocked &&
+        (airControlPID.GetMode() == AUTOMATIC ||
+         skinControlPID.GetMode() == AUTOMATIC)) {
+      in3.heaterSafeMAXPWM = HEATER_START_PWM;
+      heaterRampSampleCounter = 0;
+      if (airControlPID.GetMode() == AUTOMATIC) {
+        airControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM);
+      }
+      if (skinControlPID.GetMode() == AUTOMATIC) {
+        skinControlPID.SetOutputLimits(0, in3.heaterSafeMAXPWM);
+      }
+      logI("[PID] -> Corte de calefactor levantado: vuelve en rampa desde " +
+           String(in3.heaterSafeMAXPWM));
+    }
+    prevGateBlocked = gateBlocked;
+  }
   {
     static bool prevHeaterGateBlocked = false;
     bool heaterGateBlocked = ongoingCriticalAlarm();

@@ -438,10 +438,12 @@ size_t debug_state_json_ex(char *out, size_t out_len, bool with_tasks) {
     (int)in3.phototherapy_intensity, debug_photo_active() ? 1 : 0);
 
   J(",\"fan\":{\"commanded\":%d,\"feedback\":%d,\"pid_en\":%d,\"pid_out\":%.0f"
-    ",\"ctl_pwm\":%d,\"supply_pwm\":%d}",
+    ",\"ctl_pwm\":%d,\"supply_pwm\":%d,\"tach_period_us\":%lu"
+    ",\"tach_glitches\":%lu}",
     in3.fanCommandedOn ? 1 : 0, in3.fanHasSpeedFeedback ? 1 : 0,
     in3.fanPidEnabled ? 1 : 0, fanControlPIDOutput, in3.fanCtlPWM,
-    in3.fanPwrSupplyPWM);
+    in3.fanPwrSupplyPWM, (unsigned long)in3.fanTachPeriodUs,
+    (unsigned long)in3.fanTachGlitches);
 
   J(",\"heater\":{\"pid_out\":%.0f,\"max_pwm\":%d,\"must_cut\":%d}",
     HeaterPIDOutput, in3.heaterSafeMAXPWM,
