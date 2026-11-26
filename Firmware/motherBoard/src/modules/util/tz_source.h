@@ -57,6 +57,18 @@ int8_t tz_source_quarters(void);
 TzSource tz_source_origin(void);
 bool tz_source_known(void);
 
+// Suelta un huso MANUAL (vuelve a "no se sabe"); NITZ e IP no se tocan. La
+// hora manual es hora LOCAL guardada con huso 0: ese 0 solo es verdad
+// mientras el epoch siga siendo el tecleado. system_clock lo llama cuando una
+// fuente de red (NITZ, NTP) fija el UTC de verdad; sin esto la pantalla se
+// quedaba en UTC para siempre, porque nada pisa a MANUAL.
+void tz_source_drop_manual(void);
+
+// TinyGSM entrega el huso de AT+CCLK? ya dividido por 4, en HORAS ("+08" ->
+// 2.0). Todo lo de aqui trabaja en CUARTOS. Redondea al cuarto mas cercano y
+// rechaza lo que se salga de [TZ_QUARTER_MIN, TZ_QUARTER_MAX] sin tocar *out.
+bool tz_quarters_from_modem_hours(float hours, int *outQuarterHours);
+
 // Extrae el offset de la respuesta de ip-api.com, donde el campo "offset"
 // llega en SEGUNDOS, y lo convierte a cuartos de hora.
 //
