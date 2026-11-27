@@ -145,6 +145,11 @@ def back_cover(meta, out, today=None):
         label = "Video tutorials"
         d.text((qx + (side - d.textlength(label, font=f)) / 2, qy + side + mm(3)),
                label, font=f, fill=WHITE)
+        # The address in words too, for readers without a camera.
+        url = meta["tutorials_url"].split("://", 1)[-1].removeprefix("www.").rstrip("/")
+        f = font("regular", 10)
+        d.text((qx + (side - d.textlength(url, font=f)) / 2, qy + side + mm(10)),
+               url, font=f, fill=WHITE)
 
     y = line(y + mm(16), "Document control", "bold", 18)
     for label, value in (("Document", meta["doc_ref"]), ("Revision", meta["revision"]),

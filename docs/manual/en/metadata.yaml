@@ -8,7 +8,7 @@ manual_subtitle: "Instructions for Use"
 header_text: "Low-cost neonatal incubator | User manual"
 
 hardware: "V19"
-cover_image: "incubator_3d_v6.png"   # PROVISIONAL: 3D render from the v6 manual (earlier prototype); replace with a V19 picture
+# cover_image: "<file in tools/assets>"   # optional picture beside the logo on the cover (not used: it looked crowded)
 firmware: "Display firmware 4.11 · Motherboard firmware 18.65"   # checked on the V19 bench, 2026-11-26; PENDING: release version (question 37)
 
 doc_ref: "IFU-INC-001"                            # PENDING: numbering scheme (decision 7)
