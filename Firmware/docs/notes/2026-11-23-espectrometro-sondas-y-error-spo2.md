@@ -9,6 +9,10 @@ Esta nota no cambia nada en el código. Es la **fuente** para actualizar la
 documentación de PulseNest y de la librería `incunest_afe4490`, que lleva la
 sesión de desarrollo (apartado 8).
 
+**Corregida el 2026-11-27:** el efecto de la corriente del LED estaba
+exagerado y mal atribuido. Lo corrigen el apartado 4.1 nuevo, las filas 5 de
+los apartados 5 y 6, y cinco filas del apartado 8.
+
 ## 1. Resumen
 
 - Con el AFE (pulsado, ~50 mA), el rojo de las 10 sondas tiene un **centro
@@ -16,7 +20,10 @@ sesión de desarrollo (apartado 8).
   sondas es de **0,83 nm**, con 2,2 nm entre la más corta y la más larga.
 - La librería dice que nuestro rojo es de 668 nm. Ese número es un pico
   medido con 50 mA **continuos**; con el AFE el rojo queda **unos 3 nm más
-  bajo**.
+  bajo**. La corriente es la misma: la diferencia es calor, porque el AFE
+  solo enciende el LED una cuarta parte del tiempo.
+- Hoy la corriente del LED no cambia nunca (49,8 mA). Bajarla a la mitad
+  movería la SpO2 como mucho de 0,3 a 0,6 puntos al 97 % (apartado 4.1).
 - **PPG-001, la sonda con la que se ajustó la curva, es de las más cortas**:
   la media del lote queda 0,9 nm por encima.
 - Dentro de este lote, el rojo aporta **0,1 a 0,3 puntos de SpO2** (una
@@ -136,10 +143,45 @@ Error en puntos de SpO2:
   (al 85 %, +1,58 frente a −1,72 en la cota alta), porque la absorción de la
   desoxihemoglobina se curva hacia arriba en las longitudes de onda cortas.
 - **Temperatura:** unos 0,1 a 0,15 nm/°C, es decir, 0,03 a 0,05 puntos/°C.
-- **Corriente del LED:** unos +8 nm por década (de Kock 1991). Los 3 nm entre
-  50 mA continuos y el AFE pulsado son este efecto. La curva solo vale para la
-  corriente y el ciclo de trabajo con que se ajustó; la librería fija el rojo
-  en 49,8 mA sin ajuste automático.
+
+### 4.1. Corriente del LED
+
+De Kock (1991) midió que el pico del LED rojo sube **unos 8 nm cuando su
+intensidad se multiplica por 10** (una "década"). Es una **cota alta**: eran
+LED de 1991 y el resumen no dice si los excitaba en continua o en pulsos. El
+desplazamiento va con el logaritmo de la corriente, no con la corriente:
+bajar de 50 a 25 mA son 0,3 décadas, 2,4 nm como mucho.
+
+**Casi todo ese desplazamiento es calor, no corriente.** Con la misma
+corriente de 50 mA, el rojo sale de 3 a 5 nm más largo en continua que con el
+AFE (apartados 3.1 y 3.2), porque el AFE solo enciende el LED una cuarta parte
+del tiempo. Con el AFE, por tanto, bajar la corriente moverá el rojo menos que
+en continua. Para pasar de 50 a 25 mA estimo de 0,5 a 2 nm, sin medir: depende
+de cuánto se calienta el chip dentro de cada pulso.
+
+**Bajar la corriente acorta el rojo, y la SpO2 lee de menos.** Error en puntos
+de SpO2 con la cota alta de 8 nm por década (Beer-Lambert, las dos cotas del
+apartado 4):
+
+| Bajar de 50 mA a | Rojo, como mucho | Error al 97 % | Error al 90 % | Error al 85 % |
+|---|---|---|---|---|
+| 25 mA (÷2) | −2,4 nm | −0,3 a −0,6 | −0,5 a −1,0 | −0,6 a −1,2 |
+| 12,5 mA (÷4) | −4,8 nm | −0,8 a −1,6 | −1,1 a −2,2 | −1,3 a −2,6 |
+| 5 mA (÷10) | −8 nm | −1,5 a −2,9 | −2,0 a −3,9 | −2,3 a −4,6 |
+
+Con el AFE, la estimación para 25 mA es menor: de −0,1 a −0,5 puntos al 97 % y
+de −0,1 a −1,0 al 85 %.
+
+- **Hoy el efecto es cero.** Nada cambia la corriente: IncuNest deja los
+  49,8 mA por defecto de la librería, y el HGAC, que IncuNest activa, solo
+  cambia la ganancia del receptor (RF), no la corriente.
+- **Si algún día se baja:** a la mitad cuesta poco. Dividirla por 4 o más se
+  come buena parte del margen de 3,0 puntos por debajo del 90 %; habría que
+  medir el desplazamiento y corregir la curva para esa corriente.
+- **Cómo medirlo** (pendiente): PPG-001 en el soporte de siempre, infrarrojo
+  apagado (`$SET led1=0` en PulseNest), rojo a 50, 25, 12,5 y 6 mA
+  (`$SET led2=…`), un minuto en cada paso, espectrómetro a 12 µs (a 50 µs si
+  a 6 mA sale ruidoso). Se compara el centro de cada paso.
 
 ## 5. Factores de la sonda que mueven la SpO2
 
@@ -152,7 +194,7 @@ factor; el presupuesto del apartado 6 es el de nuestro sistema.
 | 2 | Geometría óptica y sitio de medida (modelo de sonda) | 2 a 3 puntos entre sitios | Literatura |
 | 3 | Colocación: desalineación, luz que no cruza el tejido | Tira hacia el 85 % (R = 1); de 0 a más de 5 puntos | Barker 1993 |
 | 4 | Forma del espectro rojo: anchura, colas, emisión secundaria | La cola por debajo de 640 nm mueve hasta 5 nm la longitud de onda equivalente | Cálculo, medidas y preprint de 2026 |
-| 5 | Excitación del monitor (corriente, ciclo de trabajo) | Unos 8 nm por década de corriente | de Kock 1991 y medidas |
+| 5 | Excitación del monitor (corriente, ciclo de trabajo) | Hasta 8 nm por cada ×10 de corriente (cota alta); a igual corriente, de 3 a 5 nm entre continua y pulsado, por calor (apartado 4.1) | de Kock 1991 y medidas |
 | 6 | Envejecimiento y averías | 258 de 847 sondas en uso, inexactas o con fallo eléctrico | Milner y Mathews 2012 |
 | 7 | Presión de contacto y ajuste | Hasta unos 5 puntos a la baja (frente, adultos) | Literatura |
 | 8 | Luz ambiente y apantallamiento | 0,3 puntos por 1 % de error diferencial en el nivel continuo | Cálculo |
@@ -210,7 +252,7 @@ Suposiciones:
 | | **Total en el sitio calibrado** | **1,6 a 2,1** | **1,6 a 2,1** |
 | | **B. Sesgos fuera de la condición calibrada** | | |
 | 2 | Otro sitio de medida | 1 por el tejido; 2,7 observado en dedo de adulto | 1 a 2 |
-| 5 | Otra corriente de LED | 0 hoy; 0,3 a 1,1 si se baja a 25 mA | Menos de 0,3 |
+| 5 | Otra corriente de LED | 0 hoy; a 25 mA, como mucho de 0,3 a 1,0 a la baja (apartado 4.1) | Menos de 0,3 |
 | — | Otro lote de sondas | Sin medir; hasta 0,5 al 97 % y 1 al 85 % con ±2 nm | Controlado por clasificación |
 | | **Total con el sesgo del factor 2** | **1,9 a 2,3** (con 1 punto); **3,1 a 3,4** (con 2,7) | **1,9 a 2,9** |
 | | **C. Fallos ocasionales, fuera del total** | | |
@@ -256,8 +298,12 @@ Lo lleva la sesión de desarrollo; esta nota es la fuente.
 | Lista de factores con cifras de la literatura | Ya recogido, más completo | `PulseNest/docs/r_curve_calibration_survey.md` §5 |
 | Sensibilidad a la longitud de onda (cota baja) | Ya recogido | Mismo documento, §6 |
 | Desfase pie-dedo y sus candidatos | Ya recogido | Rationale de la librería, §18 |
-| Corriente del LED fija | Ya recogido | Spec de la librería, cerca de la línea 1274 |
-| Medidas del espectrómetro (apartado 3) | **Falta** | Survey §6 y spec de la librería |
+| La spec dice que el HGAC "mueve el rojo con la corriente del LED" y que la curva mezcla corrientes | **Corregir**: el HGAC solo mueve RF (§5.8) y la corriente es fija, 49,8 mA | Spec de la librería, línea 1274 |
+| Con el AFE, el efecto de la corriente es sobre todo calor y menor que en continua (apartado 4.1) | **Falta** | Survey §5.1, fila de la corriente del LED |
+| Que las sesiones de la curva `R-CURVE-STS0163-HOSPNAV-20261004` usaron 49,8 mA | **Comprobar** en la cabecera de las capturas, que anota la corriente | PulseNest, sesiones HOSPNAV del 2026-09-23 |
+| Medidas del espectrómetro (apartado 3) | **Falta** | Survey §6, spec de la librería y rationale §4.2 |
+| El rationale dice que la R no cambia al mover ILED por color: vale para la amplitud, no para la longitud de onda | **Matizar** (apartado 4.1) | Rationale de la librería §2.1 |
+| Si la fase 4 del HGAC llega a mover ILED, tiene que limitar el rango o corregir la curva según la corriente | **Falta** (apartado 4.1) | Rationale de la librería §2.9 |
 | "Nuestro rojo es 668 nm": con el AFE es 664,9 de pico y 663,1 de centro | **Corregir** | Survey línea 278 y spec de la librería línea 1272 |
 | Presupuesto de error con totales (apartado 6) | **Falta** | Rationale de la librería, sección nueva |
 | Milner 2012 y precisión de Nellcor por modelo de sonda | **Falta** | Survey §5.1 |
