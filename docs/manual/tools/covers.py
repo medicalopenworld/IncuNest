@@ -61,9 +61,23 @@ def cover(meta, out, today=None):
     centred(d, mm(78), meta["manual_subtitle"], font("semibold", 24), WHITE)
 
     centred(d, band + mm(14), meta["product"], font("bold", 24), BLUE)
-    lw, lh = paste_logo(page, "incunest.png", mm(95), mm(80), W // 2, band + mm(30), centre=True)
+    top = band + mm(30)
+    if meta.get("cover_image"):
+        # Picture of the incubator on the left, IncuNest logo on the right.
+        img = Image.open(ASSETS / meta["cover_image"]).convert("RGB")
+        img.thumbnail((mm(88), mm(72)), Image.LANCZOS)
+        logo = Image.open(ASSETS / "incunest.png").convert("RGB")
+        logo.thumbnail((mm(70), mm(60)), Image.LANCZOS)
+        gap = mm(8)
+        x = (W - img.width - gap - logo.width) // 2
+        row = max(img.height, logo.height)
+        page.paste(img, (x, top + (row - img.height) // 2))
+        page.paste(logo, (x + img.width + gap, top + (row - logo.height) // 2))
+        lh = row
+    else:
+        lw, lh = paste_logo(page, "incunest.png", mm(95), mm(80), W // 2, top, centre=True)
 
-    y = band + mm(30) + lh + mm(12)
+    y = top + lh + mm(12)
     centred(d, y, f"Hardware {meta['hardware']}", font("semibold", 16), BLUE)
     centred(d, y + mm(10), meta["firmware"], font("regular", 12), GREY)
     centred(d, y + mm(17), f"Ref: {meta['doc_ref']} · Rev. {meta['revision']} · {today}",
@@ -79,6 +93,26 @@ def cover(meta, out, today=None):
 
     page.save(out, dpi=(DPI, DPI))
     return out
+
+
+def paste_qr(page, url, x, y, size, dark=BLUE):
+    """Draw a QR code for `url` as a white square of about `size` pixels.
+
+    Drawn module by module (segno only gives the matrix), so it stays sharp at
+    the page resolution. Error correction M, with a 2-module quiet zone.
+    """
+    import segno
+    rows = list(segno.make(url, error="m", micro=False).matrix_iter(scale=1, border=2))
+    cell = size // len(rows)
+    side = cell * len(rows)
+    d = ImageDraw.Draw(page)
+    d.rectangle([x, y, x + side - 1, y + side - 1], fill=WHITE)
+    for r, row in enumerate(rows):
+        for c, on in enumerate(row):
+            if on:
+                d.rectangle([x + c * cell, y + r * cell,
+                             x + (c + 1) * cell - 1, y + (r + 1) * cell - 1], fill=dark)
+    return side
 
 
 def back_cover(meta, out, today=None):
@@ -100,6 +134,17 @@ def back_cover(meta, out, today=None):
     y = line(y + mm(4), meta["manufacturer"]["email"])
     y = line(y, meta["manufacturer"]["website"])
     y = line(y + mm(4), f"Assembled by {meta['assembled_by']}")
+
+    # Video tutorials QR, top right, as on the v6 back cover but pointing
+    # straight at the MOW page instead of through a QR-redirect service.
+    if meta.get("tutorials_url"):
+        size = mm(42)
+        qx, qy = W - mm(28) - size, mm(40)
+        side = paste_qr(page, meta["tutorials_url"], qx, qy, size)
+        f = font("bold", 13)
+        label = "Video tutorials"
+        d.text((qx + (side - d.textlength(label, font=f)) / 2, qy + side + mm(3)),
+               label, font=f, fill=WHITE)
 
     y = line(y + mm(16), "Document control", "bold", 18)
     for label, value in (("Document", meta["doc_ref"]), ("Revision", meta["revision"]),

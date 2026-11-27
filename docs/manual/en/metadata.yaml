@@ -8,6 +8,7 @@ manual_subtitle: "Instructions for Use"
 header_text: "Low-cost neonatal incubator | User manual"
 
 hardware: "V19"
+cover_image: "incubator_3d_v6.png"   # PROVISIONAL: 3D render from the v6 manual (earlier prototype); replace with a V19 picture
 firmware: "Display firmware 4.11 · Motherboard firmware 18.65"   # checked on the V19 bench, 2026-11-26; PENDING: release version (question 37)
 
 doc_ref: "IFU-INC-001"                            # PENDING: numbering scheme (decision 7)
@@ -21,6 +22,7 @@ manufacturer:
     - "31002 Pamplona, Navarra (Spain)"           # PENDING: postal code (v6 had 31001 and 31002)
   email: "support@medicalopenworld.org"           # PENDING: support@ or contact@
   website: "medicalopenworld.org"
+tutorials_url: "https://www.medicalopenworld.org/tutoriales/"   # QR on the back cover; PENDING: keep the videos? (question 17)
 assembled_by: "Salesianos Pamplona"
 
 copyright: "© {year} Medical Open World Association. All rights reserved."
