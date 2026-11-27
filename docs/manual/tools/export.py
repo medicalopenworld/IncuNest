@@ -21,7 +21,7 @@ Usage:
     python export.py --no-pdf
 
 Requires pandoc (winget install JohnMacFarlane.Pandoc), python-docx, PyYAML,
-Pillow and, for the PDF, LibreOffice.
+Pillow, segno (QR on the back cover) and, for the PDF, LibreOffice.
 """
 
 import argparse
